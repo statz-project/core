@@ -1,0 +1,193 @@
+// @ts-check
+import { formatNumberLocale } from './_env.js';
+import factors from './factors.js';
+import contingency from './contingency.js';
+import numeric from './numeric.js';
+
+/**
+ * @typedef {Object} Column
+ * @property {string} col_hash
+ * @property {string} col_label
+ * @property {'q'|'n'|'l'} col_type
+ * @property {string=} col_sep
+ * @property {any[]=} raw_values
+ * @property {{labels?: string[]}=} col_values
+ */
+
+/**
+ * @typedef {{columns: string[], rows: Array<Record<string,string>>, [k:string]: any}} TableLike
+ */
+
+/**
+ * @typedef {{analysis: Array<{ predictor: string, response?: string|null, predictor_type: string, response_type?: string|null, table: TableLike }>, test_legend: Array<{method:string,symbol:string}>}} CombinedAnalysis
+ */
+
+/** @type {Record<string, any>} */
+const ns = {};
+
+/**
+ * Build row-wise objects from column-major raw_values.
+ * @param {Column[]} columns
+ * @returns {Array<Record<string, any>>}
+ */
+ns.getRowwiseData = function (columns) {
+  if (!Array.isArray(columns)) return [];
+  const n = Math.max(...columns.map(c => c.raw_values?.length || 0));
+  const rows = [];
+  for (let i = 0; i < n; i++) { const row = {}; columns.forEach(col => { row[col.col_hash] = col.raw_values?.[i] ?? null; }); rows.push(row); }
+  return rows;
+};
+
+/**
+ * Convert named-row objects into a 2D matrix following provided column order.
+ * @param {string[]} columns
+ * @param {Array<Record<string, any>>} rows
+ * @returns {any[][]}
+ */
+ns.tabularRowsToMatrix = function (columns, rows) { return rows.map(row => columns.map(col => row[col])); };
+
+/**
+ * Frequency table for qualitative values.
+ * @param {Array<string|null|undefined>} values
+ * @param {(ctx:{count:number,percent:number,total:number})=>string=} formatFn
+ * @param {{missing_label?:string, include_missing?:boolean, lang?:string}=} options
+ * @param {{labels?: string[]|null}=} param3
+ * @returns {TableLike}
+ */
+ns.summarize_q = function (values, formatFn = null, options = {}, { labels = null } = {}) {
+  const freqMap = {}; let missingCount = 0; const total = values.length;
+  const missingLabel = options?.missing_label ?? 'Não informado'; const includeMissing = options?.include_missing ?? true; const lang = options?.lang ?? 'pt_br';
+  values.forEach(val => { const v = val?.toString().trim(); if (!v) { missingCount++; return; } freqMap[v] = (freqMap[v] || 0) + 1; });
+  const sortedLabels = labels ?? Object.keys(freqMap).sort();
+  const rows = sortedLabels.map(label => { const count = freqMap[label] || 0; const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { Variável: label, Descrição: cell }; });
+  if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ Variável: missingLabel, Descrição: cell }); }
+  return { columns: ['Variável', 'Descrição'], rows, summary: { total, total_is_full: true } };
+};
+
+/**
+ * Frequency table for list-like qualitative values (e.g., "A;B").
+ * @param {string[]} values
+ * @param {string=} sep
+ * @param {(ctx:{count:number,percent:number,total:number})=>string=} formatFn
+ * @param {{missing_label?:string, include_missing?:boolean, lang?:string}=} options
+ * @returns {TableLike}
+ */
+ns.summarize_l = function (values, sep = ';', formatFn = null, options = {}) {
+  if (!Array.isArray(values)) return { columns: [], rows: [], summary: { total: 0, total_is_full: true } };
+  const counts = {}; let missingCount = 0; const total = values.length;
+  const missingLabel = options?.missing_label ?? 'Não informado'; const includeMissing = options?.include_missing ?? true; const lang = options?.lang ?? 'pt_br';
+  values.forEach(v => { if (!v?.trim()) { missingCount++; return; } const items = v.split(sep).map(s => s.trim()).filter(Boolean); if (items.length === 0) { missingCount++; return; } items.forEach(item => { counts[item] = (counts[item] || 0) + 1; }); });
+  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([level, count]) => { const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { Variável: level, Descrição: cell }; });
+  if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ Variável: missingLabel, Descrição: cell }); }
+  return { columns: ['Variável', 'Descrição'], rows, summary: { total, total_is_full: true } };
+};
+
+/**
+ * Map statistical methods to superscript symbols (numeric or alpha).
+ * @param {string[]} methods
+ * @param {{symbol_style?: 'numeric'|'alpha'}=} options
+ * @returns {Record<string,string>}
+ */
+ns.generateTestSymbolMap = function (methods, options) {
+  const style = options?.symbol_style ?? 'numeric'; const uniqueMethods = [...new Set(methods)];
+  const numericSym = ['¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹', '¹⁰']; const alpha = ['ᵃ', 'ᵇ', 'ᶜ', 'ᵈ', 'ᵉ', 'ᶠ', 'ᵍ', 'ʰ', 'ᶦ', 'ʲ'];
+  const base = (style === 'alpha' ? alpha : numericSym); const map = {}; uniqueMethods.forEach((method, i) => { map[method] = base[i] || `(${i + 1})`; }); return map;
+};
+
+/**
+ * Summarize each predictor optionally against a qualitative response.
+ * @param {Column[]} columns
+ * @param {Array<{col_hash:string,col_label:string}>} predictors
+ * @param {Array<{col_hash:string,col_label:string}>} responses
+ * @param {Array<Record<string, any>>} data
+ * @param {Record<string,any>} options
+ * @param {Set<string>} flagsUsed
+ * @param {Record<string,Function>=} formatFns
+ * @returns {Array<{ predictor: string, response?: string|null, predictor_type: string, response_type?: string|null, table: TableLike }>}
+ */
+ns.summarizePredictors = function (columns, predictors, responses, data, options, flagsUsed, formatFns = {}) {
+  const response = responses.length > 0 ? responses[0] : null;
+  const responseCol = response ? columns.find(c => c.col_hash === response.col_hash) : null;
+  const responseType = responseCol?.col_type || null; const responseVals = responseCol?.raw_values || null;
+  return predictors.map(pred => {
+    const predictorCol = columns.find(c => c.col_hash === pred.col_hash); if (!predictorCol) return null;
+    const predictorVals = predictorCol.raw_values; const predictorType = predictorCol.col_type; const predictorSep = predictorCol.col_sep || ';'; const formatFn = formatFns[pred.col_label] || null;
+    let table;
+    if (!response) {
+      if (predictorType === 'q') { table = ns.summarize_q(predictorVals, formatFn, options, { labels: predictorCol.col_values?.labels ?? null }); flagsUsed.add('has_q'); }
+      else if (predictorType === 'l') { table = ns.summarize_l(predictorVals, predictorSep, formatFn, options); flagsUsed.add('has_l'); }
+      else if (predictorType === 'n') { table = numeric.summarize_n(predictorVals, formatFn, options); flagsUsed.add('has_n'); }
+    } else {
+      if (predictorType === 'q' && responseType === 'q') {
+        const labelOptions = { rowLabels: predictorCol.col_values?.labels ?? null, colLabels: responseCol.col_values?.labels ?? null };
+        table = contingency.summarize_q_q(predictorVals, responseVals, formatFn, options, labelOptions); flagsUsed.add('has_qq');
+      } else if (predictorType === 'n' && responseType === 'q') {
+        table = numeric.summarize_n_q(predictorVals, responseVals, formatFn, flagsUsed, options); flagsUsed.add('has_nq');
+      } else if (predictorType === 'l' && responseType === 'q') {
+        const binCols = numeric.decomposeListAsBinaryCols(predictorVals, predictorSep, options);
+        const summaries = Object.entries(binCols).flatMap(([label, binVals]) => {
+          try { const table = contingency.summarize_q_q(binVals, responseVals, formatFn, options); return [{ predictor: `${pred.col_label.replace(/[\s\p{P}]+$/u, '')}: ${label}`, response: response?.col_label || null, predictor_type: 'q', response_type: responseType, table }]; }
+          catch (e) { console.warn(`Erro ao resumir "${label}" em "${pred.col_label}":`, e.message); return []; }
+        });
+        flagsUsed.add('has_lq');
+        return summaries;
+      }
+    }
+    if (table?.used_resid_greater || table?.used_resid_lower) flagsUsed.add('has_residuals');
+    return { predictor: pred.col_label, response: response?.col_label || null, predictor_type: predictorType, response_type: responseType, table };
+  }).filter(Boolean).flat();
+};
+
+/**
+ * End-to-end analysis from Bubble element inputs to combined analysis object.
+ * @param {string[]} elementPredictors JSON strings
+ * @param {string[]} elementResponses JSON strings
+ * @param {Record<string,{columns:Column[]}>} dbs databases by id
+ * @param {Record<string,any>} options
+ * @returns {{ result: CombinedAnalysis, flags: string[] }}
+ */
+ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
+  const predictors = elementPredictors.map(JSON.parse); const responses = elementResponses.map(JSON.parse); const flagsUsed = new Set();
+  const columns = predictors.concat(responses).map(col => {
+    const db = dbs[col.database_id]; const baseCol = db.columns.find(c => c.col_hash === col.col_hash); const variant = col.col_var_index !== null ? baseCol.col_vars[col.col_var_index] : baseCol;
+    return { ...variant, col_hash: baseCol.col_hash, col_label: col.col_label || baseCol.col_label, col_type: baseCol.col_type, col_sep: baseCol.col_sep || ';', raw_values: factors.decodeColValues(variant.col_values, baseCol.col_type, baseCol.col_sep || ';') };
+  });
+  const rowwise = ns.getRowwiseData(columns);
+  const result = ns.summarizePredictors(columns, predictors, responses, rowwise, options, flagsUsed);
+  const allMethods = result.map(r => r.table?.test_used).filter(Boolean);
+  const symbolMap = ns.generateTestSymbolMap(allMethods, options);
+  result.forEach(r => { if (r.table?.test_used) { const method = r.table.test_used; r.table.test_symbol = symbolMap[method]; } });
+  const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+  return { result: { analysis: result, test_legend }, flags: Array.from(flagsUsed) };
+};
+
+/**
+ * Reorder a JSON-string list by swapping an item with its neighbor and renumbering "order".
+ * @param {string[]} list JSON strings with an "order" field
+ * @param {number|string} index 0-based index of the item to move
+ * @param {'backward'|'forward'} direction Move direction
+ * @returns {string[]} Updated list
+ */
+ns.reorderVariableList = function (list, index, direction) {
+  const copy = list.slice();
+  const idx = parseInt(index, 10);
+  const dir = direction;
+  if (!Array.isArray(copy) || Number.isNaN(idx) || idx < 0 || idx >= copy.length) return list;
+  const targetIndex = dir === 'forward' ? idx + 1 : idx - 1;
+  if (targetIndex < 0 || targetIndex >= copy.length) return list;
+  const tmp = copy[idx];
+  copy[idx] = copy[targetIndex];
+  copy[targetIndex] = tmp;
+  const updated = copy.map((item, i) => {
+    try {
+      const obj = JSON.parse(item);
+      obj.order = i + 1;
+      return JSON.stringify(obj);
+    } catch (e) {
+      return item;
+    }
+  });
+  return updated;
+};
+
+export default { ...ns, ...factors, ...contingency, ...numeric };
