@@ -50,7 +50,10 @@ console.log(result);
 - Propose new statistical functions via Pull Requests.
 - Join feature discussions in the forum (link coming soon).
 
-Looking to contribute? Check Issues labeled “good first issue”.
+Looking to contribute? Check Issues labeled “good first issue”. See the full guide:
+
+- CONTRIBUTING: see `CONTRIBUTING.md` in this repository or visit:
+  https://github.com/statz-project/core/blob/main/CONTRIBUTING.md
 
 ---
 
@@ -78,3 +81,12 @@ This repository is licensed under AGPL v3. This means:
 - Contact: [virgolinorr@gmail.com/LinkedIn]
 
 ---
+
+## Build (for contributors)
+
+- Install deps: `npm ci`
+- Build bundle: `npm run build`
+- Watch mode: `npm run watch`
+- Build script location: `scripts/build.mjs`
+
+After building, paste `bubble-html/statz-bundle.html` into a single HTML element in Bubble (free-plan compatible). The global namespace is `window.Statz` (and `window.Utils` as an alias).

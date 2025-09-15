@@ -121,4 +121,109 @@ ns.decomposeListAsBinaryCols = function (values, sep = ';', options = {}) {
   return result;
 };
 
+/**
+ * Compare numeric predictor across qualitative groups (t-test/Kruskal–Wallis).
+ * Builds descriptive rows via getNumericalSummaryByGroup and appends test info.
+ */
+ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flagsUsed = null, options = {}) {
+  const groupMap = {};
+  predictorVals.forEach((pred, i) => {
+    const group = responseVals[i]?.toString().trim();
+    const val = parseFloat(pred);
+    if (!group || isNaN(val)) return;
+    if (!groupMap[group]) groupMap[group] = [];
+    groupMap[group].push(val);
+  });
+
+  const groupNames = Object.keys(groupMap);
+  const nGroups = groupNames.length;
+  const alpha = options?.alpha ?? 0.05;
+  const adjustKruskal = options?.adjust_kruskal ?? 'bonferroni';
+
+  // 1) Descriptives by group
+  const summaryRows = ns.getNumericalSummaryByGroup(groupMap, options, formatFn);
+
+  // 2) Stats lib (stdlib-js)
+  const stats = getStatsLib();
+  if (!stats) {
+    // Fill empty p-valor column and return with error method
+    summaryRows.forEach(r => r['p-valor'] = '');
+    return {
+      columns: ['Grupo', ...groupNames, 'p-valor'],
+      rows: summaryRows,
+      test_used: 'Erro: stdlib não carregado',
+      p_value: null
+    };
+  }
+
+  // 3) Normality via K-S on z-scores
+  const jStat = getJStat();
+  const zScores = (data) => {
+    const mean = jStat.mean(data);
+    const sd = jStat.stdev(data, true);
+    return sd > 0 ? data.map(x => (x - mean) / sd) : data.map(() => 0);
+  };
+  let allNormal = true;
+  try {
+    for (const group of groupNames) {
+      const vals = groupMap[group];
+      if (vals.length >= 3) {
+        const z = zScores(vals);
+        const result = stats.kstest(z, 'normal', 0, 1);
+        if (result.pValue < 0.05) { allNormal = false; break; }
+      } else { allNormal = false; break; }
+    }
+  } catch { allNormal = false; }
+
+  // 4) Homoscedasticity (Bartlett)
+  let homo = false;
+  try {
+    const groupArrays = groupNames.map(name => groupMap[name]);
+    const bart = stats.bartlettTest(...groupArrays);
+    homo = bart.pValue >= 0.05;
+  } catch { homo = false; }
+
+  // 5) Statistical test
+  let p_value = null;
+  let method = null;
+  let posthoc = null;
+  try {
+    if (nGroups === 2) {
+      const [g1, g2] = groupNames.map(name => groupMap[name]);
+      if (allNormal) {
+        const result = stats.ttest2(g1, g2, { variance: homo ? 'equal' : 'unequal' });
+        p_value = result.pValue;
+        method = 't de Student';
+      } else {
+        const result = ns.computeMannWhitney(g1, g2);
+        p_value = result.pValue;
+        method = result.method;
+      }
+    } else if (nGroups > 2) {
+      const groups = groupNames.map(name => groupMap[name]);
+      // Note: ANOVA path is currently disabled; prefer Kruskal–Wallis in this flow
+      const result = stats.kruskalTest(...groups);
+      p_value = result.pValue;
+      method = 'Kruskal-Wallis';
+      if (getJStat().utils.isNumber(p_value) && p_value < alpha) {
+        posthoc = ns.runDunnTest(groupMap, alpha, adjustKruskal).filter(v => v.significant);
+        flagsUsed?.add?.('has_dunn');
+      }
+    }
+  } catch {
+    p_value = null;
+    method = 'Erro no cálculo';
+  }
+
+  // 6) Output rows: ensure p-valor column present but empty per row
+  summaryRows.forEach(r => r['p-valor'] = '');
+  return {
+    columns: ['Grupo', ...groupNames, 'p-valor'],
+    rows: summaryRows,
+    test_used: method,
+    p_value: +(p_value?.toFixed?.(4) ?? null),
+    posthoc
+  };
+};
+
 export default ns;
