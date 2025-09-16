@@ -11,12 +11,15 @@ export function getJStat() {
 
 export function getSS() {
   const g = typeof globalThis !== 'undefined' ? globalThis : {};
-  return g.ss || g.simpleStatistics || getNS().stdlibStats || null;
+  const ns = getNS();
+  return ns.simpleStatistics || g.ss || g.simpleStatistics || ns.stdlibStats || null;
 }
 
 export function getStatsLib() {
-  return getNS().stdlibStats || null;
+  const g = typeof globalThis !== 'undefined' ? globalThis : {};
+  const ns = getNS();
+  // Prefer stdlib; fall back to simple-statistics if necessary
+  return ns.stdlibStats || ns.simpleStatistics || g.ss || g.simpleStatistics || null;
 }
 
 export { formatNumberLocale, formatPValue, trimPunctuation };
-

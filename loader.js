@@ -35,8 +35,8 @@ export function health() {
   const ns = (typeof window !== 'undefined' ? (window.Statz || window.Utils) : undefined) || {};
   return {
     jStat: !!ns.jStat,
-    simpleStatistics: !!(typeof window !== 'undefined' && (window.ss || window.simpleStatistics) || ns.stdlibStats),
-    stdlib: !!ns.stdlibStats
+    simpleStatistics: !!(ns.simpleStatistics || (typeof window !== 'undefined' && (window.ss || window.simpleStatistics))),
+    stdlib: !!(ns.stdlibStats && typeof ns.stdlibStats.chi2test === 'function')
   };
 }
 
@@ -73,7 +73,8 @@ export async function loadDeps(nsArg) {
   }
   if (typeof window !== 'undefined') {
     ns.jStat = window.jStat || null;
-    ns.stdlibStats = window.ss || window.simpleStatistics || ns.stdlibStats || null;
+    // Keep simple-statistics separate to avoid overwriting stdlib
+    ns.simpleStatistics = window.ss || window.simpleStatistics || ns.simpleStatistics || null;
   }
 }
 
