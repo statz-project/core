@@ -1,7 +1,7 @@
 {
   "name": "statz-core",
   "private": true,
-  "type": "module", 
+  "type": "module",
   "version": "0.1.0",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -9,6 +9,21 @@
   },
   "devDependencies": {
     "esbuild": "^0.25.9"
+  },
+  "peerDependencies": {
+    "jstat": ">=1.9.6",
+    "simple-statistics": ">=7.8.3",
+    "@stdlib/stats": ">=0.3.3"
+  },
+  "peerDependenciesMeta": {
+    "jstat": {
+      "optional": true
+    },
+    "simple-statistics": {
+      "optional": true
+    },
+    "@stdlib/stats": {
+      "optional": true
+    }
   }
 }
-
