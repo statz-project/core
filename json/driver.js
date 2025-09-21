@@ -62,7 +62,7 @@ ns.summarize_q = function (values, formatFn = null, options = {}, { labels = nul
   const sortedLabels = labels ?? Object.keys(freqMap).sort();
   const rows = sortedLabels.map(label => { const count = freqMap[label] || 0; const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { Variável: label, Descrição: cell }; });
   if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ Variável: missingLabel, Descrição: cell }); }
-  return { columns: ['VariÃ¡vel', 'DescriÃ§Ã£o'], rows, summary: { total, total_is_full: true } };
+  return { columns: ['Variável', 'Descrição'], rows, summary: { total, total_is_full: true } };
 };
 
 /**
@@ -76,7 +76,7 @@ ns.summarize_q = function (values, formatFn = null, options = {}, { labels = nul
 ns.summarize_l = function (values, sep = ';', formatFn = null, options = {}) {
   if (!Array.isArray(values)) return { columns: [], rows: [], summary: { total: 0, total_is_full: true } };
   const counts = {}; let missingCount = 0; const total = values.length;
-  const missingLabel = options?.missing_label ?? 'NÃ£o informado'; const includeMissing = options?.include_missing ?? true; const lang = options?.lang ?? 'pt_br';
+  const missingLabel = options?.missing_label ?? 'Não informado'; const includeMissing = options?.include_missing ?? true; const lang = options?.lang ?? 'pt_br';
   values.forEach(v => { if (!v?.trim()) { missingCount++; return; } const items = v.split(sep).map(s => s.trim()).filter(Boolean); if (items.length === 0) { missingCount++; return; } items.forEach(item => { counts[item] = (counts[item] || 0) + 1; }); });
   const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([level, count]) => { const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { Variável: level, Descrição: cell }; });
   if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ Variável: missingLabel, Descrição: cell }); }
