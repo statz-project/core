@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 import { trimPunctuation } from './_env.js';
 
 /**
@@ -145,8 +145,26 @@ ns.parseColumns = function (data, hashes, filename, currTime) {
   const columns = {};
   rows.forEach(row => { Object.entries(row).forEach(([key, value]) => { if (!columns[key]) columns[key] = []; columns[key].push(value); }); });
   const result = Object.entries(columns).map(([key, values], index) => {
-    const { col_type, col_sep } = ns.inferColType(values); const col_values = ns.processColValues(values, col_type, col_sep);
-    return { col_name: key, col_label: trimPunctuation(key).trim(), col_hash: hashes[index], col_index: index + 1, col_del: false, col_type, col_sep, col_values, col_vars: [] };
+    const { col_type, col_sep } = ns.inferColType(values);
+    const col_values = ns.processColValues(values, col_type, col_sep);
+    const baseVariant = {
+      var_label: 'Original',
+      col_type,
+      col_sep,
+      col_values: JSON.parse(JSON.stringify(col_values)),
+      meta: { kind: 'original' }
+    };
+    return {
+      col_name: key,
+      col_label: trimPunctuation(key).trim(),
+      col_hash: hashes[index],
+      col_index: index + 1,
+      col_del: false,
+      col_type,
+      col_sep,
+      col_values,
+      col_vars: [baseVariant]
+    };
   });
   return JSON.stringify({ columns: result, history: [{ file: filename, import_time: currTime }] });
 };
@@ -170,3 +188,4 @@ ns.mergeVariablesReplacingForDatabase = function (selectedVars, existingVars, da
 };
 
 export default ns;
+

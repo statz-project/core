@@ -3,6 +3,7 @@ import { formatNumberLocale } from './_env.js';
 import factors from './factors.js';
 import contingency from './contingency.js';
 import numeric from './numeric.js';
+import variants from './variants.js';
 
 /**
  * @typedef {Object} Column
@@ -149,9 +150,27 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
 ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const predictors = elementPredictors.map(JSON.parse); const responses = elementResponses.map(JSON.parse); const flagsUsed = new Set();
   const columns = predictors.concat(responses).map(col => {
-    const db = dbs[col.database_id]; const baseCol = db.columns.find(c => c.col_hash === col.col_hash); const variant = col.col_var_index !== null ? baseCol.col_vars[col.col_var_index] : baseCol;
-    return { ...variant, col_hash: baseCol.col_hash, col_label: col.col_label || baseCol.col_label, col_type: baseCol.col_type, col_sep: baseCol.col_sep || ';', raw_values: factors.decodeColValues(variant.col_values, baseCol.col_type, baseCol.col_sep || ';') };
-  });
+    const db = dbs[col.database_id];
+    if (!db) return null;
+    const baseCol = db.columns.find(c => c.col_hash === col.col_hash);
+    if (!baseCol) return null;
+    const hasVariantIndex = col.col_var_index !== null && col.col_var_index !== undefined;
+    const variant = hasVariantIndex && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[col.col_var_index] : null;
+    const effectiveColValues = variant?.col_values ?? baseCol.col_values;
+    const effectiveType = variant?.col_type ?? baseCol.col_type;
+    const effectiveSep = variant?.col_sep ?? baseCol.col_sep ?? ';';
+    const raw_values = factors.decodeColValues(effectiveColValues, effectiveType, effectiveSep);
+    return {
+      col_hash: baseCol.col_hash,
+      col_label: col.col_label || variant?.var_label || baseCol.col_label,
+      col_type: effectiveType,
+      col_sep: effectiveSep,
+      col_values: effectiveColValues,
+      raw_values,
+      col_var_index: hasVariantIndex ? col.col_var_index : null,
+      var_meta: variant?.meta ?? null
+    };
+  }).filter(Boolean);
   const rowwise = ns.getRowwiseData(columns);
   const result = ns.summarizePredictors(columns, predictors, responses, rowwise, options, flagsUsed);
   const allMethods = result.map(r => r.table?.test_used).filter(Boolean);
@@ -190,4 +209,9 @@ ns.reorderVariableList = function (list, index, direction) {
   return updated;
 };
 
-export default { ...ns, ...factors, ...contingency, ...numeric };
+export default { ...ns, ...factors, ...contingency, ...numeric, ...variants };
+
+
+
+
+

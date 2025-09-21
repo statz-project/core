@@ -5,7 +5,8 @@
   "version": "0.1.0",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "watch": "node scripts/build.mjs --watch"
+    "watch": "node scripts/build.mjs --watch",
+    "test": "node --test test"
   },
   "devDependencies": {
     "esbuild": "^0.25.9"
