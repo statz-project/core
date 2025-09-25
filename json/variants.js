@@ -1,8 +1,15 @@
 ﻿// @ts-check
 import factors from './factors.js';
+import { normalizeLanguage, translate } from '../i18n/index.js';
 
 const DEFAULT_LIST_SEP = ';';
 const MAX_WARNINGS = 10;
+
+const pushWarning = (meta, key, vars = {}) => {
+  meta.warnings.push(translate(key, meta.lang, vars));
+};
+
+const formatExtraSuffix = (meta, remaining) => (remaining > 0 ? translate('variants.warnings.moreSuffix', meta.lang, { count: remaining }) : '');
 
 const ns = {};
 
@@ -19,6 +26,7 @@ const ns = {};
  * @property {Array<[number, number]>} [breaks]
  * @property {string[]} [labels]
  * @property {string} [note]
+ * @property {string} lang
  */
 /**
  * @typedef {Object} ColumnVariant
@@ -91,7 +99,8 @@ const ns = {};
  * @property {string} [col_sep]
  * @property {boolean} [sortByFrequency]
  * @property {string} [note]
- */
+ * @property {string} [lang]
+*/
 /**
  * @typedef {Object} VariantTemplate
  * @property {string} id
@@ -203,7 +212,7 @@ const applySearchReplace = (values, replacements, ctx) => {
     if (log.length < MAX_WARNINGS && trimmed !== replacement) log.push(`${trimmed}->${replacement || '[empty]'}`);
     return replacement;
   });
-  if (log.length) meta.warnings.push(`Search & replace: ${log.join(', ')}`);
+  if (log.length) pushWarning(meta, 'variants.warnings.searchReplace', { details: log.join(', ') });
   return updated;
 };
 
@@ -321,13 +330,13 @@ const coerceToNumeric = (values, options, meta) => {
   });
   meta.actions.push({ type: 'coerce_numeric' });
   if (totalReplacements) {
-    const extra = totalReplacements > replacements.length ? ` (and ${totalReplacements - replacements.length} more)` : '';
-    meta.warnings.push(`Numeric coercion replacements: ${replacements.join(', ')}${extra}`);
+    const extra = totalReplacements > replacements.length ? formatExtraSuffix(meta, totalReplacements - replacements.length) : '';
+    pushWarning(meta, 'variants.warnings.numericCoercionReplacements', { details: replacements.join(', '), extra });
   }
   if (totalDropped) {
     const listed = dropped.join(', ');
-    const extra = totalDropped > dropped.length ? ` (and ${totalDropped - dropped.length} more)` : '';
-    meta.warnings.push(`Numeric coercion removed rows: ${listed}${extra}`);
+    const extra = totalDropped > dropped.length ? formatExtraSuffix(meta, totalDropped - dropped.length) : '';
+    pushWarning(meta, 'variants.warnings.numericCoercionRemovedRows', { details: listed, extra });
   }
   return coerced;
 };
@@ -378,8 +387,8 @@ const transformNumeric = (values, options, meta) => {
   meta.actions.push({ type: 'transform', fn });
   if (totalSkipped) {
     const listed = skipped.join(', ');
-    const extra = totalSkipped > skipped.length ? ` (and ${totalSkipped - skipped.length} more)` : '';
-    meta.warnings.push(`Transform '${fn}' skipped rows: ${listed}${extra}`);
+    const extra = totalSkipped > skipped.length ? formatExtraSuffix(meta, totalSkipped - skipped.length) : '';
+    pushWarning(meta, 'variants.warnings.transformSkipped', { fn, details: listed, extra });
   }
   return transformed;
 };
@@ -454,7 +463,7 @@ const cutNumeric = (values, options, meta) => {
   const numericValues = values.map((value) => Number.parseFloat(toStringSafe(value)));
   const observed = numericValues.filter((num) => Number.isFinite(num));
   if (!observed.length) {
-    meta.warnings.push('Cut: no numeric values to bin.');
+    pushWarning(meta, 'variants.warnings.cutNoNumeric');
     return { values: values.map(() => ''), breaks: [], labels: [] };
   }
   let breaks = Array.isArray(options?.breaks)
@@ -491,7 +500,7 @@ const cutNumeric = (values, options, meta) => {
     intervals.push({ lower, upper, label });
   }
   if (!intervals.length) {
-    meta.warnings.push('Cut: unable to build valid intervals.');
+    pushWarning(meta, 'variants.warnings.cutInvalidIntervals');
     return { values: values.map(() => ''), breaks, labels: [] };
   }
   const assigned = numericValues.map((num) => {
@@ -504,7 +513,7 @@ const cutNumeric = (values, options, meta) => {
     const num = numericValues[idx];
     return Number.isFinite(num) ? count + 1 : count;
   }, 0);
-  if (outside) meta.warnings.push(`Cut: ${outside} values outside defined breaks.`);
+  if (outside) pushWarning(meta, 'variants.warnings.cutOutsideValues', { count: outside });
   meta.actions.push({ type: 'cut', breaks: intervals.map((range) => [range.lower, range.upper]) });
   return {
     values: assigned,
@@ -595,12 +604,14 @@ ns.createVariant = function (baseCol, config = {}) {
   let workingValues = decoded.map(toStringSafe);
   let currentType = sourceType;
   let currentSep = sourceSep;
+  const lang = normalizeLanguage(config.lang);
   const meta = {
     kind: config.kind ?? 'custom',
     source_var_index: variantIndex,
     source_type: sourceType,
     actions: [],
-    warnings: []
+    warnings: [],
+    lang
   };
   const getListContext = () => ({ isList: currentType === 'l', sep: currentSep || sourceSep || DEFAULT_LIST_SEP, meta });
   if (config.fillEmpty !== undefined) {

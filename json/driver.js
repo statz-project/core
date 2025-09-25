@@ -4,6 +4,7 @@ import factors from './factors.js';
 import contingency from './contingency.js';
 import numeric from './numeric.js';
 import variants from './variants.js';
+import { getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 
 /**
  * @typedef {Object} Column
@@ -57,34 +58,40 @@ ns.tabularRowsToMatrix = function (columns, rows) { return rows.map(row => colum
  */
 ns.summarize_q = function (values, formatFn = null, options = {}, { labels = null } = {}) {
   const freqMap = {}; let missingCount = 0; const total = values.length;
-  const missingLabel = options?.missing_label ?? 'Não informado'; const includeMissing = options?.include_missing ?? true; const lang = options?.lang ?? 'pt_br';
+  const lang = normalizeLanguage(options?.lang);
+  const missingLabel = options?.missing_label ?? getDefaultMissingLabel(lang);
+  const includeMissing = options?.include_missing ?? true;
+  const [variableHeader, descriptionHeader] = getTableHeaders(lang);
   values.forEach(val => { const v = val?.toString().trim(); if (!v) { missingCount++; return; } freqMap[v] = (freqMap[v] || 0) + 1; });
   const sortedLabels = labels ?? Object.keys(freqMap).sort();
-  const rows = sortedLabels.map(label => { const count = freqMap[label] || 0; const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { Variável: label, Descrição: cell }; });
-  if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ Variável: missingLabel, Descrição: cell }); }
-  return { columns: ['Variável', 'Descrição'], rows, summary: { total, total_is_full: true } };
+  const rows = sortedLabels.map(label => { const count = freqMap[label] || 0; const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { [variableHeader]: label, [descriptionHeader]: cell }; });
+  if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ [variableHeader]: missingLabel, [descriptionHeader]: cell }); }
+  return { columns: [variableHeader, descriptionHeader], rows, summary: { total, total_is_full: true }, lang };
 };
 
 /**
- * Frequency table for list-like qualitative values (e.g., "A;B").
- * @param {string[]} values
+ * Frequency table for list-like qualitative values (split by a separator).
+ * @param {Array<string|null|undefined>} values
  * @param {string=} sep
  * @param {(ctx:{count:number,percent:number,total:number})=>string=} formatFn
- * @param {{missing_label?:string, include_missing?:boolean, lang?:string}=} options
+ * @param {{missing_label?: string, include_missing?: boolean, lang?: string}=} options
  * @returns {TableLike}
  */
 ns.summarize_l = function (values, sep = ';', formatFn = null, options = {}) {
   if (!Array.isArray(values)) return { columns: [], rows: [], summary: { total: 0, total_is_full: true } };
   const counts = {}; let missingCount = 0; const total = values.length;
-  const missingLabel = options?.missing_label ?? 'Não informado'; const includeMissing = options?.include_missing ?? true; const lang = options?.lang ?? 'pt_br';
+  const lang = normalizeLanguage(options?.lang);
+  const missingLabel = options?.missing_label ?? getDefaultMissingLabel(lang);
+  const includeMissing = options?.include_missing ?? true;
+  const [variableHeader, descriptionHeader] = getTableHeaders(lang);
   values.forEach(v => { if (!v?.trim()) { missingCount++; return; } const items = v.split(sep).map(s => s.trim()).filter(Boolean); if (items.length === 0) { missingCount++; return; } items.forEach(item => { counts[item] = (counts[item] || 0) + 1; }); });
-  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([level, count]) => { const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { Variável: level, Descrição: cell }; });
-  if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ Variável: missingLabel, Descrição: cell }); }
-  return { columns: ['Variável', 'Descrição'], rows, summary: { total, total_is_full: true } };
+  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([level, count]) => { const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { [variableHeader]: level, [descriptionHeader]: cell }; });
+  if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ [variableHeader]: missingLabel, [descriptionHeader]: cell }); }
+  return { columns: [variableHeader, descriptionHeader], rows, summary: { total, total_is_full: true }, lang };
 };
 
 /**
- * Map statistical methods to superscript symbols (numeric or alpha).
+ * Build a map of statistical test methods to display symbols.
  * @param {string[]} methods
  * @param {{symbol_style?: 'numeric'|'alpha'}=} options
  * @returns {Record<string,string>}
@@ -110,6 +117,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
   const response = responses.length > 0 ? responses[0] : null;
   const responseCol = response ? columns.find(c => c.col_hash === response.col_hash) : null;
   const responseType = responseCol?.col_type || null; const responseVals = responseCol?.raw_values || null;
+  const lang = normalizeLanguage(options?.lang);
   return predictors.map(pred => {
     const predictorCol = columns.find(c => c.col_hash === pred.col_hash); if (!predictorCol) return null;
     const predictorVals = predictorCol.raw_values; const predictorType = predictorCol.col_type; const predictorSep = predictorCol.col_sep || ';'; const formatFn = formatFns[pred.col_label] || null;
@@ -128,7 +136,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         const binCols = numeric.decomposeListAsBinaryCols(predictorVals, predictorSep, options);
         const summaries = Object.entries(binCols).flatMap(([label, binVals]) => {
           try { const table = contingency.summarize_q_q(binVals, responseVals, formatFn, options); return [{ predictor: `${pred.col_label.replace(/[\s\p{P}]+$/u, '')}: ${label}`, response: response?.col_label || null, predictor_type: 'q', response_type: responseType, table }]; }
-          catch (e) { console.warn(`Erro ao resumir "${label}" em "${pred.col_label}":`, e.message); return []; }
+          catch (e) { const warnMessage = translate('warnings.summarizeFailure', lang, { label, context: pred.col_label }); console.warn(`${warnMessage}:`, e.message); return []; }
         });
         flagsUsed.add('has_lq');
         return summaries;
@@ -149,6 +157,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
  */
 ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const predictors = elementPredictors.map(JSON.parse); const responses = elementResponses.map(JSON.parse); const flagsUsed = new Set();
+  const lang = normalizeLanguage(options?.lang);
   const columns = predictors.concat(responses).map(col => {
     const db = dbs[col.database_id];
     if (!db) return null;
@@ -177,7 +186,8 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const symbolMap = ns.generateTestSymbolMap(allMethods, options);
   result.forEach(r => { if (r.table?.test_used) { const method = r.table.test_used; r.table.test_symbol = symbolMap[method]; } });
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
-  return { result: { analysis: result, test_legend }, flags: Array.from(flagsUsed) };
+  const finalResult = { analysis: result, test_legend, lang };
+  return { result: finalResult, flags: Array.from(flagsUsed) };
 };
 
 /**

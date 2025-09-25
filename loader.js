@@ -20,7 +20,7 @@ export function loadScriptP(src) {
       if (typeof document !== 'undefined' && document.querySelector('script[src="' + src + '"]')) return resolve('cached');
       loadScript(src, () => resolve(src));
       const scriptEl = typeof document !== 'undefined' && document.querySelector('head script[src="' + src + '"]');
-      if (scriptEl) scriptEl.onerror = () => reject(new Error('Falha ao carregar: ' + src));
+      if (scriptEl) scriptEl.onerror = () => reject(new Error('Loading fail: ' + src));
     } catch (e) {
       reject(e);
     }

@@ -1,5 +1,6 @@
 // @ts-check
 import { getJStat, getSS, getStatsLib, formatNumberLocale } from './_env.js';
+import { getBinaryLabels, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 
 const ns = {};
 
@@ -10,10 +11,15 @@ const ns = {};
 ns.summarize_n = function (values, formatFn = null, options = {}) {
   const nums = values.map(v => parseFloat(v)).filter(v => !isNaN(v));
   const n = nums.length; if (n === 0) return { columns: [], rows: [], summary: { n: 0 } };
+  const lang = normalizeLanguage(options?.lang);
   const valuesByGroup = { Total: nums };
-  const rows = ns.getNumericalSummaryByGroup(valuesByGroup, options, formatFn);
-  return { columns: ['Variável', 'Descrição'], rows: rows.map(r => ({ Variável: r.Grupo, Descrição: r.Total })), summary: { n } };
+  const [variableHeader, descriptionHeader] = getTableHeaders(lang);
+  const summaryRows = ns.getNumericalSummaryByGroup(valuesByGroup, { ...options, lang }, formatFn);
+  const groupLabel = translate('table.columns.group', lang);
+  const formattedRows = summaryRows.map(row => ({ [variableHeader]: row[groupLabel], [descriptionHeader]: row.Total }));
+  return { columns: [variableHeader, descriptionHeader], rows: formattedRows, summary: { n }, lang };
 };
+
 
 /**
  * Compute per-group descriptive statistics for numeric values.
@@ -23,24 +29,34 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
   const groupNames = Object.keys(valuesByGroup);
   const summaryRows = [];
   const statOptions = options?.stat_options ?? ['mean_sd'];
-  const lang = options?.lang ?? 'pt_br';
-  const statLabels = { min: 'Mínimo', max: 'Máximo', range: 'Amplitude', mean_sd: 'Média (DP)', median_iqr: 'Mediana (IQR)', mode: 'Moda', n: 'n' };
-  const defaultMissing = '–';
+  const lang = normalizeLanguage(options?.lang);
+  const groupLabel = translate('table.columns.group', lang);
+  const statLabels = {
+    min: translate('stats.labels.min', lang),
+    max: translate('stats.labels.max', lang),
+    range: translate('stats.labels.range', lang),
+    mean_sd: translate('stats.labels.mean_sd', lang),
+    median_iqr: translate('stats.labels.median_iqr', lang),
+    mode: translate('stats.labels.mode', lang),
+    n: translate('stats.labels.n', lang)
+  };
+  const defaultMissing = translate('table.missingValue', lang);
   const formatDefault = (val) => formatNumberLocale(val, 1, lang);
   const getStats = (vals) => {
-    const sorted = [...vals].sort((a, b) => a - b); const n = vals.length; if (n === 0) return null;
-    const mean = n > 0 ? (vals.reduce((a, b) => a + b, 0) / n) : NaN;
-    const sd = n > 1 ? Math.sqrt(vals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n) : NaN;
+    const sorted = [...vals].sort((a, b) => a - b); const count = vals.length; if (count === 0) return null;
+    const mean = count > 0 ? (vals.reduce((a, b) => a + b, 0) / count) : NaN;
+    const sd = count > 1 ? Math.sqrt(vals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / count) : NaN;
     const median = ss?.medianSorted ? ss.medianSorted(sorted) : NaN;
     const q1 = ss?.quantileSorted ? ss.quantileSorted(sorted, 0.25) : NaN;
     const q3 = ss?.quantileSorted ? ss.quantileSorted(sorted, 0.75) : NaN;
     const iqr = (q3 ?? NaN) - (q1 ?? NaN);
     const mode = (() => { try { return ss?.modeSorted ? ss.modeSorted(sorted) : null; } catch { return null; } })();
-    const min = sorted[0]; const max = sorted[n - 1];
-    return { n, mean, sd, median, q1, q3, iqr, mode, min, max };
+    const min = sorted[0]; const max = sorted[count - 1];
+    return { n: count, mean, sd, median, q1, q3, iqr, mode, min, max };
   };
   for (const stat of statOptions) {
-    const row = { Grupo: statLabels[stat] || stat };
+    const statLabel = statLabels[stat] || stat;
+    const row = { [groupLabel]: statLabel };
     groupNames.forEach(group => {
       const vals = valuesByGroup[group] || []; const stats = getStats(vals); let cell = defaultMissing;
       if (!stats) { row[group] = defaultMissing; return; }
@@ -54,7 +70,7 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
           case 'mode': cell = formatFn?.mode?.(stats.mode) ?? (stats.mode == null ? defaultMissing : stats.mode.toString()); break;
           case 'n': cell = stats.n.toString(); break;
         }
-      } catch (e) { cell = defaultMissing; }
+      } catch { cell = defaultMissing; }
       row[group] = cell;
     });
     summaryRows.push(row);
@@ -63,22 +79,31 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
 };
 
 /** Mann–Whitney U test (two-sided). */
-ns.computeMannWhitney = function (x, y, correct = false) {
+ns.computeMannWhitney = function (x, y, correct = false, options = {}) {
+  if (typeof correct === 'object' && correct !== null) {
+    options = correct;
+    correct = Boolean(options.correct);
+  }
+  if (typeof options !== 'object' || options === null) {
+    options = {};
+  }
+  const lang = normalizeLanguage(options?.lang);
+  const methodLabel = translate('tests.mannWhitney', lang);
   try {
-    if (!x?.length || !y?.length) { return { pValue: null, statistic: null, method: 'Mann-Whitney' }; }
+    if (!x?.length || !y?.length) { return { pValue: null, statistic: null, method: methodLabel }; }
     const jStat = getJStat();
     const nx = x.length; const ny = y.length;
     const combined = [...x.map(val => ({ val, group: 'x' })), ...y.map(val => ({ val, group: 'y' }))];
     combined.sort((a, b) => a.val - b.val);
-    let ranks = new Array(combined.length); let i = 0;
+    const ranks = new Array(combined.length); let i = 0;
     while (i < combined.length) { let j = i; while (j + 1 < combined.length && combined[j + 1].val === combined[i].val) j++; const avgRank = (i + j + 2) / 2; for (let k = i; k <= j; k++) ranks[k] = avgRank; i = j + 1; }
     const Rx = combined.reduce((sum, item, idx) => item.group === 'x' ? sum + ranks[idx] : sum, 0);
     const U = Rx - (nx * (nx + 1)) / 2;
     const mu = (nx * ny) / 2; const sigma = Math.sqrt((nx * ny * (nx + ny + 1)) / 12);
     let z = (U - mu) / sigma; if (correct) { z = (Math.abs(U - mu) - 0.5) / sigma; }
     const pValue = 2 * (1 - jStat.normal.cdf(Math.abs(z), 0, 1));
-    return { pValue, statistic: U, method: 'Mann-Whitney' };
-  } catch { return { pValue: null, statistic: null, method: 'Mann-Whitney' }; }
+    return { pValue, statistic: U, method: methodLabel };
+  } catch { return { pValue: null, statistic: null, method: methodLabel }; }
 };
 
 /** Stack grouped numeric arrays into x values and y group labels. */
@@ -111,15 +136,15 @@ ns.runDunnTest = function (groupMap, alpha = 0.05, adjust = 'bonferroni') {
  * Decompose list-like qualitative values (e.g., 'A;B') into binary Yes/No columns.
  */
 ns.decomposeListAsBinaryCols = function (values, sep = ';', options = {}) {
-  const lang = options?.lang ?? 'pt_br'; const yes_label = options?.yes_label ?? 'Sim'; const no_label = options?.no_label ?? 'Não'; const min_count = options?.binary_min_count ?? 1;
-  const defaultLabels = { pt_br: { yes: 'Sim', no: 'Não' }, en_us: { yes: 'Yes', no: 'No' }, es_es: { yes: 'Sí', no: 'No' } };
-  const labels = { yes: yes_label ?? (defaultLabels[lang]?.yes || 'Sim'), no: no_label ?? (defaultLabels[lang]?.no || 'Não') };
+  const lang = normalizeLanguage(options?.lang); const labelsBase = getBinaryLabels(lang);
+  const yesLabel = options?.yes_label ?? labelsBase.yes; const noLabel = options?.no_label ?? labelsBase.no; const min_count = options?.binary_min_count ?? 1;
+  const labels = { yes: yesLabel, no: noLabel };
   const n = values.length; const result = {}; const countMap = {}; const allItems = [];
   values.forEach(val => { const trimmed = (val || '').trim(); if (!trimmed) { allItems.push(null); return; } const items = trimmed.split(sep).map(x => x.trim()).filter(Boolean); const itemSet = new Set(items); allItems.push(itemSet); items.forEach(item => { countMap[item] = (countMap[item] || 0) + 1; }); });
-  const orderedKeys = Object.entries(countMap).filter(([_, count]) => count >= min_count).sort((a, b) => b[1] - a[1]).map(([key]) => key);
-  orderedKeys.forEach(item => { result[item] = new Array(n); for (let i = 0; i < n; i++) { const entry = allItems[i]; if (entry === null) result[item][i] = ''; else result[item][i] = entry.has(item) ? labels.yes : labels.no; } });
-  return result;
+  Object.entries(countMap).forEach(([item, count]) => { if (count >= min_count) { const column = []; for (let i = 0; i < n; i++) { const set = allItems[i]; if (set instanceof Set) column.push(set.has(item) ? yesLabel : noLabel); else column.push(noLabel); } result[item] = column; } });
+  return { columns: result, labels };
 };
+
 
 /**
  * Compare numeric predictor across qualitative groups (t-test/Kruskal–Wallis).
@@ -139,19 +164,22 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   const nGroups = groupNames.length;
   const alpha = options?.alpha ?? 0.05;
   const adjustKruskal = options?.adjust_kruskal ?? 'bonferroni';
+  const lang = normalizeLanguage(options?.lang);
+  const groupLabel = translate('table.columns.group', lang);
+  const pValueLabel = translate('table.columns.pValue', lang);
 
   // 1) Descriptives by group
-  const summaryRows = ns.getNumericalSummaryByGroup(groupMap, options, formatFn);
+  const summaryRows = ns.getNumericalSummaryByGroup(groupMap, { ...options, lang }, formatFn);
 
   // 2) Stats lib (stdlib-js)
   const stats = getStatsLib();
   if (!stats) {
-    // Fill empty p-valor column and return with error method
-    summaryRows.forEach(r => r['p-valor'] = '');
+    // Fill empty p-value column and return with error method
+    summaryRows.forEach(r => r[pValueLabel] = '');
     return {
-      columns: ['Grupo', ...groupNames, 'p-valor'],
+      columns: [groupLabel, ...groupNames, pValueLabel],
       rows: summaryRows,
-      test_used: 'Erro: stdlib não carregado',
+      test_used: translate('errors.stdlibNotLoaded', lang),
       p_value: null
     };
   }
@@ -193,9 +221,9 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
       if (allNormal) {
         const result = stats.ttest2(g1, g2, { variance: homo ? 'equal' : 'unequal' });
         p_value = result.pValue;
-        method = 't de Student';
+        method = translate('tests.tStudent', lang);
       } else {
-        const result = ns.computeMannWhitney(g1, g2);
+        const result = ns.computeMannWhitney(g1, g2, false, { lang });
         p_value = result.pValue;
         method = result.method;
       }
@@ -204,7 +232,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
       // Note: ANOVA path is currently disabled; prefer Kruskal–Wallis in this flow
       const result = stats.kruskalTest(...groups);
       p_value = result.pValue;
-      method = 'Kruskal-Wallis';
+      method = translate('tests.kruskalWallis', lang);
       if (getJStat().utils.isNumber(p_value) && p_value < alpha) {
         posthoc = ns.runDunnTest(groupMap, alpha, adjustKruskal).filter(v => v.significant);
         flagsUsed?.add?.('has_dunn');
@@ -212,13 +240,13 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
     }
   } catch {
     p_value = null;
-    method = 'Erro no cálculo';
+    method = translate('errors.calculationFailed', lang);
   }
 
-  // 6) Output rows: ensure p-valor column present but empty per row
-  summaryRows.forEach(r => r['p-valor'] = '');
+  // 6) Output rows: ensure p-value column present but empty per row
+  summaryRows.forEach(r => r[pValueLabel] = '');
   return {
-    columns: ['Grupo', ...groupNames, 'p-valor'],
+    columns: [groupLabel, ...groupNames, pValueLabel],
     rows: summaryRows,
     test_used: method,
     p_value: +(p_value?.toFixed?.(4) ?? null),

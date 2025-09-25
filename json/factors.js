@@ -111,7 +111,9 @@ ns.replaceColumnValues = function (colObject, search, replace) {
 };
 
 /**
- * Return unique items present in column (splitting list columns).
+ * Collect the distinct values present in a column, splitting list columns into individual items.
+ * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any }} colObject
+ * @returns {string[]}
  */
 ns.getIndividualItems = function (colObject) {
   const col_type = colObject.col_type || 'q'; const col_sep = colObject.col_sep || ';'; const col_values = colObject.col_values;
@@ -177,7 +179,11 @@ ns.extractKeyValues = function (list, key, empty) {
 };
 
 /**
- * Merge selected variable JSON strings into existing list for a DB id, renumbering order.
+ * Merge a set of serialized variables replacing the ones of a given database while keeping order consistent.
+ * @param {string[]} selectedVars JSON strings representing variable entries to insert
+ * @param {string[]} existingVars JSON strings representing the current variable list
+ * @param {string} databaseId Database identifier whose variables should be replaced
+ * @returns {string[]} Updated list of variable JSON strings with sequential order
  */
 ns.mergeVariablesReplacingForDatabase = function (selectedVars, existingVars, databaseId) {
   const parsedSelected = selectedVars.map(JSON.parse); const parsedExisting = existingVars.map(JSON.parse);
