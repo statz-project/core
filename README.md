@@ -105,6 +105,10 @@ This repository is licensed under AGPL v3. This means:
 
 ---
 
+## Importing data fixtures
+
+Run `npm run test:fixture` to transform the sample Bubble worksheet into Stat-z columns using the dev-only helpers in `core/scripts/dev`. The command prints the `{ columns, history }` payload that Bubble writes to its database. For a step-by-step walkthrough and guidance on swapping in your own spreadsheet, see [Importing worksheet data locally](../docs/tutorials/import.md).
+
 ## Build (for contributors)
 
 - Install deps: `npm ci`
@@ -113,4 +117,8 @@ This repository is licensed under AGPL v3. This means:
 - Build script location: `scripts/build.mjs`
 
 After building, paste `bubble-html/statz-bundle.html` into a single HTML element in Bubble (free-plan compatible). The global namespace is `window.Statz` (and `window.Utils` as an alias).
+
+
+
+
 

@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
-    "test": "node --test test"
+    "test": "node --test test",
+    "test:fixture": "node scripts/dev/run-fixture.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.9"

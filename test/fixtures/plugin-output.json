@@ -1,0 +1,802 @@
+[
+  {
+    "score": "8",
+    "biomarker": "8.83",
+    "sex": "female",
+    "outcome": "no",
+    "income": "low",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "9.72",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "9.64",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "3",
+    "biomarker": "10.09",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "12.25",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "10.83",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "7",
+    "biomarker": "11.31",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "12.5",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "11.17",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "9.57",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "9",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "5",
+    "biomarker": "8.89",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "5",
+    "biomarker": "9.94",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "11.17",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "11.05",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "10.06",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "9.26",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "5",
+    "biomarker": "10.93",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "9",
+    "biomarker": "11.67",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "10.56",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "9.25",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "11.26",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "4",
+    "biomarker": "10.04",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "10.19",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "3",
+    "biomarker": "10.46",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "9.57",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "10.02",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "10.7",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "10.97",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "9",
+    "biomarker": "9.38",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "9.14",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "10.07",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "5",
+    "biomarker": "8.95",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "6",
+    "biomarker": "7.25",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "8.87",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "9.14",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "5",
+    "biomarker": "11.56",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "4",
+    "biomarker": "11.02",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "11.04",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "8.88",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "8.93",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "10.97",
+    "sex": "male",
+    "outcome": "no",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "10.17",
+    "sex": "male",
+    "outcome": "no",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "10",
+    "biomarker": "7.1",
+    "sex": "female",
+    "outcome": "yes",
+    "income": "low",
+    "origin": "local"
+  },
+  {
+    "score": "10",
+    "biomarker": "8.16",
+    "sex": "female",
+    "outcome": "yes",
+    "income": "low",
+    "origin": "local"
+  },
+  {
+    "score": "6",
+    "biomarker": "7.5",
+    "sex": "female",
+    "outcome": "yes",
+    "income": "low",
+    "origin": "local"
+  },
+  {
+    "score": "10",
+    "biomarker": "7.03",
+    "sex": "female",
+    "outcome": "yes",
+    "income": "low",
+    "origin": "local"
+  },
+  {
+    "score": "7",
+    "biomarker": "7.89",
+    "sex": "female",
+    "outcome": "yes",
+    "income": "low",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "11.09",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "8.79",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "3",
+    "biomarker": "8.23",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "3",
+    "biomarker": "9.51",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "10.32",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "6",
+    "biomarker": "11.46",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "11.54",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "9.66",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "5",
+    "biomarker": "8.92",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "8.51",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "9.75",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "9.88",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "9.35",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "10.31",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "5",
+    "biomarker": "10.12",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "9.16",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "5",
+    "biomarker": "10.6",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "9.75",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "9.82",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "10.02",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "9.52",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "9.26",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "4",
+    "biomarker": "11.3",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "10.56",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "3",
+    "biomarker": "8.19",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "6",
+    "biomarker": "10.44",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "4",
+    "biomarker": "8.56",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "10.95",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "5",
+    "biomarker": "9.28",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "6",
+    "biomarker": "10.05",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "8.44",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "3",
+    "biomarker": "7.7",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "11.16",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "5",
+    "biomarker": "9.3",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "8.43",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "5",
+    "biomarker": "10.52",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "5",
+    "biomarker": "8.94",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "9",
+    "biomarker": "10.05",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "10.85",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "10.43",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "foreign"
+  },
+  {
+    "score": "9",
+    "biomarker": "10.52",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "8",
+    "biomarker": "9.75",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "9.5",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "4",
+    "biomarker": "11.26",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "7",
+    "biomarker": "10.56",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "9.66",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "3",
+    "biomarker": "10.72",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "3",
+    "biomarker": "10.86",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "4",
+    "biomarker": "10.37",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "5",
+    "biomarker": "11.58",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  },
+  {
+    "score": "8",
+    "biomarker": "10.06",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "middle",
+    "origin": "foreign"
+  },
+  {
+    "score": "4",
+    "biomarker": "10.13",
+    "sex": "male",
+    "outcome": "yes",
+    "income": "high",
+    "origin": "local"
+  }
+]

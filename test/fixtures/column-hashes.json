@@ -1,0 +1,8 @@
+[
+    "col_score_hash",
+    "col_biomarker_hash",
+    "col_sex_hash",
+    "col_outcome_hash",
+    "col_income_hash",
+    "col_race_hash"
+]
