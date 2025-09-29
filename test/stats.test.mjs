@@ -1,36 +1,75 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import variants from "../json/variants.js";
-import factors from "../json/factors.js";
+import { Statz } from "../index.js";
+import { parseFixture } from '../scripts/dev/load-fixture.mjs';
+import { translate } from "../i18n/index.js";
 
-test("createVariant coerces numeric values", () => {
-  const baseValues = ["1", "2", "3", "bad"];
-  const baseCol = factors.makeColumn(baseValues, { encode: false });
+const { parsed } = parseFixture(); // sample database
 
-  const numericVariant = variants.createVariant(baseCol, {
-    sourceVarIndex: 0,
-    kind: "numeric",
-    var_label: "As numeric",
-    forceNumeric: {}
-  });
+test("run summarize_q_q with non-significant Fisher", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_outcome_hash");
+  const response  = Statz.getColumnValues(parsed, "col_sex_hash");
 
-  assert.equal(numericVariant.col_type, "n");
-  assert.equal(numericVariant.col_sep, "");
-
-  const decoded = factors.decodeColValues(
-    numericVariant.col_values,
-    numericVariant.col_type,
-    numericVariant.col_sep
-  );
-  assert.deepEqual(decoded, ["1", "2", "3", ""]);
-
-  const actionTypes = numericVariant.meta.actions.map((action) => action.type);
-  assert(actionTypes.includes("coerce_numeric"));
-  assert.ok(numericVariant.meta.warnings.length > 0);
+  const result = Statz.summarize_q_q(predictor.rawValues, response.rawValues);
+  
+  assert.equal((result.test_used), translate('tests.fisherExact'))
+  assert.equal((result.p_value).toFixed(3), '0.233')
+    
 });
 
-test("variant templates expose factor presets", () => {
-  assert.ok(Array.isArray(variants.VARIANT_TEMPLATES.q));
-  assert.ok(Array.isArray(variants.VARIANT_TEMPLATES.n));
-  assert.ok(Array.isArray(variants.VARIANT_TEMPLATES.l));
+test("run summarize_q_q with non-significant Chi-square", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_outcome_hash");
+  const response  = Statz.getColumnValues(parsed, "col_income_hash");
+
+  const result = Statz.summarize_q_q(predictor.rawValues, response.rawValues);
+    
+  assert.equal((result.test_used), translate('tests.chiSquare'))
+  assert.equal((result.p_value).toFixed(3), '0.264')
+    
 });
+
+test("run summarize_q_q with significant Chi-square", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_race_hash");
+  const response  = Statz.getColumnValues(parsed, "col_income_hash");
+
+  const result = Statz.summarize_q_q(predictor.rawValues, response.rawValues);
+
+  assert.equal((result.test_used), translate('tests.chiSquare'))
+  assert.equal((result.p_value).toFixed(3), '0.264')
+    
+});
+
+test("run summarize_n_q with significant Mann–Whitney", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_score_hash");
+  const response  = Statz.getColumnValues(parsed, "col_sex_hash");
+
+  const result = Statz.summarize_n_q(predictor.rawValues, response.rawValues);
+
+  assert.equal((result.test_used), translate('tests.mannWhitney'))
+  assert.equal((result.p_value).toFixed(3), '0.264')
+    
+});
+
+test("run summarize_n_q with significant t test", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const response  = Statz.getColumnValues(parsed, "col_sex_hash");
+
+  const result = Statz.summarize_n_q(predictor.rawValues, response.rawValues);
+
+  assert.equal((result.test_used), translate('tests.tStudent'))
+  assert.equal((result.p_value).toFixed(3), '0.264')
+    
+});
+
+test("run summarize_n_q with significant Kruskal–Wallis", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_score_hash");
+  const response  = Statz.getColumnValues(parsed, "col_income_hash");
+
+  const result = Statz.summarize_n_q(predictor.rawValues, response.rawValues);
+
+  assert.equal((result.test_used), translate('tests.kruskalWallis'))
+  assert.equal((result.p_value).toFixed(3), '0.264')
+    
+});
+
+

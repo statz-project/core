@@ -1,6 +1,6 @@
 // @ts-check
 
-const DEFAULT_LANG = 'pt_br';
+const DEFAULT_LANG = 'en_us';
 
 const LANGUAGE_ALIASES = {
   pt: 'pt_br',

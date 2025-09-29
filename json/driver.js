@@ -28,6 +28,33 @@ import { getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate }
 const ns = {};
 
 /**
+ * Retrieve a column by hash and decode its raw values.
+ * @param {{columns?: Column[]}|null|undefined} database Parsed database payload returned by parseColumns
+ * @param {string} colHash Column hash to match
+ * @param {number|null} [variantIndex=null] Optional variant index from col_vars
+ * @returns {{ column: Column|null, variant: any|null, rawValues: any[] }}
+ */
+ns.getColumnValues = function (database, colHash, variantIndex = null) {
+  if (!database || !Array.isArray(database.columns)) {
+    return { column: null, variant: null, rawValues: [] };
+  }
+  const column = database.columns.find(col => col?.col_hash === colHash) || null;
+  if (!column) {
+    return { column: null, variant: null, rawValues: [] };
+  }
+  const hasVariantIndex = variantIndex !== null && variantIndex !== undefined;
+  const variant = hasVariantIndex && Array.isArray(column.col_vars)
+    ? column.col_vars[variantIndex] ?? null
+    : null;
+  const colType = variant?.col_type ?? column.col_type ?? 'q';
+  let colSep = variant?.col_sep ?? column.col_sep;
+  if (!colSep) colSep = colType === 'l' ? ';' : '';
+  const colValues = variant?.col_values ?? column.col_values;
+  const rawValues = factors.decodeColValues(colValues, colType, colSep) || [];
+  return { column, variant, rawValues };
+};
+
+/**
  * Build row-wise objects from column-major raw_values.
  * @param {Column[]} columns
  * @returns {Array<Record<string, any>>}
@@ -220,7 +247,6 @@ ns.reorderVariableList = function (list, index, direction) {
 };
 
 export default { ...ns, ...factors, ...contingency, ...numeric, ...variants };
-
 
 
 
