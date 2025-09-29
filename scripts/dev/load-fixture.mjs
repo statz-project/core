@@ -43,7 +43,7 @@ function parseDelimitedLine(line, delimiter) {
   return result.map(value => value.replace(/\r$/, ""));
 }
 
-export function writeRowsFromCsv({
+function writeRowsFromCsv({
   csvFile = "example.csv",
   rowsFile = "plugin-output.json"
 } = {}) {
@@ -73,11 +73,11 @@ export function writeRowsFromCsv({
   return rows;
 }
 
-export function loadRows(rowsFile = "plugin-output.json") {
+function loadRows(rowsFile = "plugin-output.json") {
   return readJson(rowsFile);
 }
 
-export function loadHashes(hashesFile = "column-hashes.json") {
+function loadHashes(hashesFile = "column-hashes.json") {
   return readJson(hashesFile);
 }
 

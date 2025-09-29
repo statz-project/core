@@ -81,7 +81,7 @@ ns.decodeColValues = function (col_values, col_type = null, col_sep = ';') {
  * @param {string=} col_sep
  * @returns {ColValues}
  */
-ns.processColValues = function (values, col_type = 'q', col_sep = ';') {
+ns.encodeColValues = function (values, col_type = 'q', col_sep = ';') {
   const should = ns.shouldCompact(values, col_type, col_sep);
   if (should) return ns.encodeAsFactor(values, col_type, col_sep);
   return { col_compact: false, labels: null, codes: null, raw_values: values };
@@ -106,7 +106,7 @@ ns.replaceColumnValues = function (colObject, search, replace) {
     if (Object.prototype.hasOwnProperty.call(replaceMap, entry)) { const newVal = replaceMap[entry]; return newVal === '' ? '' : newVal; }
     return entry;
   });
-  const processed = ns.processColValues(updatedValues, colObject.col_type, colObject.col_sep);
+  const processed = ns.encodeColValues(updatedValues, colObject.col_type, colObject.col_sep);
   return { ...colObject, col_values: processed };
 };
 
@@ -148,7 +148,7 @@ ns.parseColumns = function (data, hashes, filename, currTime) {
   rows.forEach(row => { Object.entries(row).forEach(([key, value]) => { if (!columns[key]) columns[key] = []; columns[key].push(value); }); });
   const result = Object.entries(columns).map(([key, values], index) => {
     const { col_type, col_sep } = ns.inferColType(values);
-    const col_values = ns.processColValues(values, col_type, col_sep);
+    const col_values = ns.encodeColValues(values, col_type, col_sep);
     const baseVariant = {
       var_label: 'Original',
       col_type,

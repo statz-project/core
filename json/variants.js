@@ -647,7 +647,7 @@ ns.createVariant = function (baseCol, config = {}) {
   if (config.col_sep !== undefined) currentSep = config.col_sep;
   if (currentType === 'l' && !currentSep) currentSep = sourceSep || DEFAULT_LIST_SEP;
   if (currentType !== 'l') currentSep = currentSep || '';
-  const processed = factors.processColValues(workingValues, currentType, currentSep);
+  const processed = factors.encodeColValues(workingValues, currentType, currentSep);
   const finalValues = config.sortByFrequency
     ? sortByFrequency(processed, workingValues, currentType, currentSep, meta)
     : processed;
