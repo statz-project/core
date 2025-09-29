@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 import { trimPunctuation } from './_env.js';
 
 /**
@@ -86,6 +86,69 @@ ns.encodeColValues = function (values, col_type = 'q', col_sep = ';') {
   if (should) return ns.encodeAsFactor(values, col_type, col_sep);
   return { col_compact: false, labels: null, codes: null, raw_values: values };
 };
+/**
+ * Deep clone a ColValues payload while avoiding structuredClone for Node 16 compatibility.
+ * @param {ColValues|null|undefined} colValues
+ * @returns {ColValues|null|undefined}
+ */
+const cloneColValues = (colValues) => (colValues ? JSON.parse(JSON.stringify(colValues)) : colValues);
+
+/**
+ * Build a column description from raw values with optional metadata overrides.
+ * @param {string[]} values
+ * @param {Object} [options]
+ * @param {'q'|'n'|'l'} [options.col_type] Explicit column type.
+ * @param {string} [options.col_sep] Explicit column separator.
+ * @param {string} [options.var_label] Label for the base variant.
+ * @param {Record<string, any>} [options.baseVariantMeta] Extra metadata for the base variant.
+ * @param {boolean} [options.includeBaseVariant=true] Whether to append the base variant.
+ * @param {boolean} [options.encode=true] Encode values instead of keeping them as raw_values.
+ * @param {Object[]} [options.col_vars] Additional variants to append after the base one.
+ * @param {string} [options.baseVariantLabel] Override for the base variant label.
+ * @returns {{col_type:'q'|'n'|'l', col_sep:string, col_values:ColValues, col_vars?:Object[]}}
+ */
+ns.makeColumn = function (values, options = {}) {
+  const valueArray = Array.isArray(values) ? values : [];
+  const {
+    col_type: explicitType,
+    col_sep: explicitSep,
+    var_label = 'Original',
+    baseVariantMeta,
+    includeBaseVariant = true,
+    encode = true,
+    col_vars: additionalVariants,
+    baseVariantLabel,
+    ...columnProps
+  } = options;
+  const needsInference = explicitType === undefined || explicitSep === undefined;
+  const inferred = needsInference ? ns.inferColType(valueArray) : null;
+  let col_type = explicitType ?? (inferred ? inferred.col_type : 'q');
+  let col_sep = explicitSep;
+  if (col_sep === undefined) {
+    col_sep = inferred ? inferred.col_sep : (col_type === 'l' ? ';' : '');
+  }
+  if (col_type === 'l' && !col_sep) col_sep = ';';
+  if (col_type !== 'l') col_sep = col_sep || '';
+  const col_values = encode
+    ? ns.encodeColValues(valueArray, col_type, col_sep)
+    : { col_compact: false, labels: null, codes: null, raw_values: valueArray.slice() };
+  const column = { col_type, col_sep, col_values, ...columnProps };
+  if (includeBaseVariant) {
+    const baseVariant = {
+      var_label: baseVariantLabel ?? var_label,
+      col_type,
+      col_sep,
+      col_values: cloneColValues(col_values),
+      meta: { kind: 'original', ...(baseVariantMeta || {}) }
+    };
+    column.col_vars = Array.isArray(additionalVariants)
+      ? [baseVariant, ...additionalVariants]
+      : [baseVariant];
+  } else if (Array.isArray(additionalVariants)) {
+    column.col_vars = additionalVariants;
+  }
+  return column;
+};
 
 /**
  * Replace decoded values according to search/replace, then re-encode.
@@ -146,28 +209,15 @@ ns.parseColumns = function (data, hashes, filename, currTime) {
   const rows = JSON.parse(data);
   const columns = {};
   rows.forEach(row => { Object.entries(row).forEach(([key, value]) => { if (!columns[key]) columns[key] = []; columns[key].push(value); }); });
-  const result = Object.entries(columns).map(([key, values], index) => {
-    const { col_type, col_sep } = ns.inferColType(values);
-    const col_values = ns.encodeColValues(values, col_type, col_sep);
-    const baseVariant = {
-      var_label: 'Original',
-      col_type,
-      col_sep,
-      col_values: JSON.parse(JSON.stringify(col_values)),
-      meta: { kind: 'original' }
-    };
-    return {
+  const result = Object.entries(columns).map(([key, values], index) =>
+    ns.makeColumn(values, {
       col_name: key,
       col_label: trimPunctuation(key).trim(),
       col_hash: hashes[index],
       col_index: index + 1,
-      col_del: false,
-      col_type,
-      col_sep,
-      col_values,
-      col_vars: [baseVariant]
-    };
-  });
+      col_del: false
+    })
+  );
   return JSON.stringify({ columns: result, history: [{ file: filename, import_time: currTime }] });
 };
 

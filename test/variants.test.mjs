@@ -5,20 +5,7 @@ import factors from "../json/factors.js";
 
 test("createVariant coerces numeric values", () => {
   const baseValues = ["1", "2", "3", "bad"];
-  const colValues = factors.encodeColValues(baseValues, "q", "");
-  const baseVariant = {
-    var_label: "Original",
-    col_type: "q",
-    col_sep: "",
-    col_values: variants.cloneColValues(colValues),
-    meta: { kind: "original" }
-  };
-  const baseCol = {
-    col_type: "q",
-    col_sep: "",
-    col_values: colValues,
-    col_vars: [baseVariant]
-  };
+  const baseCol = factors.makeColumn(baseValues, { encode: false });
 
   const numericVariant = variants.createVariant(baseCol, {
     sourceVarIndex: 0,
