@@ -4,5 +4,5 @@
     "col_sex_hash",
     "col_outcome_hash",
     "col_income_hash",
-    "col_race_hash"
+    "col_origin_hash"
 ]

@@ -47,9 +47,10 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 
 - Compatibility with Bubble free plan is critical:
   - Do not rely on `<script>` header tags. Use dynamic loading via `loader.js` (`loadScriptP`, `initDeps`).
-  - jStat and simple-statistics are loaded from CDN with fallbacks.
-  - We intentionally keep these deps out of the generated bundle so `bubble-html/statz-bundle.html` stays small for Bubble; they continue to load on demand via CDN, and we still list them in package.json so GitHub/Dependabot can index the dependencies.
-  - `stdlib-js/stats` is dynamically imported as ESM.
+- jStat and simple-statistics are loaded from CDN with fallbacks.
+- We intentionally keep these deps out of the generated bundle so `bubble-html/statz-bundle.html` stays small for Bubble; they continue to load on demand via CDN, and we still list them in package.json so GitHub/Dependabot can index the dependencies.
+- `stdlib-js/stats` is dynamically imported as ESM.
+- Before running statistical routines, call `window.Statz.health()` (`Statz.health()` in Node) to confirm the adapters are loaded.
 - Do not set esbuild `globalName` to `Statz` (we already assign `window.Statz` in `core/index.js`).
 
 ## Build Output Rules
