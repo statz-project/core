@@ -209,15 +209,18 @@ ns.parseColumns = function (data, hashes, filename, currTime) {
   const rows = JSON.parse(data);
   const columns = {};
   rows.forEach(row => { Object.entries(row).forEach(([key, value]) => { if (!columns[key]) columns[key] = []; columns[key].push(value); }); });
-  const result = Object.entries(columns).map(([key, values], index) =>
-    ns.makeColumn(values, {
+  const result = Object.entries(columns).map(([key, values], index) => {
+    const column = ns.makeColumn(values, {
       col_name: key,
       col_label: trimPunctuation(key).trim(),
       col_hash: hashes[index],
       col_index: index + 1,
-      col_del: false
-    })
-  );
+      col_del: false,
+      includeBaseVariant: false
+    });
+    if (!Array.isArray(column.col_vars)) column.col_vars = [];
+    return column;
+  });
   return JSON.stringify({ columns: result, history: [{ file: filename, import_time: currTime }] });
 };
 
@@ -244,4 +247,3 @@ ns.mergeVariablesReplacingForDatabase = function (selectedVars, existingVars, da
 };
 
 export default ns;
-
