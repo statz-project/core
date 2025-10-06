@@ -254,6 +254,84 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
 };
 
 /**
+ * Produce a lightweight summary for a column or one of its variants.
+ * Returns strings ready to display in compact previews.
+ * @param {Column} column
+ * @param {number|null} [variantIndex]
+ * @param {{ lang?: string, formatFn?: Function, maxRows?: number }} [options]
+ * @returns {string[]}
+ */
+ns.describeColumn = function (column, variantIndex = null, options = {}) {
+  if (!column || typeof column !== 'object') return [];
+  let baseColumn = column;
+  if (!baseColumn.col_hash) {
+    baseColumn = { ...column, col_hash: '__temp_col_hash__' };
+  }
+  const colHash = baseColumn.col_hash;
+  const database = { columns: [baseColumn] };
+  let lookup;
+  try {
+    lookup = ns.getColumnValues(database, colHash, variantIndex);
+  } catch (error) {
+    console.warn('describeColumn: failed to decode column values.', error);
+    return [];
+  }
+  const resolvedColumn = lookup.column || baseColumn;
+  const values = Array.isArray(lookup.rawValues) ? lookup.rawValues : [];
+  if (!values.length) return [];
+  const variant = lookup.variant;
+  const colType = variant?.col_type ?? resolvedColumn.col_type ?? 'q';
+  let colSep = variant?.col_sep ?? resolvedColumn.col_sep;
+  if (!colSep) colSep = colType === 'l' ? ';' : '';
+  const lang = normalizeLanguage(options?.lang);
+  const summaryOptions = { ...options, lang };
+  delete summaryOptions.formatFn;
+  delete summaryOptions.maxRows;
+  const formatFn = options.formatFn ?? null;
+  let table;
+  try {
+    if (colType === 'q') {
+      const labels = variant?.col_values?.labels ?? resolvedColumn.col_values?.labels ?? null;
+      table = ns.summarize_q(values, formatFn, summaryOptions, { labels });
+    } else if (colType === 'l') {
+      table = ns.summarize_l(values, colSep, formatFn, summaryOptions);
+    } else if (colType === 'n') {
+      table = numeric.summarize_n(values, formatFn, summaryOptions);
+    } else {
+      return [];
+    }
+  } catch (error) {
+    console.warn('describeColumn: failed to build summary.', error);
+    return [];
+  }
+  const columns = Array.isArray(table?.columns) && table.columns.length > 0
+    ? table.columns
+    : (Array.isArray(table?.rows) && table.rows[0] ? Object.keys(table.rows[0]) : []);
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+  if (!columns.length || !rows.length) return [];
+  const maxRowsValue = Number(options?.maxRows);
+  const maxRows = Number.isFinite(maxRowsValue) && maxRowsValue > 0 ? Math.floor(maxRowsValue) : null;
+  const slice = maxRows ? rows.slice(0, maxRows) : rows;
+  const toLine = (row) => {
+    const parts = columns.map((colName) => {
+      if (Object.prototype.hasOwnProperty.call(row, colName)) {
+        const value = row[colName];
+        return value === null || value === undefined ? '' : String(value);
+      }
+      return '';
+    });
+    if (!parts.some(Boolean)) return '';
+    const [first, ...rest] = parts;
+    const tail = rest.filter(Boolean).join(' | ');
+    if (first && tail) return first + ': ' + tail;
+    if (first) return first;
+    if (tail) return tail;
+    return '';
+  };
+  return slice.map(toLine).filter((line) => line && line.trim());
+};
+
+/**
  * Reorder a JSON-string list by swapping an item with its neighbor and renumbering "order".
  * @param {string[]} list JSON strings with an "order" field
  * @param {number|string} index 0-based index of the item to move
