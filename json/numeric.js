@@ -9,12 +9,29 @@ const ns = {};
  * @param {Array<string|number>} values
  */
 ns.summarize_n = function (values, formatFn = null, options = {}) {
-  const nums = values.map(v => parseFloat(v)).filter(v => !isNaN(v));
-  const n = nums.length; if (n === 0) return { columns: [], rows: [], summary: { n: 0 } };
+  const nums = [];
+  let missingCount = 0;
+  values.forEach((value) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      nums.push(parsed);
+      return;
+    }
+    if (value !== undefined && value !== null && value !== '' && typeof value === 'string' && value.trim() === '') {
+      missingCount += 1;
+      return;
+    }
+    if (value === undefined || value === null || value === '' || Number.isNaN(parsed)) {
+      missingCount += 1;
+    }
+  });
+  const n = nums.length;
   const lang = normalizeLanguage(options?.lang);
+  if (n === 0 && missingCount === 0) return { columns: [], rows: [], summary: { n: 0 }, lang };
   const valuesByGroup = { Total: nums };
+  const missingCounts = missingCount > 0 ? { Total: missingCount } : {};
   const [variableHeader, descriptionHeader] = getTableHeaders(lang);
-  const summaryRows = ns.getNumericalSummaryByGroup(valuesByGroup, { ...options, lang }, formatFn);
+  const summaryRows = ns.getNumericalSummaryByGroup(valuesByGroup, { ...options, lang, missing_counts: missingCounts }, formatFn);
   const groupLabel = translate('table.columns.group', lang);
   const formattedRows = summaryRows.map(row => ({ [variableHeader]: row[groupLabel], [descriptionHeader]: row.Total }));
   return { columns: [variableHeader, descriptionHeader], rows: formattedRows, summary: { n }, lang };
@@ -31,6 +48,11 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
   const statOptions = options?.stat_options ?? ['mean_sd'];
   const lang = normalizeLanguage(options?.lang);
   const groupLabel = translate('table.columns.group', lang);
+  const missingCounts = options?.missing_counts || options?.missingCounts || {};
+  const hasMissingRow = Array.isArray(groupNames) && groupNames.some(group => {
+    const value = Number(missingCounts[group] ?? 0);
+    return Number.isFinite(value) && value > 0;
+  });
   const statLabels = {
     min: translate('stats.labels.min', lang),
     max: translate('stats.labels.max', lang),
@@ -38,7 +60,8 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
     mean_sd: translate('stats.labels.mean_sd', lang),
     median_iqr: translate('stats.labels.median_iqr', lang),
     mode: translate('stats.labels.mode', lang),
-    n: translate('stats.labels.n', lang)
+    n: translate('stats.labels.n', lang),
+    n_missing: translate('stats.labels.n_missing', lang)
   };
   const defaultMissing = translate('table.missingValue', lang);
   const formatDefault = (val) => formatNumberLocale(val, 1, lang);
@@ -55,9 +78,17 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
     return { n: count, mean, sd, median, q1, q3, iqr, mode, min, max };
   };
   for (const stat of statOptions) {
+    if (stat === 'n_missing' && !hasMissingRow) continue;
     const statLabel = statLabels[stat] || stat;
     const row = { [groupLabel]: statLabel };
     groupNames.forEach(group => {
+      if (stat === 'n_missing') {
+        const missingRaw = Number(missingCounts[group] ?? 0);
+        const normalizedMissing = Number.isFinite(missingRaw) ? Math.max(0, Math.floor(missingRaw)) : 0;
+        const formattedMissing = typeof formatFn?.n_missing === 'function' ? formatFn.n_missing(normalizedMissing, group) : normalizedMissing.toString();
+        row[group] = formattedMissing === undefined || formattedMissing === null ? '' : String(formattedMissing);
+        return;
+      }
       const vals = valuesByGroup[group] || []; const stats = getStats(vals); let cell = defaultMissing;
       if (!stats) { row[group] = defaultMissing; return; }
       try {
@@ -152,16 +183,23 @@ ns.decomposeListAsBinaryCols = function (values, sep = ';', options = {}) {
  */
 ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flagsUsed = null, options = {}) {
   const groupMap = {};
+  const missingCounts = {};
   predictorVals.forEach((pred, i) => {
     const group = responseVals[i]?.toString().trim();
-    const val = parseFloat(pred);
-    if (!group || isNaN(val)) return;
+    if (!group) return;
     if (!groupMap[group]) groupMap[group] = [];
-    groupMap[group].push(val);
+    const val = Number.parseFloat(pred);
+    if (Number.isFinite(val)) {
+      groupMap[group].push(val);
+    } else {
+      missingCounts[group] = (missingCounts[group] || 0) + 1;
+    }
   });
 
   const groupNames = Object.keys(groupMap);
-  const nGroups = groupNames.length;
+  const groupsWithData = groupNames.filter(name => (groupMap[name] || []).length > 0);
+  const activeGroupMap = Object.fromEntries(groupsWithData.map(name => [name, groupMap[name]]));
+  const nGroups = groupsWithData.length;
   const alpha = options?.alpha ?? 0.05;
   const adjustKruskal = options?.adjust_kruskal ?? 'bonferroni';
   const lang = normalizeLanguage(options?.lang);
@@ -169,7 +207,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   const pValueLabel = translate('table.columns.pValue', lang);
 
   // 1) Descriptives by group
-  const summaryRows = ns.getNumericalSummaryByGroup(groupMap, { ...options, lang }, formatFn);
+  const summaryRows = ns.getNumericalSummaryByGroup(groupMap, { ...options, lang, missing_counts: missingCounts }, formatFn);
 
   // 2) Stats lib (stdlib-js)
   const stats = getStatsLib();
@@ -193,7 +231,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   };
   let allNormal = true;
   try {
-    for (const group of groupNames) {
+    for (const group of groupsWithData) {
       const vals = groupMap[group];
       if (vals.length >= 3) {
         const z = zScores(vals);
@@ -206,9 +244,13 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   // 4) Homoscedasticity (Bartlett)
   let homo = false;
   try {
-    const groupArrays = groupNames.map(name => groupMap[name]);
-    const bart = stats.bartlettTest(...groupArrays);
-    homo = bart.pValue >= 0.05;
+    const groupArrays = groupsWithData.map(name => groupMap[name]);
+    if (groupArrays.length >= 2) {
+      const bart = stats.bartlettTest(...groupArrays);
+      homo = bart.pValue >= 0.05;
+    } else {
+      homo = false;
+    }
   } catch { homo = false; }
 
   // 5) Statistical test
@@ -217,7 +259,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   let posthoc = null;
   try {
     if (nGroups === 2) {
-      const [g1, g2] = groupNames.map(name => groupMap[name]);
+      const [g1, g2] = groupsWithData.map(name => groupMap[name]);
       if (allNormal) {
         const result = stats.ttest2(g1, g2, { variance: homo ? 'equal' : 'unequal' });
         p_value = result.pValue;
@@ -228,13 +270,13 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
         method = result.method;
       }
     } else if (nGroups > 2) {
-      const groups = groupNames.map(name => groupMap[name]);
+      const groups = groupsWithData.map(name => groupMap[name]);
       // Note: ANOVA path is currently disabled; prefer Kruskal–Wallis in this flow
       const result = stats.kruskalTest(...groups);
       p_value = result.pValue;
       method = translate('tests.kruskalWallis', lang);
       if (getJStat().utils.isNumber(p_value) && p_value < alpha) {
-        posthoc = ns.runDunnTest(groupMap, alpha, adjustKruskal).filter(v => v.significant);
+        posthoc = ns.runDunnTest(activeGroupMap, alpha, adjustKruskal).filter(v => v.significant);
         flagsUsed?.add?.('has_dunn');
       }
     }
