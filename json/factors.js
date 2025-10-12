@@ -75,6 +75,20 @@ ns.decodeColValues = function (col_values, col_type = null, col_sep = ';') {
 };
 
 /**
+ * Decode a column (or variant) into raw string values.
+ * @param {{col_values?: ColValues, col_type?: 'q'|'n'|'l', col_sep?: string, raw_values?: string[]}} column
+ * @returns {string[]}
+ */
+ns.decodeColumn = function (column) {
+  if (!column || typeof column !== 'object') return [];
+  if (Array.isArray(column.raw_values)) return column.raw_values.slice();
+  const col_type = column.col_type ?? 'q';
+  let col_sep = column.col_sep;
+  if (!col_sep) col_sep = col_type === 'l' ? ';' : '';
+  return ns.decodeColValues(column.col_values, col_type, col_sep);
+};
+
+/**
  * Encode if needed, otherwise return raw_values shape.
  * @param {string[]} values
  * @param {'q'|'n'|'l'=} col_type
@@ -157,7 +171,7 @@ ns.makeColumn = function (values, options = {}) {
  * @param {string[]} replace
  */
 ns.replaceColumnValues = function (colObject, search, replace) {
-  const decodedValues = ns.decodeColValues(colObject.col_values, colObject.col_type, colObject.col_sep);
+  const decodedValues = ns.decodeColumn(colObject);
   const sep = colObject.col_sep; const isListType = colObject.col_type === 'l' && sep;
   const replaceMap = {}; search.forEach((original, i) => { const updated = (replace[i] ?? '').trim(); replaceMap[original] = updated; });
   const updatedValues = decodedValues.map(entry => {
@@ -179,8 +193,8 @@ ns.replaceColumnValues = function (colObject, search, replace) {
  * @returns {string[]}
  */
 ns.getIndividualItems = function (colObject) {
-  const col_type = colObject.col_type || 'q'; const col_sep = colObject.col_sep || ';'; const col_values = colObject.col_values;
-  const values = ns.decodeColValues(col_values, col_type, col_sep);
+  const col_type = colObject.col_type || 'q'; const col_sep = colObject.col_sep || ';';
+  const values = ns.decodeColumn({ col_type, col_sep, col_values: colObject.col_values, raw_values: colObject.raw_values });
   const allItems = (col_type === 'l') ? values.flatMap(v => (v || '').split(col_sep).map(s => s.trim()).filter(Boolean)) : values;
   return [...new Set(allItems.filter(Boolean))];
 };

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import variants from "../json/variants.js";
 import factors from "../json/factors.js";
 import driver from "../json/driver.js";
+import { decode } from "node:punycode";
 
 test("createVariant coerces numeric values", () => {
   const baseValues = ["1", "2", "3", "bad"];
@@ -18,11 +19,8 @@ test("createVariant coerces numeric values", () => {
   assert.equal(numericVariant.col_type, "n");
   assert.equal(numericVariant.col_sep, "");
 
-  const decoded = factors.decodeColValues(
-    numericVariant.col_values,
-    numericVariant.col_type,
-    numericVariant.col_sep
-  );
+  const decoded = factors.decodeColumn(numericVariant);
+  
   assert.deepEqual(decoded, ["1", "2", "3", ""]);
 
   const actionTypes = numericVariant.meta.actions.map((action) => action.type);
