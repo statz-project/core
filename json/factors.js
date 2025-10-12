@@ -200,14 +200,83 @@ ns.getIndividualItems = function (colObject) {
 };
 
 /**
- * Frequency count of individual values.
- * @param {string[]} valuesArray
- * @param {boolean=} countOrder Sort by count desc
+ * Frequency count of individual values for a column or one of its variants.
+ * @param {Object} column Column object (optionally including col_vars)
+ * @param {Object} [options]
+ * @param {number|null} [options.variantIndex] Variant index to inspect (defaults to base column)
+ * @param {boolean} [options.splitList] Split list values using the column separator (defaults true for list columns)
+ * @param {boolean} [options.includeEmpty=false] Include empty / missing values in the output
+ * @param {'asc'|'desc'|null} [options.sortByCount=null] Sort by count (asc/desc). When null falls back to value sort.
+ * @param {'asc'|'desc'} [options.sortByValue='asc'] Sort alphabetically when not ordering by count.
+ * @returns {{Value:string,Count:number}[]}
  */
-ns.getIndividualItemsWithCount = function (valuesArray, countOrder = false) {
-  const countMap = {}; valuesArray.forEach(val => { countMap[val] = (countMap[val] || 0) + 1; });
-  const resultArray = Object.entries(countMap).map(([key, value]) => ({ Value: key, Count: value }));
-  if (countOrder) resultArray.sort((a, b) => b.Count - a.Count); else resultArray.sort((a, b) => a.Value.localeCompare(b.Value));
+ns.getIndividualItemsWithCount = function (column, options = {}) {
+  if (!column || typeof column !== 'object') return [];
+
+  const {
+    variantIndex = null,
+    splitList,
+    includeEmpty = false,
+    sortByCount = null,
+    sortByValue = 'asc'
+  } = options || {};
+
+  const baseColumn = column;
+  const variant = Number.isInteger(variantIndex) && Array.isArray(baseColumn.col_vars)
+    ? baseColumn.col_vars[variantIndex]
+    : null;
+  const col_type = variant?.col_type ?? baseColumn.col_type ?? 'q';
+  let col_sep = variant?.col_sep ?? baseColumn.col_sep;
+  if (!col_sep) col_sep = col_type === 'l' ? ';' : '';
+
+  const sourceColumn = variant
+    ? { ...variant, col_type, col_sep }
+    : { ...baseColumn, col_type, col_sep };
+
+  const values = ns.decodeColumn(sourceColumn);
+  if (!Array.isArray(values) || values.length === 0) return [];
+
+  const splitPreference = splitList !== undefined ? !!splitList : true;
+  const shouldSplit = col_type === 'l' && splitPreference;
+  const counts = new Map();
+
+  const addValue = (raw) => {
+    const text = raw === null || raw === undefined ? '' : String(raw);
+    const normalized = shouldSplit ? text.trim() : text;
+    if (!includeEmpty && normalized.trim() === '') return;
+    const key = normalized.trim();
+    counts.set(key, (counts.get(key) || 0) + 1);
+  };
+
+  values.forEach((value) => {
+    if (shouldSplit) {
+      const text = value === null || value === undefined ? '' : String(value);
+      const pieces = text.split(col_sep).map(part => part.trim()).filter(part => includeEmpty ? true : part !== '');
+      if (pieces.length === 0 && includeEmpty) {
+        addValue('');
+      } else {
+        pieces.forEach(addValue);
+      }
+    } else {
+      addValue(value);
+    }
+  });
+
+  const resultArray = Array.from(counts.entries()).map(([key, value]) => ({
+    Value: key,
+    Count: value
+  }));
+
+  if (sortByCount === 'asc') {
+    resultArray.sort((a, b) => a.Count - b.Count || a.Value.localeCompare(b.Value));
+  } else if (sortByCount === 'desc') {
+    resultArray.sort((a, b) => b.Count - a.Count || a.Value.localeCompare(b.Value));
+  } else if (sortByValue === 'desc') {
+    resultArray.sort((a, b) => b.Value.localeCompare(a.Value));
+  } else {
+    resultArray.sort((a, b) => a.Value.localeCompare(b.Value));
+  }
+
   return resultArray;
 };
 
