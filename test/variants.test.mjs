@@ -62,3 +62,25 @@ test("addVariant seeds original snapshot when missing", () => {
   assert.notStrictEqual(updatedColumn.col_vars[0].col_values, updatedColumn.col_values);
   assert.strictEqual(updatedColumn.col_vars[1], numericVariant);
 });
+
+test("cut numeric with equally spaced width", () => {
+  const baseColumn = factors.makeColumn(['1','2','3','4','5','6','7','8','9','10'], {col_type: "n"});
+
+  const options = {
+    cut: {
+      width: 5,
+      includeLowest: true,
+      right: true,
+      origin: 0
+    }
+  };
+
+  const variant = variants.createVariant(baseColumn, options);
+
+  baseColumn.col_vars.push(variant);
+
+  const variantRaw = factors.decodeColumn(variant);
+
+  assert.deepEqual(variantRaw, ["[0, 5]","[0, 5]","[0, 5]","[0, 5]","[0, 5]","(5, 10]","(5, 10]","(5, 10]","(5, 10]","(5, 10]"]);
+  
+});
