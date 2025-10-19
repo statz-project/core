@@ -4,5 +4,6 @@
     "col_sex_hash",
     "col_outcome_hash",
     "col_income_hash",
-    "col_origin_hash"
+    "col_origin_hash",
+    "col_clinics_hash"
 ]

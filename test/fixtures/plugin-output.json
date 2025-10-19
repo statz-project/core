@@ -5,7 +5,8 @@
     "sex": "female",
     "outcome": "no",
     "income": "low",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -13,7 +14,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;dm"
   },
   {
     "score": "4",
@@ -21,7 +23,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "3",
@@ -29,7 +32,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -37,7 +41,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "9",
@@ -45,7 +50,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -53,7 +59,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "8",
@@ -61,7 +68,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "6",
@@ -69,7 +77,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -77,7 +86,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -85,7 +95,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "5",
@@ -93,7 +104,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "5",
@@ -101,7 +113,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -109,7 +122,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -117,7 +131,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;dm;fever;sneeze;anemia;underweight;fatigue;cough;cancer"
   },
   {
     "score": "9",
@@ -125,7 +140,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "9",
@@ -133,7 +149,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "5",
@@ -141,7 +158,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "fever"
   },
   {
     "score": "9",
@@ -149,7 +167,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "6",
@@ -157,7 +176,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -165,7 +185,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -173,7 +194,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -181,7 +203,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "7",
@@ -189,7 +212,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "3",
@@ -197,7 +221,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "9",
@@ -205,7 +230,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "4",
@@ -213,7 +239,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -221,7 +248,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "7",
@@ -229,7 +257,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;sneeze"
   },
   {
     "score": "9",
@@ -237,7 +266,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -245,7 +275,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;sneeze"
   },
   {
     "score": "9",
@@ -253,7 +284,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "dm;fever"
   },
   {
     "score": "5",
@@ -261,7 +293,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "6",
@@ -269,7 +302,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "fever"
   },
   {
     "score": "8",
@@ -277,7 +311,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "9",
@@ -285,7 +320,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "5",
@@ -293,7 +329,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -301,7 +338,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;sneeze"
   },
   {
     "score": "9",
@@ -309,7 +347,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -317,7 +356,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "fever"
   },
   {
     "score": "9",
@@ -325,7 +365,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -333,7 +374,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "8",
@@ -341,7 +383,8 @@
     "sex": "male",
     "outcome": "no",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "10",
@@ -349,7 +392,8 @@
     "sex": "female",
     "outcome": "yes",
     "income": "low",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "10",
@@ -357,7 +401,8 @@
     "sex": "female",
     "outcome": "yes",
     "income": "low",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "6",
@@ -365,7 +410,8 @@
     "sex": "female",
     "outcome": "yes",
     "income": "low",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "10",
@@ -373,7 +419,8 @@
     "sex": "female",
     "outcome": "yes",
     "income": "low",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -381,7 +428,8 @@
     "sex": "female",
     "outcome": "yes",
     "income": "low",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -389,7 +437,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "8",
@@ -397,7 +446,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "3",
@@ -405,7 +455,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;dm;fever;sneeze;anemia;underweight;fatigue;cough;cancer"
   },
   {
     "score": "3",
@@ -413,7 +464,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -421,7 +473,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "6",
@@ -429,7 +482,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -437,7 +491,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -445,7 +500,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "fever"
   },
   {
     "score": "5",
@@ -453,7 +509,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;dm;fever;sneeze;anemia;underweight;fatigue;cough;cancer"
   },
   {
     "score": "6",
@@ -461,7 +518,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "6",
@@ -469,7 +527,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "6",
@@ -477,7 +536,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "9",
@@ -485,7 +545,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "8",
@@ -493,7 +554,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "fever"
   },
   {
     "score": "5",
@@ -501,7 +563,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -509,7 +572,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "5",
@@ -517,7 +581,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -525,7 +590,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "6",
@@ -533,7 +599,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "fever"
   },
   {
     "score": "8",
@@ -541,7 +608,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "6",
@@ -549,7 +617,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "6",
@@ -557,7 +626,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -565,7 +635,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -573,7 +644,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "3",
@@ -581,7 +653,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "fever"
   },
   {
     "score": "6",
@@ -589,7 +662,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "fever"
   },
   {
     "score": "4",
@@ -597,7 +671,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "8",
@@ -605,7 +680,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;dm;fever;sneeze;anemia;underweight;fatigue;cough;cancer"
   },
   {
     "score": "5",
@@ -613,7 +689,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;dm;fever;sneeze;anemia;underweight;fatigue;cough;cancer"
   },
   {
     "score": "6",
@@ -621,7 +698,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -629,7 +707,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "3",
@@ -637,7 +716,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;cough"
   },
   {
     "score": "4",
@@ -645,7 +725,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "5",
@@ -653,7 +734,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "9",
@@ -661,7 +743,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "5",
@@ -669,7 +752,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "5",
@@ -677,7 +761,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "9",
@@ -685,7 +770,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -693,7 +779,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -701,7 +788,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "9",
@@ -709,7 +797,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "8",
@@ -717,7 +806,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -725,7 +815,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "dm;fever"
   },
   {
     "score": "4",
@@ -733,7 +824,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "7",
@@ -741,7 +833,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -749,7 +842,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "3",
@@ -757,7 +851,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": null
   },
   {
     "score": "3",
@@ -765,7 +860,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -773,7 +869,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": null
   },
   {
     "score": "5",
@@ -781,7 +878,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   },
   {
     "score": "8",
@@ -789,7 +887,8 @@
     "sex": "male",
     "outcome": "yes",
     "income": "middle",
-    "origin": "foreign"
+    "origin": "foreign",
+    "clinics": "headache;overweight"
   },
   {
     "score": "4",
@@ -797,6 +896,7 @@
     "sex": "male",
     "outcome": "yes",
     "income": "high",
-    "origin": "local"
+    "origin": "local",
+    "clinics": "headache;overweight"
   }
 ]
