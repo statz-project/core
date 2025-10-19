@@ -84,3 +84,25 @@ test("cut numeric with equally spaced width", () => {
   assert.deepEqual(variantRaw, ["[0, 5]","[0, 5]","[0, 5]","[0, 5]","[0, 5]","(5, 10]","(5, 10]","(5, 10]","(5, 10]","(5, 10]"]);
   
 });
+
+test("cut numeric with explicit breaks", () => {
+  const baseColumn = factors.makeColumn(['1','2','3','4','5','6','7','8','','10'], {col_type: "n"});
+
+  const options = {
+    cut: {
+      includeLowest: true,
+      right: true,
+      breaks: [1,3,10],
+      // labels: ['b','a'],
+      col_type: "q"
+    }
+  };
+
+  const variant = variants.createVariant(baseColumn, options);
+
+  baseColumn.col_vars.push(variant);
+
+  const summary = driver.describeColumn(baseColumn, baseColumn.col_vars.length - 1);
+
+  assert.deepEqual(summary, ["[1, 3]: 3 (30.0%)","(3, 10]: 6 (60.0%)","Not informed: 1 (10.0%)"]);
+});
