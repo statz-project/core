@@ -28,6 +28,17 @@ import { getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate }
 const ns = {};
 
 /**
+ * Retrieve a column by hash from a parsed database payload.
+ * @param {{columns?: Column[]}|null|undefined} database
+ * @param {string} colHash
+ * @returns {Column|null}
+ */
+ns.getColumn = function (database, colHash) {
+  if (!database || !Array.isArray(database.columns)) return null;
+  return database.columns.find((col) => col?.col_hash === colHash) ?? null;
+};
+
+/**
  * Retrieve a column by hash and decode its raw values.
  * @param {{columns?: Column[]}|null|undefined} database Parsed database payload returned by parseColumns
  * @param {string} colHash Column hash to match
@@ -35,10 +46,7 @@ const ns = {};
  * @returns {{ column: Column|null, variant: any|null, rawValues: any[] }}
  */
 ns.getColumnValues = function (database, colHash, variantIndex = null) {
-  if (!database || !Array.isArray(database.columns)) {
-    return { column: null, variant: null, rawValues: [] };
-  }
-  const column = database.columns.find(col => col?.col_hash === colHash) || null;
+  const column = ns.getColumn(database, colHash);
   if (!column) {
     return { column: null, variant: null, rawValues: [] };
   }
@@ -50,7 +58,10 @@ ns.getColumnValues = function (database, colHash, variantIndex = null) {
   let colSep = variant?.col_sep ?? column.col_sep;
   if (!colSep) colSep = colType === 'l' ? ';' : '';
   const colValues = variant?.col_values ?? column.col_values;
-  const rawValues = factors.decodeColValues(colValues, colType, colSep) || [];
+  const target = variant
+    ? { ...variant, col_type: colType, col_sep: colSep, col_values: colValues }
+    : { ...column, col_type: colType, col_sep: colSep, col_values: colValues };
+  const rawValues = factors.decodeColumn(target) || [];
   return { column, variant, rawValues };
 };
 
@@ -68,7 +79,7 @@ ns.addVariant = function (database, colHash, newVariant) {
   if (!database || !Array.isArray(database.columns)) {
     throw new Error('Invalid database payload; expected an object with columns.');
   }
-  const column = database.columns.find(col => col?.col_hash === colHash);
+  const column = ns.getColumn(database, colHash);
   if (!column) {
     throw new Error(`Column with hash ${colHash} not found in database.`);
   }
@@ -224,7 +235,7 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const columns = predictors.concat(responses).map(col => {
     const db = dbs[col.database_id];
     if (!db) return null;
-    const baseCol = db.columns.find(c => c.col_hash === col.col_hash);
+    const baseCol = ns.getColumn(db, col.col_hash);
     if (!baseCol) return null;
     const hasVariantIndex = col.col_var_index !== null && col.col_var_index !== undefined;
     const variant = hasVariantIndex && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[col.col_var_index] : null;
@@ -361,6 +372,5 @@ ns.reorderVariableList = function (list, index, direction) {
 };
 
 export default { ...ns, ...factors, ...contingency, ...numeric, ...variants };
-
 
 
