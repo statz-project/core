@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 import { trimPunctuation } from './_env.js';
 
 /**
@@ -188,7 +188,7 @@ ns.replaceColumnValues = function (colObject, search, replace) {
 };
 
 /**
- * Collect the distinct values present in a column, splitting list columns into individual items.
+ * Collect the distinct values present in a column, splitting list columns into individual items. Supports both a Column object and a variant object.
  * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any }} colObject
  * @returns {string[]}
  */

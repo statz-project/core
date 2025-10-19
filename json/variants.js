@@ -674,6 +674,7 @@ ns.VARIANT_TEMPLATES = {
   q: [
     { id: 'search_replace', label: 'Search & replace levels', options: ['replacements'] },
     { id: 'merge_levels', label: 'Merge levels', options: ['merges'] },
+    { id: 'subset', label: 'Keep subset', options: ['subsetLevels'] },
     { id: 'fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
     { id: 'sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
   ],

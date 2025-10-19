@@ -95,29 +95,37 @@ test("cut numeric with explicit breaks", () => {
       includeLowest: true,
       right: true,
       breaks: [1,3,10],
-      // labels: ['b','a'],
       col_type: "q"
     }
   };
 
   const variant = variants.createVariant(baseColumn, options);
-
+  
   baseColumn.col_vars.push(variant);
-
+  
   const summary = driver.describeColumn(baseColumn, baseColumn.col_vars.length - 1);
-
+  
   assert.deepEqual(summary, ["[1, 3]: 3 (30.0%)","(3, 10]: 6 (60.0%)","Not informed: 1 (10.0%)"]);
 });
 
 test("subsetLevels from list column type", () => {
-
-  const values = driver.getColumnValues()
-
-  const baseColumn = {"col_name":"Comorbidades","col_label":"Comorbidades","col_hash":"2403a8124d79697c551e73a4ffad4665","col_index":6,"col_del":false,"col_type":"l","col_sep":";","col_values":{"col_compact":true,"labels":["has","dislipidemia","amigdalite","dm","febre","anemia","baixo peso","letargia","cancer","sobrepeso","drge"],"codes":["1;2","1;3","4;5","5","1;4;5;2;6;7;8;3;9","1;10","","","5","1;4;5;9;7;9;11","1;4","1;4;5;2;6;7;8;3;9","1;10","1;10","1;10","1;10","1;10","1;10","1;10","1;10","","","1;10","1;10","1;10","1;10","1;10","1;10","1;10","","","1;10","1;10","1;10","1;10","1;10","1;10","1;10","","","1;10","1;10","1;10","1;10","1;10","1;10","1;10","",""],"raw_values":null},"col_vars":[]};
-
-  const decoded = factors.decodeColumn(baseColumn);
-  console.log(JSON.stringify(parsed));
   
+  const baseColumn = driver.getColumn(parsed, "col_clinics_hash");
+  
+  const summary = driver.describeColumn(baseColumn, baseColumn.col_vars.length - 1);
+
+  assert.deepEqual(summary, ["headache: 68 (68.0%)","overweight: 58 (58.0%)","fever: 15 (15.0%)","dm: 8 (8.0%)","sneeze: 8 (8.0%)","cough: 6 (6.0%)","anemia: 5 (5.0%)","cancer: 5 (5.0%)","fatigue: 5 (5.0%)","underweight: 5 (5.0%)","Not informed: 22 (22.0%)"]);
+  
+  const options = {
+    subsetLevels: ['fever','headache']
+  };
+  
+  const variant = variants.createVariant(baseColumn, options);
+  baseColumn.col_vars.push(variant);
+  
+  const VariantSummary = driver.describeColumn(baseColumn, baseColumn.col_vars.length - 1);
+  
+  assert.deepEqual(VariantSummary, ["headache: 68 (68.0%)","fever: 15 (15.0%)","Not informed: 22 (22.0%)"]);
 
 });
 
