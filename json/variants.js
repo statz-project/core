@@ -648,9 +648,9 @@ ns.createVariant = function (baseCol, config = {}) {
   if (currentType === 'l' && !currentSep) currentSep = sourceSep || DEFAULT_LIST_SEP;
   if (currentType !== 'l') currentSep = currentSep || '';
   const processed = factors.encodeColValues(workingValues, currentType, currentSep);
-  const finalValues = config.sortByFrequency
-    ? sortByFrequency(processed, workingValues, currentType, currentSep, meta)
-    : processed;
+const finalValues = config.sortByFrequency
+  ? sortByFrequency(processed, workingValues, currentType, currentSep, meta)
+  : processed;
   if (cutInfo?.breaks) {
     meta.breaks = cutInfo.breaks;
     meta.labels = cutInfo.labels;
@@ -691,6 +691,22 @@ ns.VARIANT_TEMPLATES = {
     { id: 'sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
   ]
 };
+
+/**
+ * Ordered list of transform ids used in the variant pipeline.
+ * Useful for UI workflows that need to reset downstream panels.
+ * @type {string[]}
+ */
+ns.TRANSFORM_ORDER = [
+  'fill_missing',
+  'search_replace',
+  'merge_levels',
+  'subset',
+  'coerce_numeric',
+  'transform',
+  'cut_intervals',
+  'sort_frequency'
+];
 
 ns.cloneColValues = cloneColValues;
 ns.sanitizeNumericString = sanitizeNumericString;
