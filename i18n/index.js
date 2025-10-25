@@ -238,24 +238,45 @@ const MESSAGES = {
 
 const SUPPORTED_LANGUAGES = Object.keys(MESSAGES);
 
+const getGlobalStatz = () => {
+  if (typeof globalThis !== 'undefined') {
+    if (globalThis.Statz && typeof globalThis.Statz === 'object') return globalThis.Statz;
+    if (globalThis.Utils && typeof globalThis.Utils === 'object') return globalThis.Utils;
+  }
+  return null;
+};
+
+const resolveDefaultLanguage = () => {
+  const globalStatz = getGlobalStatz();
+  const candidate = globalStatz?.DEFAULT_LANG;
+  if (!candidate) return DEFAULT_LANG;
+  const lowered = String(candidate).trim().toLowerCase();
+  if (!lowered) return DEFAULT_LANG;
+  const normalized = lowered.replace(/-/g, '_');
+  if (MESSAGES[normalized]) return normalized;
+  if (LANGUAGE_ALIASES[normalized]) return LANGUAGE_ALIASES[normalized];
+  return DEFAULT_LANG;
+};
+
 /**
  * Normalize the requested language tag to a supported locale code.
  * @param {string|undefined|null} lang
  * @returns {string}
  */
 export function normalizeLanguage(lang) {
-  if (!lang) return DEFAULT_LANG;
+  if (!lang) return resolveDefaultLanguage();
   const lowered = String(lang).trim().toLowerCase();
-  if (!lowered) return DEFAULT_LANG;
+  if (!lowered) return resolveDefaultLanguage();
   const normalized = lowered.replace(/-/g, '_');
   if (MESSAGES[normalized]) return normalized;
   if (LANGUAGE_ALIASES[normalized]) return LANGUAGE_ALIASES[normalized];
-  return DEFAULT_LANG;
+  return resolveDefaultLanguage();
 }
 
 function getDictionary(lang) {
   const code = normalizeLanguage(lang);
-  return MESSAGES[code] || MESSAGES[DEFAULT_LANG];
+  const fallback = resolveDefaultLanguage();
+  return MESSAGES[code] || MESSAGES[fallback] || MESSAGES[DEFAULT_LANG];
 }
 
 function interpolate(template, vars = {}) {
@@ -288,8 +309,9 @@ export function translate(key, lang, vars = {}) {
       break;
     }
   }
-  if (value === undefined && code !== DEFAULT_LANG) {
-    return translate(key, DEFAULT_LANG, vars);
+  const fallbackCode = resolveDefaultLanguage();
+  if (value === undefined && code !== fallbackCode) {
+    return translate(key, fallbackCode, vars);
   }
   if (typeof value === 'string') {
     return interpolate(value, vars);
@@ -341,4 +363,3 @@ const api = {
 };
 
 export default api;
-
