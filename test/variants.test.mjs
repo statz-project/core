@@ -112,7 +112,7 @@ test("subsetLevels from list column type", () => {
   
   const baseColumn = driver.getColumn(parsed, "col_clinics_hash");
   
-  const summary = driver.describeColumn(baseColumn, baseColumn.col_vars.length - 1);
+  const summary = driver.describeColumn(baseColumn);
 
   assert.deepEqual(summary, ["headache: 68 (68.0%)","overweight: 58 (58.0%)","fever: 15 (15.0%)","dm: 8 (8.0%)","sneeze: 8 (8.0%)","cough: 6 (6.0%)","anemia: 5 (5.0%)","cancer: 5 (5.0%)","fatigue: 5 (5.0%)","underweight: 5 (5.0%)","Not informed: 22 (22.0%)"]);
   
@@ -121,12 +121,34 @@ test("subsetLevels from list column type", () => {
   };
   
   const variant = variants.createVariant(baseColumn, options);
-  baseColumn.col_vars.push(variant);
   
-  const VariantSummary = driver.describeColumn(baseColumn, baseColumn.col_vars.length - 1);
+  const VariantSummary = driver.describeColumn(variant);
   
   assert.deepEqual(VariantSummary, ["headache: 68 (68.0%)","fever: 15 (15.0%)","Not informed: 22 (22.0%)"]);
 
 });
 
+test("search and replace", () => {
 
+  const baseColumn = driver.getColumn(parsed, "col_clinics_hash");
+
+  const options = {
+    replacements: [
+      {from: "headache", to: "migraine"},
+      {from: "fever", to: "pyrexia"}
+    ]
+  };
+
+  const variant = variants.createVariant(baseColumn, options);
+
+  assert.deepEqual(
+    driver.describeColumn(variant),
+    ["migraine: 68 (68.0%)","overweight: 58 (58.0%)","pyrexia: 15 (15.0%)","dm: 8 (8.0%)","sneeze: 8 (8.0%)","cough: 6 (6.0%)","anemia: 5 (5.0%)","cancer: 5 (5.0%)","fatigue: 5 (5.0%)","underweight: 5 (5.0%)","Not informed: 22 (22.0%)"]
+  );
+
+  assert.deepEqual(
+    variant.meta.warnings,
+    ["Search & replace: headache->migraine; fever->pyrexia"]
+  );
+
+})

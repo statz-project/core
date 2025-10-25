@@ -191,6 +191,19 @@ const applySearchReplace = (values, replacements, ctx) => {
   if (map.size === 0) return values;
   meta.actions.push({ type: 'search_replace', count: map.size });
   const log = [];
+  const seen = new Set();
+  let overflow = 0;
+  const registerChange = (from, to) => {
+    if (from === to) return;
+    const entry = `${from}->${to || '[empty]'}`;
+    if (seen.has(entry)) return;
+    seen.add(entry);
+    if (log.length < MAX_WARNINGS) {
+      log.push(entry);
+    } else {
+      overflow += 1;
+    }
+  };
   const updated = values.map((value) => {
     const text = toStringSafe(value);
     if (!text) return text;
@@ -200,7 +213,7 @@ const applySearchReplace = (values, replacements, ctx) => {
         .map((item) => {
           if (!map.has(item)) return item;
           const replacement = map.get(item);
-          if (log.length < MAX_WARNINGS && item !== replacement) log.push(`${item}->${replacement || '[empty]'}`);
+          registerChange(item, replacement);
           return replacement;
         })
         .filter(Boolean);
@@ -209,10 +222,13 @@ const applySearchReplace = (values, replacements, ctx) => {
     const trimmed = text.trim();
     if (!map.has(trimmed)) return text;
     const replacement = map.get(trimmed);
-    if (log.length < MAX_WARNINGS && trimmed !== replacement) log.push(`${trimmed}->${replacement || '[empty]'}`);
+    registerChange(trimmed, replacement);
     return replacement;
   });
-  if (log.length) pushWarning(meta, 'variants.warnings.searchReplace', { details: log.join(', ') });
+  if (log.length) {
+    const extra = overflow > 0 ? formatExtraSuffix(meta, overflow) : '';
+    pushWarning(meta, 'variants.warnings.searchReplace', { details: `${log.join('; ')}${extra}` });
+  }
   return updated;
 };
 
