@@ -84,13 +84,14 @@ ns.addVariant = function (database, colHash, newVariant) {
     throw new Error(`Column with hash ${colHash} not found in database.`);
   }
   if (!Array.isArray(column.col_vars) || column.col_vars.length === 0) {
+    const colLabel = column.col_label ?? "Original";
     const colType = column.col_type ?? 'q';
     const colSep = column.col_sep ?? (colType === 'l' ? ';' : '');
     const clone = variants.cloneColValues
       ? variants.cloneColValues(column.col_values)
       : (column.col_values ? JSON.parse(JSON.stringify(column.col_values)) : column.col_values);
     column.col_vars = [{
-      var_label: 'Original',
+      var_label: colLabel,
       col_type: colType,
       col_sep: colSep,
       col_values: clone,
