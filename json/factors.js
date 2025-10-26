@@ -30,7 +30,7 @@ ns.shouldCompact = function (values, col_type = null, col_sep = ';') {
   if (!Array.isArray(values)) return false;
   if (col_type === 'q') return true;
   const flattened = (col_type === 'l') ? values.flatMap(v => (v || '').split(col_sep)) : values;
-  const unique = new Set(flattened.map(v => v.trim()).filter(Boolean));
+  const unique = new Set(flattened.map(v => (v == null ? '' : String(v)).trim()).filter(Boolean));
   return unique.size > 1 && unique.size < flattened.length / 1.5;
 };
 
