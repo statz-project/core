@@ -81,6 +81,23 @@ function loadHashes(hashesFile = "column-hashes.json") {
   return readJson(hashesFile);
 }
 
+/**
+ * Generate the row-wise Bubble payload from a CSV and return the parsed dataset.
+ * The helper writes `rowsFile` using `writeRowsFromCsv` before calling `Statz.parseColumns`.
+ *
+ * @param {Object} [options]
+ * @param {string} [options.csvFile='example.csv'] Source CSV in `core/test/fixtures/`.
+ * @param {string} [options.rowsFile='plugin-output.json'] Target JSON file for the regenerated rows.
+ * @param {string} [options.hashesFile='column-hashes.json'] Hash list that mirrors Bubble's column identifiers.
+ * @param {string} [options.filename='example.csv'] Original filename forwarded to `parseColumns`.
+ * @param {string} [options.importTime=new Date().toISOString()] Timestamp forwarded to `parseColumns`.
+ * @returns {{
+ *   rows: Array<Record<string, string | null>>,
+ *   hashes: string[],
+ *   parsed: Record<string, unknown>,
+ *   serialized: string
+ * }}
+ */
 export function parseFixture({
   csvFile = "example.csv",
   rowsFile = "plugin-output.json",
@@ -95,4 +112,3 @@ export function parseFixture({
   const parsed = JSON.parse(serialized);
   return { rows, hashes, parsed, serialized };
 }
-
