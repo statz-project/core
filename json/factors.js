@@ -173,14 +173,28 @@ ns.makeColumn = function (values, options = {}) {
 ns.replaceColumnValues = function (colObject, search, replace) {
   const decodedValues = ns.decodeColumn(colObject);
   const sep = colObject.col_sep; const isListType = colObject.col_type === 'l' && sep;
-  const replaceMap = {}; search.forEach((original, i) => { const updated = (replace[i] ?? '').trim(); replaceMap[original] = updated; });
+  const normalizeKey = (value) => (value == null ? '' : String(value).trim());
+  const replaceMap = {};
+  search.forEach((original, i) => {
+    const updated = (replace[i] ?? '').trim();
+    replaceMap[normalizeKey(original)] = updated;
+  });
   const updatedValues = decodedValues.map(entry => {
     if (isListType) {
-      const items = entry.split(sep).map(x => x.trim());
-      const newItems = items.map(item => Object.prototype.hasOwnProperty.call(replaceMap, item) ? replaceMap[item] : item).filter(x => x !== undefined && x !== '');
+      const items = normalizeKey(entry).split(sep).map(x => x.trim());
+      const newItems = items
+        .map(item => {
+          const key = normalizeKey(item);
+          return Object.prototype.hasOwnProperty.call(replaceMap, key) ? replaceMap[key] : item;
+        })
+        .filter(x => x !== undefined && x !== '');
       return newItems.join(sep);
     }
-    if (Object.prototype.hasOwnProperty.call(replaceMap, entry)) { const newVal = replaceMap[entry]; return newVal === '' ? '' : newVal; }
+    const key = normalizeKey(entry);
+    if (Object.prototype.hasOwnProperty.call(replaceMap, key)) {
+      const newVal = replaceMap[key];
+      return newVal === '' ? '' : newVal;
+    }
     return entry;
   });
   const processed = ns.encodeColValues(updatedValues, colObject.col_type, colObject.col_sep);

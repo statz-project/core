@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import factors from "../json/factors.js";
-import driver from "../json/driver.js";
+import { log } from "node:console";
 
 test("getIndividualItemsWithCount", () => {
 
@@ -22,5 +22,19 @@ test("getIndividualItemsWithCount", () => {
   const countFactor = factors.getIndividualItemsWithCount(columnFactor, {splitList: true, includeEmpty: true, sortByCount: "desc"});
   
   assert.deepEqual(countFactor, [{"Value":"male","Count":94},{"Value":"female","Count":6}]);
+
+});
+
+test("replaceColumnValues is replacing empty values", () => {
+
+  const column = {"col_type":"q","col_sep":"","col_values":{"col_compact":true,"labels":["male","female"],"codes":[1,1,1,1,0,1,1,1,2,2,2,2,2,0,1,1],"raw_values":null},"col_name":"sex","col_label":"sex","col_hash":"3c3662bcb661d6de679c636744c66b62","col_index":2,"col_del":false,"col_vars":[]};
+
+  const countsList = factors.getIndividualItemsWithCount(column, {includeEmpty: true});
+
+  const newColumn = factors.replaceColumnValues(column, countsList.map(item => item.Value), ["EMPTY","FEMALE","MALE"]);
+
+  const newData = factors.getIndividualItemsWithCount(newColumn, {includeEmpty: true});
+
+  assert.deepEqual(newData, [{"Value":"EMPTY","Count":2},{"Value":"FEMALE","Count":5},{"Value":"MALE","Count":9}]);
 
 });
