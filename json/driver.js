@@ -267,11 +267,11 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
 
 /**
  * Produce a lightweight summary for a column or one of its variants.
- * Returns strings ready to display in compact previews.
+ * Returns `"label: summary"` pairs by default or `{ label, summary }` objects when `structured` is true.
  * @param {Column} column
  * @param {number|null} [variantIndex]
- * @param {{ lang?: string, formatFn?: Function, maxRows?: number }} [options]
- * @returns {string[]}
+ * @param {{ lang?: string, formatFn?: Function, maxRows?: number, structured?: boolean }} [options]
+ * @returns {Array<Record<string, string>> | Array<{label:string, summary:string}>}
  */
 ns.describeColumn = function (column, variantIndex = null, options = {}) {
   if (!column || typeof column !== 'object') return [];
@@ -295,10 +295,12 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
   const colType = variant?.col_type ?? resolvedColumn.col_type ?? 'q';
   let colSep = variant?.col_sep ?? resolvedColumn.col_sep;
   if (!colSep) colSep = colType === 'l' ? ';' : '';
+  const structured = options?.structured === true;
   const lang = normalizeLanguage(options?.lang);
   const summaryOptions = { ...options, lang };
   delete summaryOptions.formatFn;
   delete summaryOptions.maxRows;
+  delete summaryOptions.structured;
   const formatFn = options.formatFn ?? null;
   let table;
   try {
@@ -324,23 +326,36 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
   const maxRowsValue = Number(options?.maxRows);
   const maxRows = Number.isFinite(maxRowsValue) && maxRowsValue > 0 ? Math.floor(maxRowsValue) : null;
   const slice = maxRows ? rows.slice(0, maxRows) : rows;
-  const toLine = (row) => {
-    const parts = columns.map((colName) => {
-      if (Object.prototype.hasOwnProperty.call(row, colName)) {
-        const value = row[colName];
-        return value === null || value === undefined ? '' : String(value);
-      }
-      return '';
-    });
-    if (!parts.some(Boolean)) return '';
-    const [first, ...rest] = parts;
-    const tail = rest.filter(Boolean).join(' | ');
-    if (first && tail) return first + ': ' + tail;
-    if (first) return first;
-    if (tail) return tail;
-    return '';
+  const normalizeCell = (value) => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'number' && !Number.isFinite(value)) return '';
+    return String(value).trim();
   };
-  return slice.map(toLine).filter((line) => line && line.trim());
+  return slice.map((row) => {
+    const columnValues = {};
+    columns.forEach((colName) => {
+      if (Object.prototype.hasOwnProperty.call(row, colName)) {
+        columnValues[String(colName)] = normalizeCell(row[colName]);
+      }
+    });
+    const firstColumnName = String(columns[0] ?? '');
+    const label = (columnValues[firstColumnName] ?? '').trim();
+    const summary = columns.slice(1)
+      .map((colName) => columnValues[String(colName)] ?? '')
+      .filter((value) => value && value.trim())
+      .join(' | ');
+    if (!label && !summary) return null;
+    if (structured) {
+      return { label, summary };
+    }
+    const formatted = (() => {
+      if (label && summary) return `${label}: ${summary}`;
+      if (label) return label;
+      if (summary) return summary;
+      return '';
+    })();
+    return formatted ? formatted : null;
+  }).filter(Boolean);
 };
 
 /**
@@ -373,5 +388,3 @@ ns.reorderVariableList = function (list, index, direction) {
 };
 
 export default { ...ns, ...factors, ...contingency, ...numeric, ...variants };
-
-

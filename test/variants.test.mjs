@@ -105,7 +105,11 @@ test("cut numeric with explicit breaks", () => {
   
   const summary = driver.describeColumn(baseColumn, baseColumn.col_vars.length - 1);
   
-  assert.deepEqual(summary, ["[1, 3]: 3 (30.0%)","(3, 10]: 6 (60.0%)","Not informed: 1 (10.0%)"]);
+  assert.deepEqual(summary, [
+    "[1, 3]: 3 (30.0%)",
+    "(3, 10]: 6 (60.0%)",
+    "Not informed: 1 (10.0%)"
+  ]);
 });
 
 test("subsetLevels from list column type", () => {
@@ -114,7 +118,19 @@ test("subsetLevels from list column type", () => {
   
   const summary = driver.describeColumn(baseColumn);
 
-  assert.deepEqual(summary, ["headache: 68 (68.0%)","overweight: 58 (58.0%)","fever: 15 (15.0%)","dm: 8 (8.0%)","sneeze: 8 (8.0%)","cough: 6 (6.0%)","anemia: 5 (5.0%)","cancer: 5 (5.0%)","fatigue: 5 (5.0%)","underweight: 5 (5.0%)","Not informed: 22 (22.0%)"]);
+  assert.deepEqual(summary, [
+    "headache: 68 (68.0%)",
+    "overweight: 58 (58.0%)",
+    "fever: 15 (15.0%)",
+    "dm: 8 (8.0%)",
+    "sneeze: 8 (8.0%)",
+    "cough: 6 (6.0%)",
+    "anemia: 5 (5.0%)",
+    "cancer: 5 (5.0%)",
+    "fatigue: 5 (5.0%)",
+    "underweight: 5 (5.0%)",
+    "Not informed: 22 (22.0%)"
+  ]);
   
   const options = {
     subsetLevels: ['fever','headache']
@@ -124,7 +140,11 @@ test("subsetLevels from list column type", () => {
   
   const VariantSummary = driver.describeColumn(variant);
   
-  assert.deepEqual(VariantSummary, ["headache: 68 (68.0%)","fever: 15 (15.0%)","Not informed: 22 (22.0%)"]);
+  assert.deepEqual(VariantSummary, [
+    "headache: 68 (68.0%)",
+    "fever: 15 (15.0%)",
+    "Not informed: 22 (22.0%)"
+  ]);
 
 });
 
@@ -143,7 +163,19 @@ test("search and replace", () => {
 
   assert.deepEqual(
     driver.describeColumn(variant),
-    ["migraine: 68 (68.0%)","overweight: 58 (58.0%)","pyrexia: 15 (15.0%)","dm: 8 (8.0%)","sneeze: 8 (8.0%)","cough: 6 (6.0%)","anemia: 5 (5.0%)","cancer: 5 (5.0%)","fatigue: 5 (5.0%)","underweight: 5 (5.0%)","Not informed: 22 (22.0%)"]
+    [
+      "migraine: 68 (68.0%)",
+      "overweight: 58 (58.0%)",
+      "pyrexia: 15 (15.0%)",
+      "dm: 8 (8.0%)",
+      "sneeze: 8 (8.0%)",
+      "cough: 6 (6.0%)",
+      "anemia: 5 (5.0%)",
+      "cancer: 5 (5.0%)",
+      "fatigue: 5 (5.0%)",
+      "underweight: 5 (5.0%)",
+      "Not informed: 22 (22.0%)"
+    ]
   );
 
   assert.deepEqual(
@@ -151,4 +183,27 @@ test("search and replace", () => {
     ["Search & replace: headache->migraine; fever->pyrexia"]
   );
 
-})
+});
+
+test("describeColumn structured output modes", () => {
+  const baseColumn = driver.getColumn(parsed, "col_clinics_hash");
+
+  const structured = driver.describeColumn(baseColumn, null, {
+    structured: true,
+    maxRows: 2
+  });
+
+  assert.deepEqual(structured, [
+    { label: "headache", summary: "68 (68.0%)" },
+    { label: "overweight", summary: "58 (58.0%)" }
+  ]);
+
+  const pairs = driver.describeColumn(baseColumn, null, {
+    maxRows: 2
+  });
+
+  assert.deepEqual(pairs, [
+    "headache: 68 (68.0%)",
+    "overweight: 58 (58.0%)"
+  ]);
+});
