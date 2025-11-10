@@ -4,7 +4,7 @@ import factors from './factors.js';
 import contingency from './contingency.js';
 import numeric from './numeric.js';
 import variants from './variants.js';
-import { getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
+import { getBinaryLabels, getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 
 /**
  * @typedef {Object} Column
@@ -177,6 +177,45 @@ ns.generateTestSymbolMap = function (methods, options) {
   const base = (style === 'alpha' ? alpha : numericSym); const map = {}; uniqueMethods.forEach((method, i) => { map[method] = base[i] || `(${i + 1})`; }); return map;
 };
 
+
+/**
+ * Merge caller options with the defaults that Statz uses during runAnalysis.
+ * @param {Record<string, any>=} options
+ * @returns {Record<string, any>}
+ */
+ns.getDefaultAnalysisOptions = function (options = {}) {
+  const lang = normalizeLanguage(options?.lang);
+  const normalized = { ...options, lang };
+
+  const alphaValue = Number(normalized.alpha);
+  normalized.symbol_style = normalized.symbol_style ?? 'numeric';
+  normalized.alpha = Number.isFinite(alphaValue) ? alphaValue : 0.05;
+
+  const statOptions = Array.isArray(normalized.stat_options) && normalized.stat_options.length
+    ? normalized.stat_options.slice()
+    : ['mean_sd'];
+  normalized.stat_options = statOptions;
+
+  normalized.percent_by = normalized.percent_by === 'col' ? 'col' : 'row';
+  normalized.adjust_kruskal = normalized.adjust_kruskal ?? 'bonferroni';
+  normalized.include_missing = normalized.include_missing ?? true;
+  normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
+
+  const residuals = normalized.residual_symbols ?? {};
+  normalized.residual_symbols = {
+    greater: residuals.greater ?? translate('table.legends.residualGreaterSymbol', lang),
+    lower: residuals.lower ?? translate('table.legends.residualLowerSymbol', lang)
+  };
+
+  const binaryLabels = getBinaryLabels(lang);
+  normalized.yes_label = normalized.yes_label ?? binaryLabels.yes;
+  normalized.no_label = normalized.no_label ?? binaryLabels.no;
+
+  const minCount = Number(normalized.binary_min_count);
+  normalized.binary_min_count = Number.isFinite(minCount) && minCount > 0 ? Math.floor(minCount) : 1;
+
+  return normalized;
+};
 /**
  * Summarize each predictor optionally against a qualitative response.
  * @param {Column[]} columns
@@ -231,8 +270,9 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
  * @returns {{ result: CombinedAnalysis, flags: string[] }}
  */
 ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
+  const mergedOptions = ns.getDefaultAnalysisOptions(options);
   const predictors = elementPredictors.map(JSON.parse); const responses = elementResponses.map(JSON.parse); const flagsUsed = new Set();
-  const lang = normalizeLanguage(options?.lang);
+  const lang = mergedOptions.lang;
   const columns = predictors.concat(responses).map(col => {
     const db = dbs[col.database_id];
     if (!db) return null;
@@ -256,9 +296,9 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     };
   }).filter(Boolean);
   const rowwise = ns.getRowwiseData(columns);
-  const result = ns.summarizePredictors(columns, predictors, responses, rowwise, options, flagsUsed);
+  const result = ns.summarizePredictors(columns, predictors, responses, rowwise, mergedOptions, flagsUsed);
   const allMethods = result.map(r => r.table?.test_used).filter(Boolean);
-  const symbolMap = ns.generateTestSymbolMap(allMethods, options);
+  const symbolMap = ns.generateTestSymbolMap(allMethods, mergedOptions);
   result.forEach(r => { if (r.table?.test_used) { const method = r.table.test_used; r.table.test_symbol = symbolMap[method]; } });
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
   const finalResult = { analysis: result, test_legend, lang };
