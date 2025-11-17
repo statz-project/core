@@ -48,8 +48,9 @@ export function health() {
 export function loadStdlibStats(nsArg) {
   const ns = nsArg || (typeof window !== 'undefined' ? (window.Statz || window.Utils) : undefined) || {};
   if (ns.stdlibStats) return Promise.resolve('ok');
-  return import('https://cdn.jsdelivr.net/gh/stdlib-js/stats@esm/index.mjs')
-    .then(mod => { ns.stdlibStats = mod; })
+  // Use jsDelivr's +esm endpoint so nested imports stay pinned to npm versions.
+  return import('https://cdn.jsdelivr.net/npm/@stdlib/stats@0.3.2/+esm')
+    .then(mod => { ns.stdlibStats = mod?.default || mod; })
     .catch(e => { console.warn('Stdlib failed; going without it:', e); });
 }
 
