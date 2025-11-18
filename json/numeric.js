@@ -277,7 +277,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
       method = translate('tests.kruskalWallis', lang);
       if (getJStat().utils.isNumber(p_value) && p_value < alpha) {
         posthoc = ns.runDunnTest(activeGroupMap, alpha, adjustKruskal).filter(v => v.significant);
-        flagsUsed?.add?.('has_dunn');
+        flagsUsed?.add?.('has_kruskal_sign');
       }
     }
   } catch {
