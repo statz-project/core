@@ -199,6 +199,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.percent_by = normalized.percent_by === 'col' ? 'col' : 'row';
   normalized.adjust_kruskal = normalized.adjust_kruskal ?? 'bonferroni';
   normalized.include_missing = normalized.include_missing ?? true;
+  normalized.with_residuals = normalized.with_residuals ?? true;
   normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
 
   const residuals = normalized.residual_symbols ?? {};
