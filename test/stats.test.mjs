@@ -88,6 +88,24 @@ test("run summarize_n_q get significant t test", () => {
     
 });
 
+test("run summarize_n_q get non-significant Kruskal–Wallis", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_score_hash");
+  const response  = Statz.getColumnValues(parsed, "col_income_hash");
+
+  const result = Statz.summarize_n_q(predictor.rawValues, response.rawValues);
+  
+  const expected = {
+    test: Statz.translate('tests.kruskalWallis'),
+    p: '0.020',
+    posthoc: [{"groupA":"low","groupB":"high","pValue":0.0185,"significant":true}]
+  };
+
+  assert.equal((result.test_used), expected.test)
+  assert.equal((result.p_value).toFixed(3), expected.p)
+  assert.deepEqual((result.posthoc), expected.posthoc)
+    
+});
+
 test("run summarize_n_q get significant Kruskal–Wallis", () => {
   const predictor = Statz.getColumnValues(parsed, "col_score_hash");
   const response  = Statz.getColumnValues(parsed, "col_income_hash");

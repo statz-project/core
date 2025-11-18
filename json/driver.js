@@ -400,6 +400,31 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
 };
 
 /**
+ * Summarize every column (and its variants) in a parsed database payload.
+ * @param {{columns?: Column[]}|null|undefined} database
+ * @param {{ lang?: string, formatFn?: Function, maxRows?: number, structured?: boolean }} [options]
+ * @returns {Array<{ label: string, type: string, summary: Array<any>, variants: Array<{ label: string, type: string, summary: Array<any> }> }>}
+ */
+ns.describeDataset = function (database, options = {}) {
+  if (!database || !Array.isArray(database.columns)) return [];
+
+  return database.columns.map((column) => {
+    const label = column.col_label ?? column.col_name ?? column.col_hash ?? '';
+    const type = column.col_type ?? 'q';
+    const summary = ns.describeColumn(column, null, options);
+    const variants = Array.isArray(column.col_vars)
+      ? column.col_vars.map((variant) => ({
+          label: variant.var_label ?? label,
+          type: variant.col_type ?? type,
+          summary: ns.describeColumn(variant, null, options)
+        }))
+      : [];
+
+    return { label, type, summary, variants };
+  });
+};
+
+/**
  * Reorder a JSON-string list by swapping an item with its neighbor and renumbering "order".
  * @param {string[]} list JSON strings with an "order" field
  * @param {number|string} index 0-based index of the item to move
