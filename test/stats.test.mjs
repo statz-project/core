@@ -27,6 +27,15 @@ test("run summarize_q_q get non-significant Fisher", () => {
     
 });
 
+test("run summarize_l for description of list variables", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_clinics_hash");
+
+  const result = Statz.summarize_l(predictor.rawValues, ";");
+
+  assert.deepEqual(result.rows[0], {Variable: "headache", Description: "68 (68.0%)"});
+
+});
+
 test("run summarize_q_q get non-significant Chi-square", () => {
   const predictor = Statz.getColumnValues(parsed, "col_outcome_hash");
   const response  = Statz.getColumnValues(parsed, "col_income_hash");
@@ -77,6 +86,7 @@ test("summarize_l_q decomposes list predictors vs qualitative response", () => {
   assert.equal(headacheSummary.display_label, "Clinics: headache");
   assert.equal((headacheSummary.table.test_used), Statz.translate('tests.chiSquare'));
   assert.ok(Number.isFinite(headacheSummary.table.p_value));
+
 });
 
 test("run summarize_n_q get significant Mann–Whitney", () => {

@@ -172,7 +172,17 @@ ns.decomposeListAsBinaryCols = function (values, sep = ';', options = {}) {
   const labels = { yes: yesLabel, no: noLabel };
   const n = values.length; const result = {}; const countMap = {}; const allItems = [];
   values.forEach(val => { const trimmed = (val || '').trim(); if (!trimmed) { allItems.push(null); return; } const items = trimmed.split(sep).map(x => x.trim()).filter(Boolean); const itemSet = new Set(items); allItems.push(itemSet); items.forEach(item => { countMap[item] = (countMap[item] || 0) + 1; }); });
-  Object.entries(countMap).forEach(([item, count]) => { if (count >= min_count) { const column = []; for (let i = 0; i < n; i++) { const set = allItems[i]; if (set instanceof Set) column.push(set.has(item) ? yesLabel : noLabel); else column.push(noLabel); } result[item] = column; } });
+  Object.entries(countMap).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).forEach(([item, count]) => {
+    if (count >= min_count) {
+      const column = [];
+      for (let i = 0; i < n; i++) {
+        const set = allItems[i];
+        if (set instanceof Set) column.push(set.has(item) ? yesLabel : noLabel);
+        else column.push(noLabel);
+      }
+      result[item] = column;
+    }
+  });
   return { columns: result, labels };
 };
 
