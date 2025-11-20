@@ -180,14 +180,19 @@ ns.summarize_l_q = function (listValues, responseVals, formatFn = null, options 
   const predictorLabel = meta?.predictorLabel ?? null;
   const responseLabel = meta?.responseLabel ?? null;
   const lang = normalizeLanguage(meta?.lang ?? options?.lang);
+  const includePrefix = meta?.includePrefix ?? true;
   const cleanedPredictor = predictorLabel ? predictorLabel.replace(/[\s\p{P}]+$/u, '') : predictorLabel;
   const { columns: binaryColumns = {} } = numeric.decomposeListAsBinaryCols(listValues, separator, options);
   const results = [];
   Object.entries(binaryColumns).forEach(([label, binVals]) => {
     try {
       const table = contingency.summarize_q_q(binVals, responseVals, formatFn, options);
+      const displayLabel = includePrefix && (cleanedPredictor || predictorLabel)
+        ? `${cleanedPredictor || predictorLabel}: ${label}`
+        : label;
       results.push({
         label,
+        display_label: displayLabel,
         predictor_label: predictorLabel,
         predictor_label_stripped: cleanedPredictor,
         response_label: responseLabel,
@@ -235,6 +240,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.percent_by = normalized.percent_by === 'col' ? 'col' : 'row';
   normalized.adjust_kruskal = normalized.adjust_kruskal ?? 'bonferroni';
   normalized.include_missing = normalized.include_missing ?? true;
+  normalized.label_list_with_column = normalized.label_list_with_column ?? true;
   normalized.with_residuals = normalized.with_residuals ?? true;
   normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
 
@@ -284,13 +290,15 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
       } else if (predictorType === 'n' && responseType === 'q') {
         table = numeric.summarize_n_q(predictorVals, responseVals, formatFn, flagsUsed, options); flagsUsed.add('has_nq');
       } else if (predictorType === 'l' && responseType === 'q') {
+        const includePrefix = options?.label_list_with_column ?? true;
         const summaries = ns.summarize_l_q(predictorVals, responseVals, formatFn, options, {
           separator: predictorSep,
           predictorLabel: pred.col_label,
           responseLabel: response?.col_label || null,
-          lang
+          lang,
+          includePrefix
         }).map(entry => ({
-          predictor: `${entry.predictor_label_stripped || entry.predictor_label || pred.col_label}: ${entry.label}`,
+          predictor: entry.display_label,
           response: entry.response_label,
           predictor_type: 'q',
           response_type: responseType,

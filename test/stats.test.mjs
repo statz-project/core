@@ -74,6 +74,7 @@ test("summarize_l_q decomposes list predictors vs qualitative response", () => {
 
   const headacheSummary = summaries.find(entry => entry.label === 'headache');
   assert.ok(headacheSummary, "headache level should be summarized");
+  assert.equal(headacheSummary.display_label, "Clinics: headache");
   assert.equal((headacheSummary.table.test_used), Statz.translate('tests.chiSquare'));
   assert.ok(Number.isFinite(headacheSummary.table.p_value));
 });
