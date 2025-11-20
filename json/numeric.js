@@ -30,8 +30,13 @@ ns.summarize_n = function (values, formatFn = null, options = {}) {
   if (n === 0 && missingCount === 0) return { columns: [], rows: [], summary: { n: 0 }, lang };
   const valuesByGroup = { Total: nums };
   const missingCounts = missingCount > 0 ? { Total: missingCount } : {};
+  const statOptions = options?.stat_options_numeric ?? options?.stat_options;
   const [variableHeader, descriptionHeader] = getTableHeaders(lang);
-  const summaryRows = ns.getNumericalSummaryByGroup(valuesByGroup, { ...options, lang, missing_counts: missingCounts }, formatFn);
+  const summaryRows = ns.getNumericalSummaryByGroup(
+    valuesByGroup,
+    { ...options, lang, missing_counts: missingCounts, stat_options: statOptions },
+    formatFn
+  );
   const groupLabel = translate('table.columns.group', lang);
   const formattedRows = summaryRows.map(row => ({ [variableHeader]: row[groupLabel], [descriptionHeader]: row.Total }));
   return { columns: [variableHeader, descriptionHeader], rows: formattedRows, summary: { n }, lang };
@@ -217,7 +222,12 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   const pValueLabel = translate('table.columns.pValue', lang);
 
   // 1) Descriptives by group
-  const summaryRows = ns.getNumericalSummaryByGroup(groupMap, { ...options, lang, missing_counts: missingCounts }, formatFn);
+  const statOptions = options?.stat_options_by_group ?? options?.stat_options;
+  const summaryRows = ns.getNumericalSummaryByGroup(
+    groupMap,
+    { ...options, lang, missing_counts: missingCounts, stat_options: statOptions },
+    formatFn
+  );
 
   // 2) Stats lib (stdlib-js)
   const stats = getStatsLib();

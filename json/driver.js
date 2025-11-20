@@ -232,9 +232,19 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.symbol_style = normalized.symbol_style ?? 'numeric';
   normalized.alpha = Number.isFinite(alphaValue) ? alphaValue : 0.05;
 
+  const numericStats = Array.isArray(normalized.stat_options_numeric) && normalized.stat_options_numeric.length
+    ? normalized.stat_options_numeric.slice()
+    : ['min', 'max', 'mean_sd', 'n_missing'];
+  normalized.stat_options_numeric = numericStats;
+
+  const groupedStats = Array.isArray(normalized.stat_options_by_group) && normalized.stat_options_by_group.length
+    ? normalized.stat_options_by_group.slice()
+    : ['mean_sd'];
+  normalized.stat_options_by_group = groupedStats;
+
   const statOptions = Array.isArray(normalized.stat_options) && normalized.stat_options.length
     ? normalized.stat_options.slice()
-    : ['mean_sd'];
+    : groupedStats.slice();
   normalized.stat_options = statOptions;
 
   normalized.percent_by = normalized.percent_by === 'col' ? 'col' : 'row';
@@ -259,6 +269,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
 
   return normalized;
 };
+
 /**
  * Summarize each predictor optionally against a qualitative response.
  * @param {Column[]} columns
