@@ -166,6 +166,42 @@ ns.summarize_l = function (values, sep = ';', formatFn = null, options = {}) {
 };
 
 /**
+ * Expand list-like predictors into binary yes/no columns and summarize against qualitative responses.
+ * Returns one chi-square table per list item.
+ * @param {Array<string|null|undefined>} listValues
+ * @param {string[]} responseVals
+ * @param {(ctx:{count:number,percent:number,rowTotal:number,colTotal:number})=>string=} formatFn
+ * @param {{lang?:string}=} options
+ * @param {{separator?:string,predictorLabel?:string|null,responseLabel?:string|null,lang?:string}=} meta
+ * @returns {Array<{label:string,predictor_label?:string|null,predictor_label_stripped?:string|null,response_label?:string|null,table:TableLike}>}
+ */
+ns.summarize_l_q = function (listValues, responseVals, formatFn = null, options = {}, meta = {}) {
+  const separator = meta?.separator ?? ';';
+  const predictorLabel = meta?.predictorLabel ?? null;
+  const responseLabel = meta?.responseLabel ?? null;
+  const lang = normalizeLanguage(meta?.lang ?? options?.lang);
+  const cleanedPredictor = predictorLabel ? predictorLabel.replace(/[\s\p{P}]+$/u, '') : predictorLabel;
+  const { columns: binaryColumns = {} } = numeric.decomposeListAsBinaryCols(listValues, separator, options);
+  const results = [];
+  Object.entries(binaryColumns).forEach(([label, binVals]) => {
+    try {
+      const table = contingency.summarize_q_q(binVals, responseVals, formatFn, options);
+      results.push({
+        label,
+        predictor_label: predictorLabel,
+        predictor_label_stripped: cleanedPredictor,
+        response_label: responseLabel,
+        table
+      });
+    } catch (e) {
+      const warnMessage = translate('warnings.summarizeFailure', lang, { label, context: predictorLabel ?? '' });
+      console.warn(`${warnMessage}:`, e.message);
+    }
+  });
+  return results;
+};
+
+/**
  * Build a map of statistical test methods to display symbols.
  * @param {string[]} methods
  * @param {{symbol_style?: 'numeric'|'alpha'}=} options
@@ -248,11 +284,18 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
       } else if (predictorType === 'n' && responseType === 'q') {
         table = numeric.summarize_n_q(predictorVals, responseVals, formatFn, flagsUsed, options); flagsUsed.add('has_nq');
       } else if (predictorType === 'l' && responseType === 'q') {
-        const binCols = numeric.decomposeListAsBinaryCols(predictorVals, predictorSep, options);
-        const summaries = Object.entries(binCols).flatMap(([label, binVals]) => {
-          try { const table = contingency.summarize_q_q(binVals, responseVals, formatFn, options); return [{ predictor: `${pred.col_label.replace(/[\s\p{P}]+$/u, '')}: ${label}`, response: response?.col_label || null, predictor_type: 'q', response_type: responseType, table }]; }
-          catch (e) { const warnMessage = translate('warnings.summarizeFailure', lang, { label, context: pred.col_label }); console.warn(`${warnMessage}:`, e.message); return []; }
-        });
+        const summaries = ns.summarize_l_q(predictorVals, responseVals, formatFn, options, {
+          separator: predictorSep,
+          predictorLabel: pred.col_label,
+          responseLabel: response?.col_label || null,
+          lang
+        }).map(entry => ({
+          predictor: `${entry.predictor_label_stripped || entry.predictor_label || pred.col_label}: ${entry.label}`,
+          response: entry.response_label,
+          predictor_type: 'q',
+          response_type: responseType,
+          table: entry.table
+        }));
         flagsUsed.add('has_lq');
         return summaries;
       }

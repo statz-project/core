@@ -57,6 +57,27 @@ test("run summarize_q_q get significant Chi-square", () => {
     
 });
 
+test("summarize_l_q decomposes list predictors vs qualitative response", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const response  = Statz.getColumnValues(parsed, "col_income_hash");
+
+  const summaries = Statz.summarize_l_q(
+    predictor.rawValues,
+    response.rawValues,
+    null,
+    { lang: 'en_us' },
+    { predictorLabel: "Clinics" }
+  );
+
+  assert.ok(Array.isArray(summaries));
+  assert.ok(summaries.length > 0);
+
+  const headacheSummary = summaries.find(entry => entry.label === 'headache');
+  assert.ok(headacheSummary, "headache level should be summarized");
+  assert.equal((headacheSummary.table.test_used), Statz.translate('tests.chiSquare'));
+  assert.ok(Number.isFinite(headacheSummary.table.p_value));
+});
+
 test("run summarize_n_q get significant Mann–Whitney", () => {
   const predictor = Statz.getColumnValues(parsed, "col_score_hash");
   const response  = Statz.getColumnValues(parsed, "col_sex_hash");
