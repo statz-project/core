@@ -7,6 +7,8 @@ import jStat from "jstat";
 import * as simpleStatistics from "simple-statistics";
 import { json } from "node:stream/consumers";
 import driver from "../json/driver.js";
+import { stringify } from "node:querystring";
+import { log } from "node:console";
 
 globalThis.Statz = Statz;           // make the namespace discoverable
 
@@ -121,24 +123,6 @@ test("run summarize_n_q get significant t test", () => {
     
 });
 
-test("run summarize_n_q get non-significant Kruskal–Wallis", () => {
-  const predictor = Statz.getColumnValues(parsed, "col_weight_hash");
-  const response  = Statz.getColumnValues(parsed, "col_income_hash");
-
-  const result = Statz.summarize_n_q(predictor.rawValues, response.rawValues);
-
-  const expected = {
-    test: Statz.translate('tests.kruskalWallis'),
-    p: '0.737',
-    posthoc: null
-  };
-
-  assert.equal((result.test_used), expected.test)
-  assert.equal((result.p_value).toFixed(3), expected.p)
-  assert.equal((result.posthoc), expected.posthoc)
-    
-});
-
 test("run summarize_n_q get significant Kruskal–Wallis", () => {
   const predictor = Statz.getColumnValues(parsed, "col_score_hash");
   const response  = Statz.getColumnValues(parsed, "col_income_hash");
@@ -155,5 +139,35 @@ test("run summarize_n_q get significant Kruskal–Wallis", () => {
   assert.equal((result.p_value).toFixed(3), expected.p)
   assert.deepEqual((result.posthoc), expected.posthoc)
     
+});
+
+test("run summarize_n_q get non-significant ANOVA", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_weight_hash");
+  const response  = Statz.getColumnValues(parsed, "col_income_hash");
+
+  const result = Statz.summarize_n_q(predictor.rawValues, response.rawValues);
+
+  const expected = {
+    test: Statz.translate('tests.anova'),
+    p: '0.717',
+    posthoc: null
+  };
+
+  assert.equal((result.test_used), expected.test)
+  assert.equal((result.p_value).toFixed(3), expected.p)
+  assert.equal((result.posthoc), expected.posthoc)
+    
+});
+
+test("summarize_n_q runs ANOVA with Tukey posthoc when assumptions hold", () => {
+  const predictor = ["1","2","3","4","5","6","7","8","9"];
+  const response  = ["A","A","A","B","B","B","C","C","C"];
+  
+  const result = Statz.summarize_n_q(predictor, response);
+
+  assert.equal(result.test_used, Statz.translate('tests.anova'));
+  assert.equal(result.p_value.toFixed(3), '0.001');
+  assert.deepEqual(result.posthoc[0], {groupA:"A",groupB:"B",pValue:0.0242,"significant":true});
+
 });
 

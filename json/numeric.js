@@ -274,6 +274,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   } catch { homo = false; }
 
   // 5) Statistical test
+  const parametric = allNormal && homo;
   let p_value = null;
   let method = null;
   let posthoc = null;
@@ -291,13 +292,23 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
       }
     } else if (nGroups > 2) {
       const groups = groupsWithData.map(name => groupMap[name]);
-      // Note: ANOVA path is currently disabled; prefer Kruskal–Wallis in this flow
-      const result = stats.kruskalTest(...groups);
-      p_value = result.pValue;
-      method = translate('tests.kruskalWallis', lang);
-      if (getJStat().utils.isNumber(p_value) && p_value < alpha) {
-        posthoc = ns.runDunnTest(activeGroupMap, alpha, adjustKruskal).filter(v => v.significant);
-        flagsUsed?.add?.('has_kruskal_sign');
+      if (parametric) {
+        const { x, y } = ns.stackGroups(activeGroupMap);
+        const result = stats.anova1(x, y);
+        p_value = result?.pValue ?? null;
+        method = translate('tests.anova', lang);
+        if (jStat?.utils?.isNumber(p_value) && p_value < alpha) {
+          posthoc = ns.runTukeyHSD(activeGroupMap, alpha).filter(v => v.significant);
+          if (posthoc.length) flagsUsed?.add?.('has_tukey');
+        }
+      } else {
+        const result = stats.kruskalTest(...groups);
+        p_value = result.pValue;
+        method = translate('tests.kruskalWallis', lang);
+        if (jStat?.utils?.isNumber(p_value) && p_value < alpha) {
+          posthoc = ns.runDunnTest(activeGroupMap, alpha, adjustKruskal).filter(v => v.significant);
+          flagsUsed?.add?.('has_kruskal_sign');
+        }
       }
     }
   } catch {

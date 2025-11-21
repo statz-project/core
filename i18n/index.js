@@ -69,6 +69,7 @@ const MESSAGES = {
     "tests": {
       "fisherExact": "Teste exato de Fisher",
       "chiSquare": "Qui-quadrado",
+      "anova": "ANOVA",
       "kruskalWallis": "Kruskal-Wallis",
       "mannWhitney": "Mann-Whitney",
       "tStudent": "t de Student"
@@ -143,6 +144,7 @@ const MESSAGES = {
     "tests": {
       "fisherExact": "Fisher’s exact test",
       "chiSquare": "Chi-square",
+      "anova": "ANOVA",
       "kruskalWallis": "Kruskal–Wallis",
       "mannWhitney": "Mann–Whitney",
       "tStudent": "Student’s t-test"
@@ -217,6 +219,7 @@ const MESSAGES = {
     "tests": {
       "fisherExact": "Prueba exacta de Fisher",
       "chiSquare": "Chi-cuadrado",
+      "anova": "ANOVA",
       "kruskalWallis": "Kruskal–Wallis",
       "mannWhitney": "Mann–Whitney",
       "tStudent": "t de Student"
