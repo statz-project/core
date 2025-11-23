@@ -5,10 +5,7 @@ import { parseFixture } from '../scripts/dev/load-fixture.mjs';
 import statistics from '@stdlib/stats';
 import jStat from "jstat";
 import * as simpleStatistics from "simple-statistics";
-import { json } from "node:stream/consumers";
 import driver from "../json/driver.js";
-import { stringify } from "node:querystring";
-import { log } from "node:console";
 
 globalThis.Statz = Statz;           // make the namespace discoverable
 
