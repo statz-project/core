@@ -271,6 +271,36 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
 };
 
 /**
+ * Replace col_label in a list of column payloads with the label from the source database.
+ * Accepts either JSON strings or plain objects and returns JSON strings (so Bubble can store them).
+ * @param {Array<string|Record<string, any>>} columnPayloads
+ * @param {Record<string,{columns:any[]}>} dbs
+ * @returns {string[]} Updated payloads as JSON strings
+ */
+ns.updateColumnLabelsFromDb = function (columnPayloads, dbs) {
+  if (!Array.isArray(columnPayloads)) return [];
+  return columnPayloads.map((entry) => {
+    let col;
+    if (typeof entry === 'string') {
+      try { col = JSON.parse(entry); } catch { return null; }
+    } else if (entry && typeof entry === 'object') {
+      col = { ...entry };
+    } else {
+      return null;
+    }
+    if (!col.database_id || !col.col_hash) return null;
+    const db = dbs?.[col.database_id];
+    if (!db) return null;
+    const baseCol = ns.getColumn(db, col.col_hash);
+    if (!baseCol) return null;
+    const hasVariantIndex = col.col_var_index !== null && col.col_var_index !== undefined;
+    const variant = hasVariantIndex && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[col.col_var_index] : null;
+    const label = variant?.var_label || baseCol.col_label || col.col_label || '';
+    return JSON.stringify({ ...col, col_label: label });
+  }).filter(Boolean);
+};
+
+/**
  * Summarize each predictor optionally against a qualitative response.
  * @param {Column[]} columns
  * @param {Array<{col_hash:string,col_label:string}>} predictors
