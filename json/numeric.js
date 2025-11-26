@@ -101,8 +101,8 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
           case 'min': cell = formatFn?.min?.(stats.min) ?? formatDefault(stats.min); break;
           case 'max': cell = formatFn?.max?.(stats.max) ?? formatDefault(stats.max); break;
           case 'range': { const range = stats.max - stats.min; cell = formatFn?.range?.(range) ?? formatDefault(range); break; }
-          case 'mean_sd': cell = formatFn?.mean_sd?.(stats) ?? (isNaN(stats.mean) || isNaN(stats.sd) ? defaultMissing : `${formatDefault(stats.mean)} (${formatDefault(stats.sd)})`); break;
-          case 'median_iqr': cell = formatFn?.median_iqr?.(stats) ?? (isNaN(stats.median) || isNaN(stats.iqr) ? defaultMissing : `${formatDefault(stats.median)} (${formatDefault(stats.iqr)})`); break;
+          case 'mean_sd': cell = formatFn?.mean_sd?.(stats) ?? (isNaN(stats.mean) || isNaN(stats.sd) ? defaultMissing : `${formatDefault(stats.mean)} ± ${formatDefault(stats.sd)}`); break;
+          case 'median_iqr': cell = formatFn?.median_iqr?.(stats) ?? (isNaN(stats.median) || isNaN(stats.iqr) ? defaultMissing : `${formatDefault(stats.median)} ± ${formatDefault(stats.iqr)}`); break;
           case 'mode': cell = formatFn?.mode?.(stats.mode) ?? (stats.mode == null ? defaultMissing : stats.mode.toString()); break;
           case 'n': cell = stats.n.toString(); break;
         }

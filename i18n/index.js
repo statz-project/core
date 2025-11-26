@@ -79,8 +79,8 @@ const MESSAGES = {
         "min": "Mínimo",
         "max": "Máximo",
         "range": "Amplitude",
-        "mean_sd": "Média (DP)",
-        "median_iqr": "Mediana (IQR)",
+        "mean_sd": "Média ± DP",
+        "median_iqr": "Mediana ± IQR",
         "mode": "Moda",
         "n": "n",
         "n_missing": "Valores ausentes"
@@ -154,8 +154,8 @@ const MESSAGES = {
         "min": "Minimum",
         "max": "Maximum",
         "range": "Range",
-        "mean_sd": "Mean (SD)",
-        "median_iqr": "Median (IQR)",
+        "mean_sd": "Mean ± SD",
+        "median_iqr": "Median ± IQR",
         "mode": "Mode",
         "n": "n",
         "n_missing": "Missing values"
@@ -229,8 +229,8 @@ const MESSAGES = {
         "min": "Mínimo",
         "max": "Máximo",
         "range": "Rango",
-        "mean_sd": "Media (DE)",
-        "median_iqr": "Mediana (RIC)",
+        "mean_sd": "Media ± DE",
+        "median_iqr": "Mediana ± RIC",
         "mode": "Moda",
         "n": "n",
         "n_missing": "Valores ausentes"
