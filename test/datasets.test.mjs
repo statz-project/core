@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+// import { parseFixture } from '../scripts/dev/load-fixture.mjs';
 import factors from "../json/factors.js";
-import { log } from "node:console";
+
+// const {parsed} = parseFixture();
 
 test("getIndividualItemsWithCount", () => {
 

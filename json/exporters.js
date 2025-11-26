@@ -1,6 +1,7 @@
 ﻿// @ts-check
 import { formatPValue } from './_env.js';
 import { normalizeLanguage, translate } from '../i18n/index.js';
+import factors from './factors.js';
 
 const ns = {};
 
@@ -306,6 +307,86 @@ ns.exportCombinedAsRows = function (combined) {
     const title = typeof base === 'string' ? base.replace(/<[^>]+>/g, '') : '';
     return { title, columns: combined.columns, rows: [row] };
   });
+};
+
+/**
+ * Render a database payload into a plain HTML table string for quick viewing.
+ * Decodes column values, builds row-wise data, and emits HTML (with lightweight styles by default).
+ * @param {{ columns?: Array<Record<string, any>> }} db
+ * @param {{ maxRows?: number, includeStyles?: boolean }=} options
+ * @returns {string}
+ */
+ns.exportDatabaseAsHTML = function (db, options = {}) {
+  if (!db || !Array.isArray(db.columns) || db.columns.length === 0) return '';
+  const maxRows = Number(options.maxRows);
+  const limit = Number.isFinite(maxRows) && maxRows > 0 ? Math.floor(maxRows) : 200;
+  const includeStyles = options.includeStyles !== false;
+  const includeRowIndex = options.includeRowIndex !== false; // default true
+  const showDeletedColumns = options.showDeletedColumns === true; // default hide deleted
+  const showVariants = options.showVariants !== false; // default true
+  const escapeHtml = (val) => {
+    const str = String(val ?? '');
+    // Avoid regex literals with `</` sequences (safer for inline bundles); use split/join for < and >.
+    return str
+      .replace(/&/g, '&amp;')
+      .split('<').join('&lt;')
+      .split('>').join('&gt;');
+  };
+
+  const decodedCols = db.columns.flatMap(col => {
+    const entries = [];
+    const colType = col.col_type ?? 'q';
+    const colSep = col.col_sep ?? (colType === 'l' ? ';' : '');
+    const baseValues = factors.decodeColValues(col.col_values, colType, colSep) ?? col.raw_values ?? [];
+    const baseLabel = escapeHtml(col.col_label ?? col.col_name ?? col.col_hash ?? '');
+    entries.push({ hash: col.col_hash, label: baseLabel, values: baseValues, isDeleted: !!col.col_del, isVariant: false });
+
+    if (showVariants && Array.isArray(col.col_vars)) {
+      col.col_vars.forEach((variant, idx) => {
+        const vType = variant?.col_type ?? colType;
+        const vSep = variant?.col_sep ?? colSep;
+        const vValues = factors.decodeColValues(variant?.col_values, vType, vSep) ?? variant?.raw_values ?? [];
+        const vLabel = escapeHtml(variant?.var_label ?? `${baseLabel} (v${idx + 1})`);
+        entries.push({ hash: `${col.col_hash}__var${idx}`, label: vLabel, values: vValues, isDeleted: !!col.col_del, isVariant: true });
+      });
+    }
+    return entries;
+  }).filter(col => col.hash && (showDeletedColumns || !col.isDeleted));
+
+  if (decodedCols.length === 0) return '';
+  const nRows = Math.max(...decodedCols.map(c => c.values.length), 0);
+  const rows = [];
+  const rowCount = Math.min(nRows, limit);
+  for (let i = 0; i < rowCount; i++) {
+    const row = {};
+    if (includeRowIndex) row['#'] = i + 1;
+    decodedCols.forEach(c => { row[c.label] = escapeHtml(c.values[i] ?? ''); });
+    rows.push(row);
+  }
+
+  const columns = includeRowIndex
+    ? [{ label: '#', isDeleted: false, isVariant: false }, ...decodedCols.map(c => ({ label: c.label, isDeleted: c.isDeleted, isVariant: c.isVariant }))] 
+    : decodedCols.map(c => ({ label: c.label, isDeleted: c.isDeleted, isVariant: c.isVariant }));
+  const thead = `<thead><tr>${columns.map(col => {
+    let style = '';
+    if (col.isDeleted) style = ' style="color:#ca1551;"';
+    else if (col.isVariant) style = ' style="color:#198f51;"';
+    return `<th${style}>${col.label}</th>`;
+  }).join('')}</tr></thead>`;
+  const colLabels = columns.map(c => c.label);
+  const tbody = `<tbody>${rows.map(row => `<tr>${colLabels.map(col => `<td>${row[col] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  const tableHTML = `<table class="statz-viewer">${thead}${tbody}</table>`;
+  if (!includeStyles) return tableHTML;
+  return `<style>
+    .statz-viewer-wrap { max-width: 100%; overflow: auto; }
+    .statz-viewer { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; color: #30323d; background: transparent; border: 1px solid rgba(48,50,61,0.15); }
+    .statz-viewer th, .statz-viewer td { border: 1px solid rgba(48,50,61,0.15); padding: 6px 8px; text-align: left; background: transparent; }
+    .statz-viewer tbody tr:hover { background: #d9d9d9; }
+    .statz-viewer thead th { position: sticky; top: 0; z-index: 2; font-weight: bold; background: transparent; }
+  </style>
+  <div class="statz-viewer-wrap">
+    ${tableHTML}
+  </div>`;
 };
 
 export default ns;
