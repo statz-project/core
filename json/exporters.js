@@ -370,7 +370,7 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   const thead = `<thead><tr>${columns.map(col => {
     let style = '';
     if (col.isDeleted) style = ' style="color:#ca1551;"';
-    else if (col.isVariant) style = ' style="color:#198f51;"';
+    else if (col.isVariant) style = ' style="color:#198f51; font-style:italic"';
     return `<th${style}>${col.label}</th>`;
   }).join('')}</tr></thead>`;
   const colLabels = columns.map(c => c.label);

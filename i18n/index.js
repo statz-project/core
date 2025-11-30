@@ -41,13 +41,19 @@ const MESSAGES = {
       "yes": "Sim",
       "no": "Não"
     },
-    "warnings": {
-      "summarizeFailure": "Erro ao resumir \"{label}\" em \"{context}\""
-    },
-    "errors": {
-      "stdlibNotLoaded": "Erro: stdlib não carregado",
-      "calculationFailed": "Erro no cálculo"
-    },
+      "warnings": {
+        "summarizeFailure": "Erro ao resumir \"{label}\" em \"{context}\""
+      },
+      "mapping": {
+        "invalid": "Mapeamento inválido para \"{label}\"",
+        "multiple": "Múltiplas correspondências para \"{label}\"",
+        "nomatch": "Nenhuma correspondência para \"{label}\"",
+        "old_dropped": "Coluna antiga \"{label}\" não mapeada e será removida"
+      },
+      "errors": {
+        "stdlibNotLoaded": "Erro: stdlib não carregado",
+        "calculationFailed": "Erro no cálculo"
+      },
     "posthoc": {
       "title": "Comparações múltiplas significativas",
       "comparisonEntry": "Comparações significativas para \"{predictor}\": {comparisons}",
@@ -116,13 +122,19 @@ const MESSAGES = {
       "yes": "Yes",
       "no": "No"
     },
-    "warnings": {
-      "summarizeFailure": "Error summarizing \"{label}\" in \"{context}\""
-    },
-    "errors": {
-      "stdlibNotLoaded": "Error: stdlib not loaded",
-      "calculationFailed": "Calculation error"
-    },
+      "warnings": {
+        "summarizeFailure": "Error summarizing \"{label}\" in \"{context}\""
+      },
+      "mapping": {
+        "invalid": "Invalid mapping for \"{label}\"",
+        "multiple": "Multiple matches for \"{label}\"",
+        "nomatch": "No match for \"{label}\"",
+        "old_dropped": "Old column \"{label}\" not mapped and will be dropped"
+      },
+      "errors": {
+        "stdlibNotLoaded": "Error: stdlib not loaded",
+        "calculationFailed": "Calculation error"
+      },
     "posthoc": {
       "title": "Significant multiple comparisons",
       "comparisonEntry": "Significant comparisons for \"{predictor}\": {comparisons}",
@@ -191,13 +203,19 @@ const MESSAGES = {
       "yes": "Sí",
       "no": "No"
     },
-    "warnings": {
-      "summarizeFailure": "Error al resumir \"{label}\" en \"{context}\""
-    },
-    "errors": {
-      "stdlibNotLoaded": "Error: stdlib no cargada",
-      "calculationFailed": "Error en el cálculo"
-    },
+      "warnings": {
+        "summarizeFailure": "Error al resumir \"{label}\" en \"{context}\""
+      },
+      "mapping": {
+        "invalid": "Asignación no válida para \"{label}\"",
+        "multiple": "Múltiples coincidencias para \"{label}\"",
+        "nomatch": "Sin coincidencia para \"{label}\"",
+        "old_dropped": "La columna anterior \"{label}\" no está mapeada y se eliminará"
+      },
+      "errors": {
+        "stdlibNotLoaded": "Error: stdlib no cargada",
+        "calculationFailed": "Error en el cálculo"
+      },
     "posthoc": {
       "title": "Comparaciones múltiples significativas",
       "comparisonEntry": "Comparaciones significativas para \"{predictor}\": {comparisons}",

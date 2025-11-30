@@ -108,7 +108,7 @@ export function parseFixture({
   writeRowsFromCsv({ csvFile, rowsFile });
   const rows = loadRows(rowsFile);
   const hashes = loadHashes(hashesFile);
-  const serialized = Statz.parseColumns(JSON.stringify(rows), hashes, filename, importTime);
-  const parsed = JSON.parse(serialized);
+  const parsed = Statz.parseColumns(JSON.stringify(rows), hashes, filename, importTime);
+  const serialized = JSON.stringify(parsed);
   return { rows, hashes, parsed, serialized };
 }

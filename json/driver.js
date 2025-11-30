@@ -300,6 +300,181 @@ ns.updateColumnLabelsFromDb = function (columnPayloads, dbs) {
   }).filter(Boolean);
 };
 
+const normalizeHeaderForMatch = (label) => String(label ?? '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '')
+  .trim();
+
+/**
+ * Suggest mappings between new columns and existing columns for a Bubble RG.
+ * Returns objects ready to JSON.stringify for the RG data source.
+ * @param {{columns?: any[]}} oldDb
+ * @param {{columns?: any[]}} newDb
+ * @param {Array<string|{new_hash:string,new_label?:string,new_type?:string,choice?:string,suggested_choice?:string}>} [existingMappings]
+ * @returns {{ mappings: string[], warnings: string[], errors: string[] }}
+ */
+ns.buildColumnMappingSuggestions = function (oldDb, newDb, existingMappings = null) {
+  const oldCols = Array.isArray(oldDb?.columns) ? oldDb.columns : [];
+  const newCols = Array.isArray(newDb?.columns) ? newDb.columns : [];
+  const warnings = [];
+  const errors = [];
+  const lang = normalizeLanguage(newDb?.lang ?? oldDb?.lang);
+  const oldByHash = new Map(oldCols.map(c => [c.col_hash, c]));
+  const oldByNorm = new Map();
+  oldCols.forEach((col) => {
+    const norm = normalizeHeaderForMatch(col.col_label ?? col.col_name ?? col.col_hash ?? '');
+    if (!norm) return;
+    if (!oldByNorm.has(norm)) oldByNorm.set(norm, []);
+    oldByNorm.get(norm).push(col);
+  });
+
+  const existingMap = new Map(
+    (Array.isArray(existingMappings) ? existingMappings : []).map((m) => {
+      if (typeof m === 'string') {
+        try { m = JSON.parse(m); } catch { return null; }
+      }
+      if (!m || !m.new_hash) return null;
+      return [m.new_hash, m.choice ?? m.suggested_choice];
+    }).filter(Boolean)
+  );
+
+  const mappings = newCols.map((col) => {
+    const norm = normalizeHeaderForMatch(col.col_label ?? col.col_name ?? col.col_hash ?? '');
+    let suggested_choice = 'NEW';
+    const hasManual = existingMap.has(col.col_hash);
+    const manualChoice = hasManual ? existingMap.get(col.col_hash) : undefined;
+
+    if (hasManual) {
+      suggested_choice = manualChoice ?? '';
+      if (manualChoice && manualChoice !== 'NEW' && manualChoice !== 'IGNORE' && !oldByHash.has(manualChoice)) {
+        errors.push(translate('mapping.invalid', lang, { label: col.col_label ?? col.col_name ?? col.col_hash }));
+      }
+    } else if (oldByHash.has(col.col_hash)) {
+      // Same hash exists in old DB; prefer it directly
+      suggested_choice = col.col_hash;
+    } else if (norm && oldByNorm.has(norm)) {
+      const candidates = oldByNorm.get(norm);
+      if (candidates.length === 1) {
+        suggested_choice = candidates[0].col_hash;
+      } else {
+        errors.push(translate('mapping.multiple', lang, { label: col.col_label ?? col.col_name ?? col.col_hash }));
+      }
+    } else {
+      warnings.push(translate('mapping.nomatch', lang, { label: col.col_label ?? col.col_name ?? col.col_hash }));
+    }
+    return JSON.stringify({
+      new_hash: col.col_hash,
+      new_label: col.col_label ?? col.col_name ?? col.col_hash,
+      new_type: col.col_type ?? 'q',
+      suggested_choice
+    });
+  });
+
+  const mappedOld = new Set(
+    mappings.map((m) => {
+      try { m = JSON.parse(m); } catch { return null; }
+      const choice = m.choice ?? m.suggested_choice;
+      return choice && choice !== 'NEW' && choice !== 'IGNORE' ? choice : null;
+    }).filter(Boolean)
+  );
+  const choiceCounts = new Map();
+  mappings.forEach((m) => {
+    try { m = JSON.parse(m); } catch { return; }
+    const choice = m.choice ?? m.suggested_choice;
+    if (!choice || choice === 'NEW' || choice === 'IGNORE') return;
+    choiceCounts.set(choice, (choiceCounts.get(choice) || 0) + 1);
+  });
+  choiceCounts.forEach((count, choice) => {
+    if (count > 1) {
+      const label = (oldByHash.get(choice)?.col_label ?? oldByHash.get(choice)?.col_name ?? choice);
+      errors.push(translate('mapping.multiple', lang, { label }));
+    }
+  });
+
+  oldCols.forEach((col) => {
+    if (!mappedOld.has(col.col_hash)) {
+      warnings.push(translate('mapping.old_dropped', lang, { label: col.col_label ?? col.col_name ?? col.col_hash }));
+    }
+  });
+
+  return { mappings, warnings, errors };
+};
+
+/**
+ * Apply confirmed mappings to produce a new DB payload.
+ * @param {{columns?: any[]}} oldDb
+ * @param {{columns?: any[]}} newDb
+ * @param {Array<string|{new_hash:string,new_label:string,choice:string}>} mappingEntries
+ * @returns {Record<string, any>}
+ */
+ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
+  const oldCols = Array.isArray(oldDb?.columns) ? oldDb.columns : [];
+  const newCols = Array.isArray(newDb?.columns) ? newDb.columns : [];
+  const oldByHash = new Map(oldCols.map(c => [c.col_hash, c]));
+  const mappingObjs = Array.isArray(mappingEntries) ? mappingEntries.map((m) => {
+    if (typeof m === 'string') {
+      try { return JSON.parse(m); } catch { return null; }
+    }
+    return m;
+  }).filter(Boolean) : [];
+
+  const choiceByNewHash = new Map(mappingObjs.map(m => [m.new_hash, m.choice ?? m.suggested_choice ?? 'NEW']));
+  const result = [];
+  const namesMatch = (a, b) => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
+
+  newCols.forEach((col, idx) => {
+    const choice = choiceByNewHash.get(col.col_hash) ?? 'NEW';
+    if (choice === 'IGNORE') return;
+    if (choice !== 'NEW' && oldByHash.has(choice)) {
+      const oldCol = oldByHash.get(choice);
+      const merged = { ...col, col_hash: oldCol.col_hash };
+      // Preserve in-app customized labels when the column name did not change; otherwise prefer the new label from the file
+      const useOldLabel = namesMatch(col.col_name, oldCol.col_name);
+      merged.col_label = useOldLabel
+        ? (oldCol.col_label ?? col.col_label)
+        : (col.col_label ?? oldCol.col_label);
+      if (Array.isArray(oldCol.col_vars) && oldCol.col_vars.length) {
+        // Rebuild variants when possible using stored recipes
+        const baseLabel = oldCol.col_vars[0]?.var_label ?? (col.col_label ?? col.col_name ?? 'Original');
+        const baseMeta = oldCol.col_vars[0]?.meta?.kind === 'original' ? oldCol.col_vars[0].meta : { kind: 'original' };
+        const baseVariant = {
+          var_label: baseLabel,
+          col_type: merged.col_type,
+          col_sep: merged.col_sep ?? (merged.col_type === 'l' ? ';' : ''),
+          col_values: variants.cloneColValues ? variants.cloneColValues(merged.col_values) : merged.col_values,
+          meta: baseMeta
+        };
+        const rebuilt = [baseVariant];
+        const tempBase = { ...merged, col_vars: rebuilt };
+        oldCol.col_vars.slice(1).forEach((v) => {
+          const recipe = v?.meta?.recipe;
+          if (recipe) {
+            try {
+              const newVar = variants.createVariant(tempBase, recipe);
+              if (v?.var_label) {
+                newVar.var_label = v.var_label;
+              }
+              rebuilt.push(newVar);
+              tempBase.col_vars = rebuilt;
+            } catch {
+              rebuilt.push(v);
+            }
+          } else {
+            rebuilt.push(v);
+          }
+        });
+        merged.col_vars = rebuilt;
+      }
+      result.push(merged);
+    } else {
+      result.push(col);
+    }
+  });
+
+  result.forEach((col, i) => { col.col_index = i + 1; });
+  return { ...newDb, columns: result };
+};
+
 /**
  * Summarize each predictor optionally against a qualitative response.
  * @param {Column[]} columns

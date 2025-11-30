@@ -43,8 +43,7 @@ test("addVariant seeds original snapshot when missing", () => {
     { age: "30" }
   ]);
   const hashes = ["col-age"];
-  const serialized = factors.parseColumns(rows, hashes, "sample.csv", "2024-01-01T00:00:00.000Z");
-  const database = JSON.parse(serialized);
+  const database = factors.parseColumns(rows, hashes, "sample.csv", "2024-01-01T00:00:00.000Z");
   const column = database.columns[0];
 
   assert.ok(Array.isArray(column.col_vars));

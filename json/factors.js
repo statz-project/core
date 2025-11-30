@@ -300,7 +300,7 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
  * @param {string[]} hashes Column hashes
  * @param {string} filename
  * @param {string|number} currTime
- * @returns {string}
+ * @returns {{ columns: any[], history: Array<{file:string, import_time:any}> }}
  */
 ns.parseColumns = function (data, hashes, filename, currTime) {
   const rows = JSON.parse(data);
@@ -318,7 +318,7 @@ ns.parseColumns = function (data, hashes, filename, currTime) {
     if (!Array.isArray(column.col_vars)) column.col_vars = [];
     return column;
   });
-  return JSON.stringify({ columns: result, history: [{ file: filename, import_time: currTime }] });
+  return { columns: result, history: [{ file: filename, import_time: currTime }] };
 };
 
 /**

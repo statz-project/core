@@ -30,7 +30,7 @@ export function loadScript(src, fun) {
  */
 export function listAsArray(list) {
   if (!list) return [];
-  const len = list.length?.() ?? 0;
+  const len = list?.length?.() ?? 0;
   const arr = list.get?.(0, len) ?? [];
   return arr;
 }

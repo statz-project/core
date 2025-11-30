@@ -625,6 +625,8 @@ ns.createVariant = function (baseCol, config = {}) {
   let currentSep = sourceSep;
   const lang = normalizeLanguage(config.lang);
   const recipe = JSON.parse(JSON.stringify(config || {}));
+  delete recipe.var_label;
+  delete recipe.label;
   const meta = {
     kind: config.kind ?? 'custom',
     source_var_index: variantIndex,
@@ -680,7 +682,7 @@ const finalValues = config.sortByFrequency
   if (config.note) meta.note = config.note;
   const defaultLabel = config.kind ? `${config.kind} variant` : 'Variant';
   return {
-    var_label: config.var_label || config.label || defaultLabel,
+    var_label: config.var_label || defaultLabel,
     col_type: currentType,
     col_sep: currentSep,
     col_values: cloneColValues(finalValues),
