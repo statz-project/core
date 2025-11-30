@@ -4,6 +4,7 @@ import { normalizeLanguage, translate } from '../i18n/index.js';
 
 const DEFAULT_LIST_SEP = ';';
 const MAX_WARNINGS = 10;
+const CURRENT_RECIPE_VERSION = 1;
 
 const pushWarning = (meta, key, vars = {}) => {
   meta.warnings.push(translate(key, meta.lang, vars));
@@ -26,6 +27,8 @@ const ns = {};
  * @property {Array<[number, number]>} [breaks]
  * @property {string[]} [labels]
  * @property {string} [note]
+ * @property {Record<string, any>} [recipe]
+ * @property {number} [recipe_version]
  * @property {string} lang
  */
 /**
@@ -621,13 +624,16 @@ ns.createVariant = function (baseCol, config = {}) {
   let currentType = sourceType;
   let currentSep = sourceSep;
   const lang = normalizeLanguage(config.lang);
+  const recipe = JSON.parse(JSON.stringify(config || {}));
   const meta = {
     kind: config.kind ?? 'custom',
     source_var_index: variantIndex,
     source_type: sourceType,
     actions: [],
     warnings: [],
-    lang
+    lang,
+    recipe,
+    recipe_version: CURRENT_RECIPE_VERSION
   };
   const getListContext = () => ({ isList: currentType === 'l', sep: currentSep || sourceSep || DEFAULT_LIST_SEP, meta });
   if (config.fillEmpty !== undefined) {
