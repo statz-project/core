@@ -488,11 +488,16 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
  */
 ns.summarizePredictors = function (columns, predictors, responses, data, options, flagsUsed, formatFns = {}) {
   const response = responses.length > 0 ? responses[0] : null;
-  const responseCol = response ? columns.find(c => c.col_hash === response.col_hash) : null;
+  const responseCol = response
+    ? columns.find(c => c.col_hash === response.col_hash && c.col_var_index === (response.col_var_index ?? null))
+      || columns.find(c => c.col_hash === response.col_hash)
+    : null;
   const responseType = responseCol?.col_type || null; const responseVals = responseCol?.raw_values || null;
   const lang = normalizeLanguage(options?.lang);
   return predictors.map(pred => {
-    const predictorCol = columns.find(c => c.col_hash === pred.col_hash); if (!predictorCol) return null;
+    const predictorCol = columns.find(c => c.col_hash === pred.col_hash && c.col_var_index === (pred.col_var_index ?? null))
+      || columns.find(c => c.col_hash === pred.col_hash);
+    if (!predictorCol) return null;
     const predictorVals = predictorCol.raw_values; const predictorType = predictorCol.col_type; const predictorSep = predictorCol.col_sep || ';'; const formatFn = formatFns[pred.col_label] || null;
     let table;
     if (!response) {
