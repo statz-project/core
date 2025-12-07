@@ -109,14 +109,14 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
       const result = stats?.chi2test(observed, { correct: false });
       method = translate('tests.chiSquare', lang);
       p_value = +(result?.pValue?.toFixed?.(4) ?? NaN);
-      if (withResiduals && Number.isFinite(p_value) && p_value < alpha) {
-        residuals = ns.computeAdjustedResiduals(observed, expected, rowSums, colSums, total);
-        residualsAnnotated = residuals.map(row => row.map(value => {
-          if (value > 1.96) { used_resid_greater = true; return residualSymbols.greater; }
-          if (value < -1.96) { used_resid_lower = true; return residualSymbols.lower; }
-          return '';
-        }));
-      }
+    }
+    if (withResiduals && Number.isFinite(p_value) && p_value < alpha) {
+      residuals = ns.computeAdjustedResiduals(observed, expected, rowSums, colSums, total);
+      residualsAnnotated = residuals.map(row => row.map(value => {
+        if (value > 1.96) { used_resid_greater = true; return residualSymbols.greater; }
+        if (value < -1.96) { used_resid_lower = true; return residualSymbols.lower; }
+        return '';
+      }));
     }
     return { method, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower };
   })();
