@@ -427,7 +427,10 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
     if (choice === 'IGNORE') return;
     if (choice !== 'NEW' && oldByHash.has(choice)) {
       const oldCol = oldByHash.get(choice);
-      const merged = { ...col, col_hash: oldCol.col_hash };
+      const mergedMeta = (oldCol.meta || col.meta)
+        ? { ...(oldCol.meta || {}), ...(col.meta || {}) }
+        : undefined;
+      const merged = { ...col, col_hash: oldCol.col_hash, ...(mergedMeta ? { meta: mergedMeta } : {}) };
       // Preserve in-app customized labels when the column name did not change; otherwise prefer the new label from the file
       const useOldLabel = namesMatch(col.col_name, oldCol.col_name);
       merged.col_label = useOldLabel
@@ -472,7 +475,16 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
   });
 
   result.forEach((col, i) => { col.col_index = i + 1; });
-  return { ...newDb, columns: result };
+  const reapplyReplacements = (column) => {
+    const reps = column?.meta?.replacements;
+    if (!Array.isArray(reps) || reps.length === 0) return column;
+    const search = reps.map(r => r.from);
+    const replace = reps.map(r => r.to);
+    return factors.replaceColumnValues(column, search, replace);
+  };
+
+  const finalColumns = result.map(reapplyReplacements);
+  return { ...newDb, columns: finalColumns };
 };
 
 /**

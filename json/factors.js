@@ -175,9 +175,13 @@ ns.replaceColumnValues = function (colObject, search, replace) {
   const sep = colObject.col_sep; const isListType = colObject.col_type === 'l' && sep;
   const normalizeKey = (value) => (value == null ? '' : String(value).trim());
   const replaceMap = {};
+  const metaReplacements = [];
   search.forEach((original, i) => {
     const updated = (replace[i] ?? '').trim();
     replaceMap[normalizeKey(original)] = updated;
+    if (normalizeKey(original) !== updated) {
+      metaReplacements.push({ from: normalizeKey(original), to: updated });
+    }
   });
   const updatedValues = decodedValues.map(entry => {
     if (isListType) {
@@ -198,7 +202,12 @@ ns.replaceColumnValues = function (colObject, search, replace) {
     return entry;
   });
   const processed = ns.encodeColValues(updatedValues, colObject.col_type, colObject.col_sep);
-  return { ...colObject, col_values: processed };
+  const meta = { ...(colObject.meta || {}) };
+  if (metaReplacements.length > 0) {
+    meta.replacements = metaReplacements;
+    meta.recipe_version = 1;
+  }
+  return { ...colObject, col_values: processed, meta };
 };
 
 /**
