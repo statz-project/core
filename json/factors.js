@@ -1,5 +1,6 @@
 ﻿// @ts-check
 import { trimPunctuation } from './_env.js';
+import { changeCase } from '../string_utils.js';
 
 /**
  * @typedef {{col_compact:boolean, labels:string[]|null, codes:(number[]|string[])|null, raw_values:string[]|null}} ColValues
@@ -309,16 +310,21 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
  * @param {string[]} hashes Column hashes
  * @param {string} filename
  * @param {string|number} currTime
+ * @param {{ capitalizeLabels?: boolean, lang?: string }=} options
  * @returns {{ columns: any[], history: Array<{file:string, import_time:any}> }}
  */
-ns.parseColumns = function (data, hashes, filename, currTime) {
+ns.parseColumns = function (data, hashes, filename, currTime, options = {}) {
   const rows = JSON.parse(data);
   const columns = {};
   rows.forEach(row => { Object.entries(row).forEach(([key, value]) => { if (!columns[key]) columns[key] = []; columns[key].push(value); }); });
   const result = Object.entries(columns).map(([key, values], index) => {
+    const labelRaw = trimPunctuation(key).trim();
+    const col_label = options.capitalizeLabels
+      ? changeCase(labelRaw, 'title_first', options.lang)
+      : labelRaw;
     const column = ns.makeColumn(values, {
       col_name: key,
-      col_label: trimPunctuation(key).trim(),
+      col_label,
       col_hash: hashes[index],
       col_index: index + 1,
       col_del: false,

@@ -1,5 +1,6 @@
 // @ts-check
 // Extracted from bubble/scripts_html/string_utils.html
+import { DEFAULT_LANG } from './i18n/index.js';
 
 /**
  * Normalize diacritics and optionally lowercase.
@@ -59,7 +60,7 @@ export function titleCaseWithStopwords(str, lang = "pt_br") {
  * @param {('lower'|'upper'|'title_first'|'proper')=} mode
  * @param {string=} lang
  */
-export function changeCase(str, mode = "lower", lang = "pt_br") {
+export function changeCase(str, mode = "lower", lang = DEFAULT_LANG) {
   if (typeof str !== "string") return str;
   switch (mode.toLowerCase()) {
     case "upper":
