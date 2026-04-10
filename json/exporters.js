@@ -324,6 +324,7 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   const includeRowIndex = options.includeRowIndex !== false; // default true
   const showDeletedColumns = options.showDeletedColumns === true; // default hide deleted
   const showVariants = options.showVariants !== false; // default true
+  const shouldApplyProcessing = options.applyProcessing !== false; // default true
   const escapeHtml = (val) => {
     const str = String(val ?? '');
     // Avoid regex literals with `</` sequences (safer for inline bundles); use split/join for < and >.
@@ -337,7 +338,11 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
     const entries = [];
     const colType = col.col_type ?? 'q';
     const colSep = col.col_sep ?? (colType === 'l' ? ';' : '');
-    const baseValues = factors.decodeColValues(col.col_values, colType, colSep) ?? col.raw_values ?? [];
+    let effectiveCol = col;
+    if (shouldApplyProcessing && col.meta?.processing && Object.keys(col.meta.processing).length > 0) {
+      effectiveCol = factors.applyProcessing(col);
+    }
+    const baseValues = factors.decodeColValues(effectiveCol.col_values, colType, colSep) ?? col.raw_values ?? [];
     const baseLabel = escapeHtml(col.col_label ?? col.col_name ?? col.col_hash ?? '');
     entries.push({ hash: col.col_hash, label: baseLabel, values: baseValues, isDeleted: !!col.col_del, isVariant: false });
 
@@ -345,7 +350,11 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
       col.col_vars.forEach((variant, idx) => {
         const vType = variant?.col_type ?? colType;
         const vSep = variant?.col_sep ?? colSep;
-        const vValues = factors.decodeColValues(variant?.col_values, vType, vSep) ?? variant?.raw_values ?? [];
+        let effectiveVariant = variant;
+        if (shouldApplyProcessing && variant?.meta?.processing && Object.keys(variant.meta.processing).length > 0) {
+          effectiveVariant = factors.applyProcessing({ ...variant, col_type: vType, col_sep: vSep });
+        }
+        const vValues = factors.decodeColValues(effectiveVariant?.col_values, vType, vSep) ?? variant?.raw_values ?? [];
         const vLabel = escapeHtml(variant?.var_label ?? `${baseLabel} (v${idx + 1})`);
         entries.push({ hash: `${col.col_hash}__var${idx}`, label: vLabel, values: vValues, isDeleted: !!col.col_del, isVariant: true });
       });

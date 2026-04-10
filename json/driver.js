@@ -430,6 +430,10 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
       const mergedMeta = (oldCol.meta || col.meta)
         ? { ...(oldCol.meta || {}), ...(col.meta || {}) }
         : undefined;
+      // Preserve old processing config (new columns from parseColumns have empty processing)
+      if (mergedMeta && oldCol.meta?.processing && Object.keys(oldCol.meta.processing).length > 0) {
+        mergedMeta.processing = { ...(oldCol.meta.processing), ...(col.meta?.processing && Object.keys(col.meta.processing).length > 0 ? col.meta.processing : {}) };
+      }
       const merged = { ...col, col_hash: oldCol.col_hash, ...(mergedMeta ? { meta: mergedMeta } : {}) };
       // Preserve in-app customized labels when the column name did not change; otherwise prefer the new label from the file
       const useOldLabel = namesMatch(col.col_name, oldCol.col_name);
@@ -565,9 +569,16 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     if (!baseCol) return null;
     const hasVariantIndex = col.col_var_index !== null && col.col_var_index !== undefined;
     const variant = hasVariantIndex && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[col.col_var_index] : null;
-    const effectiveColValues = variant?.col_values ?? baseCol.col_values;
+    let effectiveColValues = variant?.col_values ?? baseCol.col_values;
     const effectiveType = variant?.col_type ?? baseCol.col_type;
     const effectiveSep = variant?.col_sep ?? baseCol.col_sep ?? ';';
+    // Apply meta.processing if present
+    const processingMeta = variant?.meta?.processing || baseCol.meta?.processing;
+    if (processingMeta && Object.keys(processingMeta).length > 0) {
+      const tempCol = { col_type: effectiveType, col_sep: effectiveSep, col_values: effectiveColValues, meta: { processing: processingMeta } };
+      const processed = factors.applyProcessing(tempCol);
+      effectiveColValues = processed.col_values;
+    }
     const raw_values = factors.decodeColValues(effectiveColValues, effectiveType, effectiveSep);
     return {
       col_hash: baseCol.col_hash,
@@ -613,13 +624,25 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
     console.warn('describeColumn: failed to decode column values.', error);
     return [];
   }
-  const resolvedColumn = lookup.column || baseColumn;
-  const values = Array.isArray(lookup.rawValues) ? lookup.rawValues : [];
+  let resolvedColumn = lookup.column || baseColumn;
+  let values = Array.isArray(lookup.rawValues) ? lookup.rawValues : [];
   if (!values.length) return [];
-  const variant = lookup.variant;
+  let variant = lookup.variant;
   const colType = variant?.col_type ?? resolvedColumn.col_type ?? 'q';
   let colSep = variant?.col_sep ?? resolvedColumn.col_sep;
   if (!colSep) colSep = colType === 'l' ? ';' : '';
+  // Apply meta.processing if present
+  const metaSource = variant?.meta || resolvedColumn.meta;
+  if (metaSource?.processing && Object.keys(metaSource.processing).length > 0) {
+    const tempCol = { col_type: colType, col_sep: colSep, col_values: variant?.col_values ?? resolvedColumn.col_values, meta: metaSource };
+    const processed = factors.applyProcessing(tempCol);
+    values = factors.decodeColumn({ col_type: colType, col_sep: colSep, col_values: processed.col_values });
+    if (variant) {
+      variant = { ...variant, col_values: processed.col_values };
+    } else {
+      resolvedColumn = { ...resolvedColumn, col_values: processed.col_values };
+    }
+  }
   const structured = options?.structured === true;
   const lang = normalizeLanguage(options?.lang);
   const summaryOptions = { ...options, lang };

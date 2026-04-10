@@ -1,6 +1,7 @@
 ﻿// @ts-check
 import { trimPunctuation } from './_env.js';
 import { changeCase } from '../string_utils.js';
+import { translate } from '../i18n/index.js';
 
 /**
  * @typedef {{col_compact:boolean, labels:string[]|null, codes:(number[]|string[])|null, raw_values:string[]|null}} ColValues
@@ -212,6 +213,111 @@ ns.replaceColumnValues = function (colObject, search, replace) {
 };
 
 /**
+ * Apply meta.processing transformations to a column's values.
+ * Returns a NEW column object with processed col_values.
+ * The original columnObject is never mutated.
+ * @param {Object} columnObject A single column from db_data.columns
+ * @param {Object} [options] Override options (merged with meta.processing)
+ * @returns {Object} New column object with processed col_values
+ */
+ns.applyProcessing = function (columnObject, options = {}) {
+  const cloned = { ...columnObject, col_values: JSON.parse(JSON.stringify(columnObject.col_values)) };
+  const proc = { ...(columnObject?.meta?.processing || {}), ...options };
+  if (!proc || Object.keys(proc).length === 0) return cloned;
+
+  const col_type = cloned.col_type || 'q';
+  const col_sep = cloned.col_sep || (col_type === 'l' ? ';' : '');
+  let values = ns.decodeColumn({ col_type, col_sep, col_values: cloned.col_values });
+
+  // Step 1: NA handling (all col_types)
+  if (proc.na_action === 'label') {
+    const naLabel = proc.na_label || translate('table.missing', proc.lang);
+    values = values.map(v => {
+      const s = v == null ? '' : String(v).trim();
+      return s === '' ? naLabel : v;
+    });
+  }
+
+  // Step 2: Excluded values (all col_types)
+  if (Array.isArray(proc.excluded_values) && proc.excluded_values.length > 0) {
+    const excludeSet = new Set(proc.excluded_values.map(String));
+    if (col_type === 'l' && col_sep) {
+      values = values.map(v => {
+        if (v == null || String(v).trim() === '') return v;
+        const items = String(v).split(col_sep).map(s => s.trim()).filter(Boolean);
+        const filtered = items.filter(item => !excludeSet.has(item));
+        return filtered.length > 0 ? filtered.join(col_sep) : '';
+      });
+    } else {
+      values = values.map(v => {
+        const s = v == null ? '' : String(v).trim();
+        return excludeSet.has(s) ? '' : v;
+      });
+    }
+  }
+
+  // Step 3: Re-encode
+  const newColValues = ns.encodeColValues(values, col_type, col_sep);
+
+  // Step 4: Sort levels (q only, after encoding)
+  if (col_type === 'q' && newColValues.col_compact && Array.isArray(newColValues.labels)) {
+    const sortMode = proc.sort_mode || 'default';
+    if (sortMode !== 'default') {
+      const freqMap = {};
+      newColValues.labels.forEach(l => { freqMap[l] = 0; });
+      newColValues.codes.forEach(code => {
+        if (code > 0 && code <= newColValues.labels.length) {
+          freqMap[newColValues.labels[code - 1]]++;
+        }
+      });
+
+      let sortedLabels;
+      if (sortMode === 'freq_desc') {
+        sortedLabels = [...newColValues.labels].sort((a, b) => freqMap[b] - freqMap[a] || a.localeCompare(b));
+      } else if (sortMode === 'freq_asc') {
+        sortedLabels = [...newColValues.labels].sort((a, b) => freqMap[a] - freqMap[b] || a.localeCompare(b));
+      } else if (sortMode === 'alpha') {
+        sortedLabels = [...newColValues.labels].sort((a, b) => a.localeCompare(b));
+      } else if (sortMode === 'custom' && Array.isArray(proc.custom_order)) {
+        const ordered = proc.custom_order.filter(v => newColValues.labels.includes(v));
+        const remaining = newColValues.labels.filter(v => !proc.custom_order.includes(v));
+        sortedLabels = [...ordered, ...remaining];
+      }
+
+      if (sortedLabels) {
+        const oldIndexMap = {};
+        newColValues.labels.forEach((l, i) => { oldIndexMap[i + 1] = sortedLabels.indexOf(l) + 1; });
+        newColValues.labels = sortedLabels;
+        newColValues.codes = newColValues.codes.map(c => c === 0 ? 0 : (oldIndexMap[c] ?? 0));
+      }
+    }
+  }
+
+  // Step 5: Top N (q only, after sort)
+  if (col_type === 'q' && newColValues.col_compact && Array.isArray(newColValues.labels)) {
+    const topN = proc.top_n;
+    if (topN != null && topN > 0 && topN < newColValues.labels.length) {
+      const topNLabel = proc.top_n_label || 'Others';
+      const keepLabels = newColValues.labels.slice(0, topN);
+      const mergeIndices = new Set();
+      for (let i = topN; i < newColValues.labels.length; i++) mergeIndices.add(i + 1);
+      const newLabels = [...keepLabels, topNLabel];
+      const topNIndex = newLabels.length;
+
+      newColValues.codes = newColValues.codes.map(c => {
+        if (c === 0) return 0;
+        if (mergeIndices.has(c)) return topNIndex;
+        return c;
+      });
+      newColValues.labels = newLabels;
+    }
+  }
+
+  cloned.col_values = newColValues;
+  return cloned;
+};
+
+/**
  * Collect the distinct values present in a column, splitting list columns into individual items. Supports both a Column object and a variant object.
  * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any }} colObject
  * @returns {string[]}
@@ -328,7 +434,8 @@ ns.parseColumns = function (data, hashes, filename, currTime, options = {}) {
       col_hash: hashes[index],
       col_index: index + 1,
       col_del: false,
-      includeBaseVariant: false
+      includeBaseVariant: false,
+      meta: { replacements: [], processing: {} }
     });
     if (!Array.isArray(column.col_vars)) column.col_vars = [];
     return column;
