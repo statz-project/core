@@ -9,16 +9,65 @@ import { translate } from '../i18n/index.js';
 const ns = {};
 
 /**
+ * Score a separator candidate against a sample of values.
+ * Returns a positive score if the separator is a plausible list separator, -Infinity otherwise.
+ * @param {string[]} sample Non-empty filtered values
+ * @param {string} sep Separator to evaluate
+ * @param {string[]} otherSeps Other candidates (used to measure contamination)
+ * @returns {number}
+ */
+function scoreSep(sample, sep, otherSeps) {
+  const rowsWithSep = sample.filter(v => v.includes(sep));
+  const prevalence = rowsWithSep.length / sample.length;
+  if (prevalence < 0.4) return -Infinity;
+
+  const multiItemRows = sample.filter(v => v.split(sep).filter(s => s.trim()).length > 1);
+  const multiItemFraction = multiItemRows.length / sample.length;
+  if (multiItemFraction < 0.3) return -Infinity;
+
+  // Contamination: a true separator produces atomic items that don't contain the other sep
+  const allItems = sample.flatMap(v => v.split(sep).map(s => s.trim()).filter(Boolean));
+  const contamination = allItems.length > 0
+    ? allItems.filter(item => otherSeps.some(o => item.includes(o))).length / allItems.length
+    : 0;
+
+  return prevalence * multiItemFraction * (1 - contamination);
+}
+
+/**
+ * Infer the list separator from raw values. Returns '' if no list separator is detected.
+ * Uses raw (non-unique) values so that row-level frequency information is preserved.
+ * @param {string[]} values
+ * @returns {string}
+ */
+ns.inferColSep = function (values) {
+  const sample = values.filter(Boolean).slice(0, 50);
+  if (sample.length === 0) return '';
+  const sepCandidates = [';', ','];
+  let bestSep = null;
+  let bestScore = -Infinity;
+  for (const sep of sepCandidates) {
+    const others = sepCandidates.filter(s => s !== sep);
+    const score = scoreSep(sample, sep, others);
+    if (score > bestScore) { bestScore = score; bestSep = sep; }
+  }
+  return bestScore >= 0.25 ? bestSep : '';
+};
+
+/**
  * Infer column type and list separator from raw values.
+ * Order: numeric → list → qualitative.
+ * Numeric is checked first to avoid confusing decimal commas (e.g. "3,14") with list separators.
  * @param {string[]} values
  * @returns {{col_type:'q'|'n'|'l', col_sep:string}}
  */
 ns.inferColType = function (values) {
-  const sample = values.slice(0, 10).filter(Boolean);
-  const sepGuess = [';', ','].find(sep => sample.some(v => v.includes(sep))) || '';
-  if (sepGuess) return { col_type: 'l', col_sep: sepGuess };
+  const sample = values.filter(Boolean).slice(0, 50);
+  if (sample.length === 0) return { col_type: 'q', col_sep: '' };
   const numeric = sample.every(v => /^-?\d+(\.\d+)?$/.test(v.replace(',', '.')));
   if (numeric) return { col_type: 'n', col_sep: '' };
+  const bestSep = ns.inferColSep(values);
+  if (bestSep) return { col_type: 'l', col_sep: bestSep };
   return { col_type: 'q', col_sep: '' };
 };
 
