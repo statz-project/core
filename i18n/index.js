@@ -91,6 +91,12 @@ const MESSAGES = {
         "n": "n",
         "n_missing": "Valores ausentes"
       }
+    },
+    "import": {
+      "warnings": {
+        "numericCoerced": "linha {row}: {original} → {parsed}",
+        "numericDropped": "linha {row}: {original} (não numérico)"
+      }
     }
   },
   "en_us": {
@@ -172,6 +178,12 @@ const MESSAGES = {
         "n": "n",
         "n_missing": "Missing values"
       }
+    },
+    "import": {
+      "warnings": {
+        "numericCoerced": "row {row}: {original} → {parsed}",
+        "numericDropped": "row {row}: {original} (not numeric)"
+      }
     }
   },
   "es_es": {
@@ -252,6 +264,12 @@ const MESSAGES = {
         "mode": "Moda",
         "n": "n",
         "n_missing": "Valores ausentes"
+      }
+    },
+    "import": {
+      "warnings": {
+        "numericCoerced": "fila {row}: {original} → {parsed}",
+        "numericDropped": "fila {row}: {original} (no numérico)"
       }
     }
   }

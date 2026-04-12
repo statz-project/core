@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import factors from "../json/factors.js";
+import numeric from "../json/numeric.js";
 
 test("inferColType: list with ';' separator, commas embedded in values", () => {
   const values = [
@@ -44,4 +45,14 @@ test("inferColType: plain qualitative", () => {
   const values = ["male", "female", "male", "female", "male"];
   const result = factors.inferColType(values);
   assert.equal(result.col_type, 'q');
+});
+
+test("getNumericWarnings: reports spurious characters, silent for clean values", () => {
+  const col = factors.makeColumn(["10", "1.2t", "abc", "20", "", "1,2"], {
+    col_type: 'n', col_sep: '', includeBaseVariant: false
+  });
+  const warnings = numeric.getNumericWarnings(col, 'pt_br');
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /linha 2.*1\.2t.*1\.2/);
+  assert.match(warnings[1], /linha 3.*abc.*não numérico/);
 });

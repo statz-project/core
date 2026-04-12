@@ -2,6 +2,7 @@
 import { getJStat, getSS, getStatsLib, formatNumberLocale } from './_env.js';
 import { getBinaryLabels, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 import variants from './variants.js';
+import factors from './factors.js';
 
 const ns = {};
 
@@ -328,6 +329,38 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
     p_value: +(p_value?.toFixed?.(4) ?? null),
     posthoc
   };
+};
+
+/** Matches values that contain only numeric-safe characters (no spurious letters etc.) */
+const CLEAN_NUMERIC_RE = /^[0-9.,+\- ]*$/;
+
+/**
+ * Returns warning strings for values with spurious characters in a numeric column.
+ * Parseable after sanitization: "row N: original → parsed".
+ * Not parseable: "row N: original (not numeric)".
+ * Silent for empty/missing values and values with no spurious characters (e.g. decimal comma).
+ * Returns [] if col_type !== 'n'.
+ * @param {{col_type: 'n'|'q'|'l', col_sep?: string, col_values: any}} column
+ * @param {string} [lang]
+ * @returns {string[]}
+ */
+ns.getNumericWarnings = function (column, lang) {
+  if (!column || column.col_type !== 'n') return [];
+  const values = factors.decodeColumn(column);
+  /** @type {string[]} */
+  const warnings = [];
+  values.forEach((value, i) => {
+    const original = value == null ? '' : String(value).trim();
+    if (original === '' || CLEAN_NUMERIC_RE.test(original)) return;
+    const normalized = variants.sanitizeNumericString(original);
+    const parsed = Number.parseFloat(normalized);
+    if (Number.isFinite(parsed)) {
+      warnings.push(translate('import.warnings.numericCoerced', lang, { row: i + 1, original, parsed }));
+    } else {
+      warnings.push(translate('import.warnings.numericDropped', lang, { row: i + 1, original }));
+    }
+  });
+  return warnings;
 };
 
 export default ns;
