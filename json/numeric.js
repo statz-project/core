@@ -1,6 +1,7 @@
 // @ts-check
 import { getJStat, getSS, getStatsLib, formatNumberLocale } from './_env.js';
 import { getBinaryLabels, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
+import variants from './variants.js';
 
 const ns = {};
 
@@ -12,7 +13,8 @@ ns.summarize_n = function (values, formatFn = null, options = {}) {
   const nums = [];
   let missingCount = 0;
   values.forEach((value) => {
-    const parsed = Number.parseFloat(value);
+    const sanitized = typeof value === 'string' ? variants.sanitizeNumericString(value) : String(value);
+    const parsed = Number.parseFloat(sanitized);
     if (Number.isFinite(parsed)) {
       nums.push(parsed);
       return;
@@ -203,7 +205,8 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
     const group = responseVals[i]?.toString().trim();
     if (!group) return;
     if (!groupMap[group]) groupMap[group] = [];
-    const val = Number.parseFloat(pred);
+    const sanitized = typeof pred === 'string' ? variants.sanitizeNumericString(pred) : String(pred);
+    const val = Number.parseFloat(sanitized);
     if (Number.isFinite(val)) {
       groupMap[group].push(val);
     } else {

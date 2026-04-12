@@ -41,7 +41,7 @@ function scoreSep(sample, sep, otherSeps) {
  * @returns {string}
  */
 ns.inferColSep = function (values) {
-  const sample = values.filter(Boolean).slice(0, 50);
+  const sample = values.filter(Boolean).slice(0, 50).map(String);
   if (sample.length === 0) return '';
   const sepCandidates = [';', ','];
   let bestSep = null;
@@ -120,7 +120,7 @@ ns.decodeColValues = function (col_values, col_type = null, col_sep = ';') {
   const { codes, labels } = col_values;
   if (!Array.isArray(codes)) return [];
   if (col_type === 'l') {
-    return codes.map(codeStr => codeStr.split(col_sep).map(c => labels[parseInt(c, 10) - 1]).filter(Boolean).join(col_sep));
+    return codes.map(codeStr => String(codeStr).split(col_sep).map(c => labels[parseInt(c, 10) - 1]).filter(Boolean).join(col_sep));
   }
   return codes.map(c => c === 0 ? null : labels[c - 1]);
 };
