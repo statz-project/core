@@ -488,7 +488,8 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
   };
 
   const finalColumns = result.map(reapplyReplacements);
-  return { ...newDb, columns: finalColumns };
+  const resultMeta = { ...(oldDb?.meta || {}), ...(newDb?.meta || {}) };
+  return { ...newDb, columns: finalColumns, meta: resultMeta };
 };
 
 /**
