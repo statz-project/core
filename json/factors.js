@@ -265,6 +265,7 @@ ns.replaceColumnValues = function (colObject, search, replace) {
  * Apply meta.processing transformations to a column's values.
  * Returns a NEW column object with processed col_values.
  * The original columnObject is never mutated.
+ *
  * @param {Object} columnObject A single column from db_data.columns
  * @param {Object} [options] Override options (merged with meta.processing)
  * @returns {Object} New column object with processed col_values
@@ -278,16 +279,15 @@ ns.applyProcessing = function (columnObject, options = {}) {
   const col_sep = cloned.col_sep || (col_type === 'l' ? ';' : '');
   let values = ns.decodeColumn({ col_type, col_sep, col_values: cloned.col_values });
 
-  // Step 1: NA handling (all col_types)
-  if (proc.na_action === 'label') {
-    const naLabel = proc.na_label || translate('table.missing', proc.lang);
-    values = values.map(v => {
-      const s = v == null ? '' : String(v).trim();
-      return s === '' ? naLabel : v;
-    });
-  }
+  // Snapshot which rows are missing BEFORE any processing — NA handling only labels these,
+  // not values that become empty as a result of exclusion.
+  const originallyMissing = new Set();
+  values.forEach((v, i) => {
+    const s = v == null ? '' : String(v).trim();
+    if (s === '') originallyMissing.add(i);
+  });
 
-  // Step 2: Excluded values (all col_types)
+  // Step 1: Excluded values (all col_types) — remove first so subsequent steps act on kept data
   if (Array.isArray(proc.excluded_values) && proc.excluded_values.length > 0) {
     const excludeSet = new Set(proc.excluded_values.map(String));
     if (col_type === 'l' && col_sep) {
@@ -305,10 +305,16 @@ ns.applyProcessing = function (columnObject, options = {}) {
     }
   }
 
+  // Step 2: NA handling — labels originally-missing rows only (excluded rows stay empty)
+  if (proc.na_action === 'label') {
+    const naLabel = proc.na_label || translate('table.missing', proc.lang);
+    values = values.map((v, i) => originallyMissing.has(i) ? naLabel : v);
+  }
+
   // Step 3: Re-encode
   const newColValues = ns.encodeColValues(values, col_type, col_sep);
 
-  // Step 4: Sort levels (q only, after encoding)
+  // Step 4: Sort levels (q only, after encoding) — includes NA label in frequency ordering
   if (col_type === 'q' && newColValues.col_compact && Array.isArray(newColValues.labels)) {
     const sortMode = proc.sort_mode || 'default';
     if (sortMode !== 'default') {

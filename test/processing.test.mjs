@@ -228,6 +228,37 @@ test("describeColumn applies meta.processing", () => {
   assert.ok(labels.includes('B'), 'B should be in description');
 });
 
+test("applyProcessing: pipeline order (replacements → exclude → NA → sort → top_n)", () => {
+  // Step 0: apply replacement A→Group1 (destructive, before applyProcessing)
+  const base = makeQCol(['A', 'A', 'B', 'B', 'C', 'X', 'X', 'X', '']);
+  const replaced = factors.replaceColumnValues(base, ['A'], ['Group1']);
+  replaced.meta.processing = {
+    excluded_values: ['X'],
+    na_action: 'label',
+    na_label: 'Missing',
+    sort_mode: 'freq_desc',
+    top_n: 2,
+    top_n_label: 'Others'
+  };
+
+  const result = factors.applyProcessing(replaced);
+  const values = decode(result);
+
+  // X (indices 5,6,7) was excluded BEFORE NA → stays empty, never relabeled as Missing
+  assert.ok(values[5] === null || values[5] === '', `excluded should be empty, got: ${values[5]}`);
+  assert.ok(values[6] === null || values[6] === '', `excluded should be empty, got: ${values[6]}`);
+  assert.ok(values[7] === null || values[7] === '', `excluded should be empty, got: ${values[7]}`);
+
+  // Originally-empty (index 8) was labeled Missing, but Missing freq=1 → grouped into Others by top_n
+  // Frequencies after exclusion+NA: Group1=2, B=2, C=1, Missing=1
+  // freq_desc with alpha tie-break → [B, Group1, C, Missing] → top 2 → [B, Group1, Others]
+  assert.deepEqual(result.col_values.labels, ['B', 'Group1', 'Others']);
+  assert.equal(values[0], 'Group1'); // was A → Group1
+  assert.equal(values[2], 'B');
+  assert.equal(values[4], 'Others'); // C grouped
+  assert.equal(values[8], 'Others'); // originally '' → Missing → grouped
+});
+
 test("replacements + processing work together", () => {
   // First apply replacements (destructive)
   const col = makeQCol(['m', 'f', 'f', 'm', 'unknown']);
