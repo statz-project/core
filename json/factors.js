@@ -373,15 +373,29 @@ ns.applyProcessing = function (columnObject, options = {}) {
 };
 
 /**
- * Collect the distinct values present in a column, splitting list columns into individual items. Supports both a Column object and a variant object.
- * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any }} colObject
+ * Collect the distinct values present in a column, splitting list columns into individual items.
+ * Supports both a Column object and a variant object.
+ * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any, raw_values?: string[] }} colObject
+ * @param {{ order?: 'levels'|'alpha' }} [options]
+ *   `order='levels'` returns `col_values.labels` (R-style factor levels).
+ *   `order='alpha'` returns alphabetically sorted unique items.
+ *   Default: `'levels'` for `col_type='q'`, `'alpha'` otherwise.
  * @returns {string[]}
  */
-ns.getIndividualItems = function (colObject) {
-  const col_type = colObject.col_type || 'q'; const col_sep = colObject.col_sep || ';';
+ns.getIndividualItems = function (colObject, options = {}) {
+  const col_type = colObject.col_type || 'q';
+  const col_sep = colObject.col_sep || ';';
+  const order = options.order ?? (col_type === 'q' ? 'levels' : 'alpha');
+
+  if (order === 'levels' && colObject.col_values?.col_compact && Array.isArray(colObject.col_values?.labels)) {
+    return [...colObject.col_values.labels];
+  }
+
   const values = ns.decodeColumn({ col_type, col_sep, col_values: colObject.col_values, raw_values: colObject.raw_values });
   const allItems = (col_type === 'l') ? values.flatMap(v => (v || '').split(col_sep).map(s => s.trim()).filter(Boolean)) : values;
-  return [...new Set(allItems.filter(Boolean))];
+  const unique = [...new Set(allItems.filter(Boolean))];
+  if (order === 'alpha') return unique.sort((a, b) => a.localeCompare(b));
+  return unique;
 };
 
 /**

@@ -198,6 +198,13 @@ ns.decomposeListAsBinaryCols = function (values, sep = ';', options = {}) {
 /**
  * Compare numeric predictor across qualitative groups (t-test/Kruskal–Wallis).
  * Builds descriptive rows via getNumericalSummaryByGroup and appends test info.
+ * @param {Array<string|number>} predictorVals
+ * @param {Array<string>} responseVals
+ * @param {Function|null} [formatFn]
+ * @param {Set<string>|null} [flagsUsed]
+ * @param {{responseLabels?: string[]|null, alpha?: number, adjust_kruskal?: string, lang?: string, [k:string]: any}} [options]
+ *   `responseLabels`: ordered factor levels of the q response. When provided, group columns
+ *   follow that order (R-style factor); otherwise falls back to insertion order from data.
  */
 ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flagsUsed = null, options = {}) {
   const groupMap = {};
@@ -215,7 +222,10 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
     }
   });
 
-  const groupNames = Object.keys(groupMap);
+  const responseLabels = Array.isArray(options?.responseLabels) ? options.responseLabels : null;
+  const groupNames = responseLabels
+    ? responseLabels.filter(label => Object.prototype.hasOwnProperty.call(groupMap, label))
+    : Object.keys(groupMap);
   const groupsWithData = groupNames.filter(name => (groupMap[name] || []).length > 0);
   const activeGroupMap = Object.fromEntries(groupsWithData.map(name => [name, groupMap[name]]));
   const nGroups = groupsWithData.length;

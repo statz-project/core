@@ -526,7 +526,8 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         const labelOptions = { rowLabels: predictorCol.col_values?.labels ?? null, colLabels: responseCol.col_values?.labels ?? null };
         table = contingency.summarize_q_q(predictorVals, responseVals, formatFn, options, labelOptions); flagsUsed.add('has_qq');
       } else if (predictorType === 'n' && responseType === 'q') {
-        table = numeric.summarize_n_q(predictorVals, responseVals, formatFn, flagsUsed, options); flagsUsed.add('has_nq');
+        const nqOptions = { ...options, responseLabels: responseCol?.col_values?.labels ?? null };
+        table = numeric.summarize_n_q(predictorVals, responseVals, formatFn, flagsUsed, nqOptions); flagsUsed.add('has_nq');
       } else if (predictorType === 'l' && responseType === 'q') {
         const includePrefix = options?.label_list_with_column ?? true;
         const summaries = ns.summarize_l_q(predictorVals, responseVals, formatFn, options, {
