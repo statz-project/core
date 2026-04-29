@@ -405,6 +405,8 @@ ns.getIndividualItems = function (colObject, options = {}) {
  * @param {number|null} [options.variantIndex] Variant index to inspect (defaults to base column)
  * @param {boolean} [options.splitList] Split list values using the column separator (defaults true for list columns)
  * @param {boolean} [options.includeEmpty=false] Include empty / missing values in the output
+ * @param {boolean} [options.sortByLevels=false] Sort by `col_values.labels` order (R-style factor levels).
+ *   Takes precedence over `sortByCount`/`sortByValue`. Items not in labels fall back to alpha asc tie-break.
  * @param {'asc'|'desc'|null} [options.sortByCount=null] Sort by count (asc/desc). When null falls back to value sort.
  * @param {'asc'|'desc'} [options.sortByValue='asc'] Sort alphabetically when not ordering by count.
  * @returns {{Value:string,Count:number}[]}
@@ -416,6 +418,7 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
     variantIndex = null,
     splitList,
     includeEmpty = false,
+    sortByLevels = false,
     sortByCount = null,
     sortByValue = 'asc'
   } = options || {};
@@ -466,7 +469,19 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
     Count: value
   }));
 
-  if (sortByCount === 'asc') {
+  /** @type {string[]|null} */
+  const labels = (sourceColumn?.col_values?.col_compact && Array.isArray(sourceColumn?.col_values?.labels))
+    ? sourceColumn.col_values.labels
+    : null;
+
+  if (sortByLevels && labels) {
+    const levelIndex = new Map(labels.map((l, i) => /** @type {[string, number]} */ ([l, i])));
+    resultArray.sort((a, b) => {
+      const ai = levelIndex.get(a.Value) ?? Infinity;
+      const bi = levelIndex.get(b.Value) ?? Infinity;
+      return ai - bi || a.Value.localeCompare(b.Value);
+    });
+  } else if (sortByCount === 'asc') {
     resultArray.sort((a, b) => a.Count - b.Count || a.Value.localeCompare(b.Value));
   } else if (sortByCount === 'desc') {
     resultArray.sort((a, b) => b.Count - a.Count || a.Value.localeCompare(b.Value));

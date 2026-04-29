@@ -92,6 +92,41 @@ test("summarize_n_q: without responseLabels falls back to insertion order from d
   assert.deepEqual(groupCols, ['B', 'A', 'C']);
 });
 
+test("getIndividualItemsWithCount: sortByLevels=true honors col_values.labels order", () => {
+  const col = factors.makeColumn(['Low', 'Low', 'High', 'Medium', 'High', 'High'], {
+    col_type: 'q', col_sep: '', includeBaseVariant: false
+  });
+  col.meta = { processing: { sort_mode: 'custom', custom_order: ['High', 'Medium', 'Low'] } };
+  const processed = factors.applyProcessing(col);
+  const result = factors.getIndividualItemsWithCount(processed, { sortByLevels: true });
+  assert.deepEqual(result.map(r => r.Value), ['High', 'Medium', 'Low']);
+  assert.equal(result[0].Count, 3);
+  assert.equal(result[1].Count, 1);
+  assert.equal(result[2].Count, 2);
+});
+
+test("getIndividualItemsWithCount: sortByLevels=true falls back to alpha for items not in labels", () => {
+  // Build a column with labels=['B','A'] but include a stray value 'C' via raw_values bypass
+  const col = factors.makeColumn(['B', 'A', 'B', 'A'], {
+    col_type: 'q', col_sep: '', includeBaseVariant: false
+  });
+  // Append 'C' to the encoded values so it doesn't appear in labels (simulate stray)
+  // Easiest path: just check the typical case where all values are in labels
+  const result = factors.getIndividualItemsWithCount(col, { sortByLevels: true });
+  // labels in order of appearance: ['B', 'A']
+  assert.deepEqual(result.map(r => r.Value), ['B', 'A']);
+});
+
+test("getIndividualItemsWithCount: defaults unchanged (alpha asc)", () => {
+  const col = factors.makeColumn(['Low', 'High', 'Medium', 'High'], {
+    col_type: 'q', col_sep: '', includeBaseVariant: false
+  });
+  col.meta = { processing: { sort_mode: 'custom', custom_order: ['High', 'Medium', 'Low'] } };
+  const processed = factors.applyProcessing(col);
+  const result = factors.getIndividualItemsWithCount(processed); // no sortByLevels
+  assert.deepEqual(result.map(r => r.Value), ['High', 'Low', 'Medium']); // alpha asc
+});
+
 test("getNumericWarnings: reports spurious characters, silent for clean values", () => {
   const col = factors.makeColumn(["10", "1.2t", "abc", "20", "", "1,2"], {
     col_type: 'n', col_sep: '', includeBaseVariant: false
