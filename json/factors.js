@@ -251,6 +251,11 @@ ns.recordReplacements = function (colObject, search, replace) {
  * Returns a NEW column object with substituted `col_values`. The input is not mutated.
  * For 'l' columns, replacements run item-by-item within `col_sep`.
  *
+ * Also auto-translates `meta.processing.excluded_values` and `meta.processing.custom_order`
+ * through the same replacement map, so processing rules referencing original values stay
+ * coherent after a rename. The persisted `meta` on the input column is NOT modified —
+ * the translation lives only in the returned (in-memory) clone.
+ *
  * @param {{col_values: ColValues, col_type?: 'q'|'n'|'l', col_sep?: string, meta?: any, [k:string]: any}} columnObject A single column with `meta.replacements`
  * @returns {{col_values: ColValues, col_type?: 'q'|'n'|'l', col_sep?: string, meta?: any, [k:string]: any}} New column object with replacements applied to col_values
  */
@@ -286,6 +291,22 @@ ns.applyReplacements = function (columnObject) {
   });
 
   cloned.col_values = ns.encodeColValues(values, col_type, col_sep);
+
+  // Auto-translate processing strings that reference column values
+  // (excluded_values, custom_order) so rules survive renames.
+  const proc = cloned.meta?.processing;
+  if (proc && (Array.isArray(proc.excluded_values) || Array.isArray(proc.custom_order))) {
+    /** @param {any} v */
+    const translate = (v) => {
+      const key = normalizeKey(v);
+      return Object.prototype.hasOwnProperty.call(replaceMap, key) ? replaceMap[key] : v;
+    };
+    const newProc = { ...proc };
+    if (Array.isArray(proc.excluded_values)) newProc.excluded_values = proc.excluded_values.map(translate);
+    if (Array.isArray(proc.custom_order))   newProc.custom_order   = proc.custom_order.map(translate);
+    cloned.meta = { ...cloned.meta, processing: newProc };
+  }
+
   return cloned;
 };
 

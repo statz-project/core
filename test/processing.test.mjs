@@ -305,6 +305,46 @@ test("applyReplacements: list column applies item-by-item within separator", () 
   assert.equal(values[2], 'Alpha');
 });
 
+test("applyReplacements: auto-translates excluded_values when a value is renamed", () => {
+  // User excludes 'female' (raw), then renames female→Female
+  // Expected: exclusion still works (operates on the renamed value)
+  const col = makeQCol(['male', 'female', 'male', 'female', 'male']);
+  col.meta = {
+    replacements: [{ from: 'female', to: 'Female' }],
+    processing: { excluded_values: ['female'] }
+  };
+  const resolved = factors.resolveColumn(col);
+  const values = decode(resolved);
+  // 'female' values were renamed to 'Female' AND excluded → should be missing
+  assert.ok(values[1] === null || values[1] === '', `expected excluded, got: ${values[1]}`);
+  assert.ok(values[3] === null || values[3] === '', `expected excluded, got: ${values[3]}`);
+  // 'male' values are kept
+  assert.equal(values[0], 'male');
+  assert.equal(values[2], 'male');
+});
+
+test("applyReplacements: auto-translates custom_order when values are renamed", () => {
+  const col = makeQCol(['Low', 'High', 'Medium', 'High', 'Low']);
+  col.meta = {
+    replacements: [{ from: 'Low', to: 'Baixo' }, { from: 'High', to: 'Alto' }],
+    processing: { sort_mode: 'custom', custom_order: ['High', 'Medium', 'Low'] }
+  };
+  const resolved = factors.resolveColumn(col);
+  // custom_order was translated: ['Alto','Medium','Baixo']
+  assert.deepEqual(resolved.col_values.labels, ['Alto', 'Medium', 'Baixo']);
+});
+
+test("applyReplacements: persisted meta is NOT mutated by auto-translation", () => {
+  const col = makeQCol(['male', 'female']);
+  col.meta = {
+    replacements: [{ from: 'female', to: 'Female' }],
+    processing: { excluded_values: ['female'] }
+  };
+  factors.applyReplacements(col); // translation happens on the clone only
+  // Original meta is untouched — UI editor still sees the user's original rules
+  assert.deepEqual(col.meta.processing.excluded_values, ['female']);
+});
+
 test("getIndividualItems: applyReplacements=false returns raw values", () => {
   const col = makeQCol(['m', 'f', 'm']);
   const recorded = factors.recordReplacements(col, ['m', 'f'], ['Male', 'Female']);
