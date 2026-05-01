@@ -324,7 +324,8 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   const includeRowIndex = options.includeRowIndex !== false; // default true
   const showDeletedColumns = options.showDeletedColumns === true; // default hide deleted
   const showVariants = options.showVariants !== false; // default true
-  const shouldApplyProcessing = options.applyProcessing !== false; // default true
+  const shouldApplyProcessing = options.applyProcessing !== false; // default true (also applies replacements)
+  const hasMeta = (m) => (Array.isArray(m?.replacements) && m.replacements.length > 0) || (m?.processing && Object.keys(m.processing).length > 0);
   const escapeHtml = (val) => {
     const str = String(val ?? '');
     // Avoid regex literals with `</` sequences (safer for inline bundles); use split/join for < and >.
@@ -339,8 +340,8 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
     const colType = col.col_type ?? 'q';
     const colSep = col.col_sep ?? (colType === 'l' ? ';' : '');
     let effectiveCol = col;
-    if (shouldApplyProcessing && col.meta?.processing && Object.keys(col.meta.processing).length > 0) {
-      effectiveCol = factors.applyProcessing(col);
+    if (shouldApplyProcessing && hasMeta(col.meta)) {
+      effectiveCol = factors.resolveColumn(col);
     }
     const baseValues = factors.decodeColValues(effectiveCol.col_values, colType, colSep) ?? col.raw_values ?? [];
     const baseLabel = escapeHtml(col.col_label ?? col.col_name ?? col.col_hash ?? '');
@@ -351,8 +352,8 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
         const vType = variant?.col_type ?? colType;
         const vSep = variant?.col_sep ?? colSep;
         let effectiveVariant = variant;
-        if (shouldApplyProcessing && variant?.meta?.processing && Object.keys(variant.meta.processing).length > 0) {
-          effectiveVariant = factors.applyProcessing({ ...variant, col_type: vType, col_sep: vSep });
+        if (shouldApplyProcessing && hasMeta(variant?.meta)) {
+          effectiveVariant = factors.resolveColumn({ ...variant, col_type: vType, col_sep: vSep });
         }
         const vValues = factors.decodeColValues(effectiveVariant?.col_values, vType, vSep) ?? variant?.raw_values ?? [];
         const vLabel = escapeHtml(variant?.var_label ?? `${baseLabel} (v${idx + 1})`);

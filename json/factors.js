@@ -218,49 +218,93 @@ ns.makeColumn = function (values, options = {}) {
 };
 
 /**
- * Replace decoded values according to search/replace, then re-encode.
- * @param {{col_values:ColValues,col_type:'q'|'n'|'l',col_sep:string}} colObject
+ * Record value replacements into `meta.replacements` (NON-DESTRUCTIVE).
+ * `col_values` is NOT modified — replacements are applied lazily at read-time
+ * via `applyReplacements` / `resolveColumn`.
+ *
+ * The function is a *setter*: it overwrites `meta.replacements` with the current
+ * search/replace pairs (filtered to keep only entries where `from !== to`).
+ *
+ * @param {{col_values:ColValues,col_type:'q'|'n'|'l',col_sep:string,meta?:Object}} colObject
  * @param {string[]} search
  * @param {string[]} replace
+ * @returns {Object} New column object with updated meta.replacements (col_values unchanged)
  */
-ns.replaceColumnValues = function (colObject, search, replace) {
-  const decodedValues = ns.decodeColumn(colObject);
-  const sep = colObject.col_sep; const isListType = colObject.col_type === 'l' && sep;
+ns.recordReplacements = function (colObject, search, replace) {
   const normalizeKey = (value) => (value == null ? '' : String(value).trim());
-  const replaceMap = {};
+  /** @type {{from:string,to:string}[]} */
   const metaReplacements = [];
   search.forEach((original, i) => {
-    const updated = (replace[i] ?? '').trim();
-    replaceMap[normalizeKey(original)] = updated;
-    if (normalizeKey(original) !== updated) {
-      metaReplacements.push({ from: normalizeKey(original), to: updated });
-    }
+    const from = normalizeKey(original);
+    const to = (replace[i] ?? '').trim();
+    if (from !== to) metaReplacements.push({ from, to });
   });
-  const updatedValues = decodedValues.map(entry => {
-    if (isListType) {
-      const items = normalizeKey(entry).split(sep).map(x => x.trim());
+  /** @type {Record<string, any>} */
+  const meta = { ...(colObject.meta || {}) };
+  meta.replacements = metaReplacements;
+  if (metaReplacements.length > 0) meta.recipe_version = 1;
+  return { ...colObject, meta };
+};
+
+/**
+ * Apply `meta.replacements` to a column's values (lazy, non-destructive).
+ * Returns a NEW column object with substituted `col_values`. The input is not mutated.
+ * For 'l' columns, replacements run item-by-item within `col_sep`.
+ *
+ * @param {{col_values: ColValues, col_type?: 'q'|'n'|'l', col_sep?: string, meta?: any, [k:string]: any}} columnObject A single column with `meta.replacements`
+ * @returns {{col_values: ColValues, col_type?: 'q'|'n'|'l', col_sep?: string, meta?: any, [k:string]: any}} New column object with replacements applied to col_values
+ */
+ns.applyReplacements = function (columnObject) {
+  const cloned = { ...columnObject, col_values: JSON.parse(JSON.stringify(columnObject.col_values)) };
+  const replacements = columnObject?.meta?.replacements;
+  if (!Array.isArray(replacements) || replacements.length === 0) return cloned;
+
+  const col_type = cloned.col_type || 'q';
+  const col_sep = cloned.col_sep || (col_type === 'l' ? ';' : '');
+  const normalizeKey = (value) => (value == null ? '' : String(value).trim());
+
+  /** @type {Record<string,string>} */
+  const replaceMap = {};
+  replacements.forEach(({ from, to }) => {
+    replaceMap[normalizeKey(from)] = (to == null ? '' : String(to)).trim();
+  });
+
+  let values = ns.decodeColumn({ col_type, col_sep, col_values: cloned.col_values });
+  values = values.map(entry => {
+    if (col_type === 'l' && col_sep) {
+      const items = normalizeKey(entry).split(col_sep).map(x => x.trim());
       const newItems = items
-        .map(item => {
-          const key = normalizeKey(item);
-          return Object.prototype.hasOwnProperty.call(replaceMap, key) ? replaceMap[key] : item;
-        })
+        .map(item => Object.prototype.hasOwnProperty.call(replaceMap, item) ? replaceMap[item] : item)
         .filter(x => x !== undefined && x !== '');
-      return newItems.join(sep);
+      return newItems.join(col_sep);
     }
     const key = normalizeKey(entry);
     if (Object.prototype.hasOwnProperty.call(replaceMap, key)) {
-      const newVal = replaceMap[key];
-      return newVal === '' ? '' : newVal;
+      return replaceMap[key];
     }
     return entry;
   });
-  const processed = ns.encodeColValues(updatedValues, colObject.col_type, colObject.col_sep);
-  const meta = { ...(colObject.meta || {}) };
-  if (metaReplacements.length > 0) {
-    meta.replacements = metaReplacements;
-    meta.recipe_version = 1;
-  }
-  return { ...colObject, col_values: processed, meta };
+
+  cloned.col_values = ns.encodeColValues(values, col_type, col_sep);
+  return cloned;
+};
+
+/**
+ * Fully resolve a column for read-time consumption: apply replacements, then processing.
+ * Returns a NEW column object; the input is not mutated.
+ *
+ * Pipeline:
+ *   1. `applyReplacements` (meta.replacements)
+ *   2. `applyProcessing`   (meta.processing: exclude → NA → sort → top_n)
+ *
+ * @param {{col_values: ColValues, [k:string]: any}} columnObject
+ * @param {Object} [options] Forwarded to `applyProcessing`.
+ * @returns {{col_values: ColValues, [k:string]: any}} Fully resolved column
+ */
+ns.resolveColumn = function (columnObject, options = {}) {
+  if (!columnObject || typeof columnObject !== 'object') return columnObject;
+  const replaced = ns.applyReplacements(columnObject);
+  return ns.applyProcessing(replaced, options);
 };
 
 /**
@@ -377,23 +421,31 @@ ns.applyProcessing = function (columnObject, options = {}) {
 /**
  * Collect the distinct values present in a column, splitting list columns into individual items.
  * Supports both a Column object and a variant object.
- * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any, raw_values?: string[] }} colObject
- * @param {{ order?: 'levels'|'alpha' }} [options]
+ *
+ * `meta.replacements` is applied lazily by default (matching the post-replacement view that
+ * the previous destructive `replaceColumnValues` produced). Pass `applyReplacements: false`
+ * to inspect the raw values (e.g., when populating a replacements editor).
+ *
+ * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any, raw_values?: string[], meta?: any }} colObject
+ * @param {{ order?: 'levels'|'alpha', applyReplacements?: boolean }} [options]
  *   `order='levels'` returns `col_values.labels` (R-style factor levels).
  *   `order='alpha'` returns alphabetically sorted unique items.
  *   Default: `'levels'` for `col_type='q'`, `'alpha'` otherwise.
+ *   `applyReplacements=true` (default) applies `meta.replacements` before extracting items.
  * @returns {string[]}
  */
 ns.getIndividualItems = function (colObject, options = {}) {
-  const col_type = colObject.col_type || 'q';
-  const col_sep = colObject.col_sep || ';';
+  const applyReps = options.applyReplacements !== false;
+  const source = applyReps ? ns.applyReplacements(colObject) : colObject;
+  const col_type = source.col_type || 'q';
+  const col_sep = source.col_sep || ';';
   const order = options.order ?? (col_type === 'q' ? 'levels' : 'alpha');
 
-  if (order === 'levels' && colObject.col_values?.col_compact && Array.isArray(colObject.col_values?.labels)) {
-    return [...colObject.col_values.labels];
+  if (order === 'levels' && source.col_values?.col_compact && Array.isArray(source.col_values?.labels)) {
+    return [...source.col_values.labels];
   }
 
-  const values = ns.decodeColumn({ col_type, col_sep, col_values: colObject.col_values, raw_values: colObject.raw_values });
+  const values = ns.decodeColumn({ col_type, col_sep, col_values: source.col_values, raw_values: source.raw_values });
   const allItems = (col_type === 'l') ? values.flatMap(v => (v || '').split(col_sep).map(s => s.trim()).filter(Boolean)) : values;
   const unique = [...new Set(allItems.filter(Boolean))];
   if (order === 'alpha') return unique.sort((a, b) => a.localeCompare(b));
@@ -402,6 +454,11 @@ ns.getIndividualItems = function (colObject, options = {}) {
 
 /**
  * Frequency count of individual values for a column or one of its variants.
+ *
+ * `meta.replacements` is applied lazily by default (matching the post-replacement view
+ * the previous destructive `replaceColumnValues` produced). Pass `applyReplacements: false`
+ * to inspect raw values (e.g., when populating a replacements editor).
+ *
  * @param {Object} column Column object (optionally including col_vars)
  * @param {Object} [options]
  * @param {number|null} [options.variantIndex] Variant index to inspect (defaults to base column)
@@ -411,6 +468,7 @@ ns.getIndividualItems = function (colObject, options = {}) {
  *   Takes precedence over `sortByCount`/`sortByValue`. Items not in labels fall back to alpha asc tie-break.
  * @param {'asc'|'desc'|null} [options.sortByCount=null] Sort by count (asc/desc). When null falls back to value sort.
  * @param {'asc'|'desc'} [options.sortByValue='asc'] Sort alphabetically when not ordering by count.
+ * @param {boolean} [options.applyReplacements=true] Apply `meta.replacements` before counting.
  * @returns {{Value:string,Count:number}[]}
  */
 ns.getIndividualItemsWithCount = function (column, options = {}) {
@@ -422,7 +480,8 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
     includeEmpty = false,
     sortByLevels = false,
     sortByCount = null,
-    sortByValue = 'asc'
+    sortByValue = 'asc',
+    applyReplacements: applyReps = true
   } = options || {};
 
   const baseColumn = column;
@@ -433,9 +492,12 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
   let col_sep = variant?.col_sep ?? baseColumn.col_sep;
   if (!col_sep) col_sep = col_type === 'l' ? ';' : '';
 
-  const sourceColumn = variant
-    ? { ...variant, col_type, col_sep }
+  const baseAny = /** @type {any} */ (baseColumn);
+  const variantAny = /** @type {any} */ (variant);
+  const rawSource = variant
+    ? { ...variant, col_type, col_sep, meta: variantAny?.meta ?? baseAny.meta }
     : { ...baseColumn, col_type, col_sep };
+  const sourceColumn = applyReps ? ns.applyReplacements(rawSource) : rawSource;
 
   const values = ns.decodeColumn(sourceColumn);
   if (!Array.isArray(values) || values.length === 0) return [];

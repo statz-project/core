@@ -228,10 +228,13 @@ test("describeColumn applies meta.processing", () => {
   assert.ok(labels.includes('B'), 'B should be in description');
 });
 
-test("applyProcessing: pipeline order (replacements → exclude → NA → sort → top_n)", () => {
-  // Step 0: apply replacement A→Group1 (destructive, before applyProcessing)
+test("resolveColumn: pipeline order (replacements → exclude → NA → sort → top_n)", () => {
+  // Step 0: record replacement A→Group1 (NON-destructive — applied lazily)
   const base = makeQCol(['A', 'A', 'B', 'B', 'C', 'X', 'X', 'X', '']);
-  const replaced = factors.replaceColumnValues(base, ['A'], ['Group1']);
+  const replaced = factors.recordReplacements(base, ['A'], ['Group1']);
+  // col_values is unchanged by recordReplacements
+  assert.deepEqual(replaced.col_values, base.col_values);
+
   replaced.meta.processing = {
     excluded_values: ['X'],
     na_action: 'label',
@@ -241,7 +244,8 @@ test("applyProcessing: pipeline order (replacements → exclude → NA → sort 
     top_n_label: 'Others'
   };
 
-  const result = factors.applyProcessing(replaced);
+  // resolveColumn applies replacements + processing in one pass
+  const result = factors.resolveColumn(replaced);
   const values = decode(result);
 
   // X (indices 5,6,7) was excluded BEFORE NA → stays empty, never relabeled as Missing
@@ -259,16 +263,55 @@ test("applyProcessing: pipeline order (replacements → exclude → NA → sort 
   assert.equal(values[8], 'Others'); // originally '' → Missing → grouped
 });
 
-test("replacements + processing work together", () => {
-  // First apply replacements (destructive)
+test("recordReplacements + processing work together via resolveColumn", () => {
+  // Record replacements (non-destructive)
   const col = makeQCol(['m', 'f', 'f', 'm', 'unknown']);
-  const replaced = factors.replaceColumnValues(col, ['m', 'f'], ['Male', 'Female']);
+  const replaced = factors.recordReplacements(col, ['m', 'f'], ['Male', 'Female']);
+  // col_values stays untouched
+  assert.deepEqual(replaced.col_values, col.col_values);
   // Then add processing
   replaced.meta.processing = { excluded_values: ['unknown'] };
-  const result = factors.applyProcessing(replaced);
+  const result = factors.resolveColumn(replaced);
   const values = decode(result);
   assert.ok(values.includes('Male'));
   assert.ok(values.includes('Female'));
   // 'unknown' should be excluded (null or empty)
   assert.ok(values[4] === null || values[4] === '', `expected excluded, got: ${values[4]}`);
+});
+
+test("recordReplacements: subsequent call overwrites previous meta.replacements", () => {
+  const col = makeQCol(['a', 'b', 'c']);
+  const r1 = factors.recordReplacements(col, ['a'], ['A']);
+  assert.deepEqual(r1.meta.replacements, [{ from: 'a', to: 'A' }]);
+  const r2 = factors.recordReplacements(r1, ['b'], ['B']);
+  // Setter semantics: r2 replaces the entire array
+  assert.deepEqual(r2.meta.replacements, [{ from: 'b', to: 'B' }]);
+});
+
+test("applyReplacements: returns clone unchanged when no replacements present", () => {
+  const col = makeQCol(['a', 'b', 'c']);
+  const result = factors.applyReplacements(col);
+  assert.deepEqual(decode(result), decode(col));
+  assert.notStrictEqual(result, col);
+});
+
+test("applyReplacements: list column applies item-by-item within separator", () => {
+  const col = factors.makeColumn(['a;b', 'b;c', 'a'], { col_type: 'l', col_sep: ';', includeBaseVariant: false });
+  col.meta = { replacements: [{ from: 'a', to: 'Alpha' }, { from: 'b', to: 'Bravo' }] };
+  const result = factors.applyReplacements(col);
+  const values = decode(result);
+  assert.equal(values[0], 'Alpha;Bravo');
+  assert.equal(values[1], 'Bravo;c');
+  assert.equal(values[2], 'Alpha');
+});
+
+test("getIndividualItems: applyReplacements=false returns raw values", () => {
+  const col = makeQCol(['m', 'f', 'm']);
+  const recorded = factors.recordReplacements(col, ['m', 'f'], ['Male', 'Female']);
+  const raw = factors.getIndividualItems(recorded, { applyReplacements: false });
+  // Raw view: still sees original labels
+  assert.deepEqual(raw.sort(), ['f', 'm']);
+  // Default view: post-replacement
+  const resolved = factors.getIndividualItems(recorded);
+  assert.deepEqual(resolved.sort(), ['Female', 'Male']);
 });

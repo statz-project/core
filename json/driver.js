@@ -479,17 +479,10 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
   });
 
   result.forEach((col, i) => { col.col_index = i + 1; });
-  const reapplyReplacements = (column) => {
-    const reps = column?.meta?.replacements;
-    if (!Array.isArray(reps) || reps.length === 0) return column;
-    const search = reps.map(r => r.from);
-    const replace = reps.map(r => r.to);
-    return factors.replaceColumnValues(column, search, replace);
-  };
-
-  const finalColumns = result.map(reapplyReplacements);
+  // meta.replacements is preserved through the merge above (oldCol.meta spread)
+  // and re-applied lazily at read-time via factors.resolveColumn — no destructive replay needed.
   const resultMeta = { ...(oldDb?.meta || {}), ...(newDb?.meta || {}) };
-  return { ...newDb, columns: finalColumns, meta: resultMeta };
+  return { ...newDb, columns: result, meta: resultMeta };
 };
 
 /**
@@ -574,12 +567,20 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     let effectiveColValues = variant?.col_values ?? baseCol.col_values;
     const effectiveType = variant?.col_type ?? baseCol.col_type;
     const effectiveSep = variant?.col_sep ?? baseCol.col_sep ?? ';';
-    // Apply meta.processing if present
+    // Resolve meta.replacements + meta.processing in read-time pipeline
+    const replacementsMeta = variant?.meta?.replacements ?? baseCol.meta?.replacements;
     const processingMeta = variant?.meta?.processing || baseCol.meta?.processing;
-    if (processingMeta && Object.keys(processingMeta).length > 0) {
-      const tempCol = { col_type: effectiveType, col_sep: effectiveSep, col_values: effectiveColValues, meta: { processing: processingMeta } };
-      const processed = factors.applyProcessing(tempCol);
-      effectiveColValues = processed.col_values;
+    const hasReplacements = Array.isArray(replacementsMeta) && replacementsMeta.length > 0;
+    const hasProcessing = processingMeta && Object.keys(processingMeta).length > 0;
+    if (hasReplacements || hasProcessing) {
+      const tempCol = {
+        col_type: effectiveType,
+        col_sep: effectiveSep,
+        col_values: effectiveColValues,
+        meta: { replacements: replacementsMeta || [], processing: processingMeta || {} }
+      };
+      const resolved = factors.resolveColumn(tempCol);
+      effectiveColValues = resolved.col_values;
     }
     const raw_values = factors.decodeColValues(effectiveColValues, effectiveType, effectiveSep);
     return {
@@ -633,16 +634,18 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
   const colType = variant?.col_type ?? resolvedColumn.col_type ?? 'q';
   let colSep = variant?.col_sep ?? resolvedColumn.col_sep;
   if (!colSep) colSep = colType === 'l' ? ';' : '';
-  // Apply meta.processing if present
+  // Resolve meta.replacements + meta.processing in read-time pipeline
   const metaSource = variant?.meta || resolvedColumn.meta;
-  if (metaSource?.processing && Object.keys(metaSource.processing).length > 0) {
+  const hasReplacements = Array.isArray(metaSource?.replacements) && metaSource.replacements.length > 0;
+  const hasProcessing = metaSource?.processing && Object.keys(metaSource.processing).length > 0;
+  if (hasReplacements || hasProcessing) {
     const tempCol = { col_type: colType, col_sep: colSep, col_values: variant?.col_values ?? resolvedColumn.col_values, meta: metaSource };
-    const processed = factors.applyProcessing(tempCol);
-    values = factors.decodeColumn({ col_type: colType, col_sep: colSep, col_values: processed.col_values });
+    const resolved = factors.resolveColumn(tempCol);
+    values = factors.decodeColumn({ col_type: colType, col_sep: colSep, col_values: resolved.col_values });
     if (variant) {
-      variant = { ...variant, col_values: processed.col_values };
+      variant = { ...variant, col_values: resolved.col_values };
     } else {
-      resolvedColumn = { ...resolvedColumn, col_values: processed.col_values };
+      resolvedColumn = { ...resolvedColumn, col_values: resolved.col_values };
     }
   }
   const structured = options?.structured === true;
