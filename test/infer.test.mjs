@@ -105,16 +105,41 @@ test("getIndividualItemsWithCount: sortByLevels=true honors col_values.labels or
   assert.equal(result[2].Count, 2);
 });
 
-test("getIndividualItemsWithCount: sortByLevels=true falls back to alpha for items not in labels", () => {
-  // Build a column with labels=['B','A'] but include a stray value 'C' via raw_values bypass
+test("encodeAsFactor: q column labels are alphabetically sorted on first encoding", () => {
+  const col = factors.makeColumn(['Charlie', 'Alpha', 'Bravo', 'Alpha', 'Charlie'], {
+    col_type: 'q', col_sep: '', includeBaseVariant: false
+  });
+  assert.deepEqual(col.col_values.labels, ['Alpha', 'Bravo', 'Charlie']);
+  // Codes still decode correctly back to original values
+  assert.deepEqual(factors.decodeColumn(col), ['Charlie', 'Alpha', 'Bravo', 'Alpha', 'Charlie']);
+});
+
+test("parseColumns: q column labels arrive alphabetically sorted from CSV parsing", () => {
+  const data = JSON.stringify([
+    { gender: 'male' }, { gender: 'female' }, { gender: 'male' }, { gender: 'female' }
+  ]);
+  const result = factors.parseColumns(data, ['hash1'], 'test.csv', 0);
+  const col = result.columns[0];
+  assert.equal(col.col_type, 'q');
+  assert.deepEqual(col.col_values.labels, ['female', 'male']);
+});
+
+test("encodeAsFactor: l column labels remain in first-appearance order", () => {
+  const col = factors.makeColumn(['Charlie;Alpha', 'Bravo', 'Alpha;Charlie'], {
+    col_type: 'l', col_sep: ';', includeBaseVariant: false
+  });
+  // List columns keep first-appearance order (frequency-driven UX)
+  assert.deepEqual(col.col_values.labels, ['Charlie', 'Alpha', 'Bravo']);
+});
+
+test("getIndividualItemsWithCount: sortByLevels=true follows initial alpha order on a fresh q column", () => {
+  // Fresh encoding: labels are sorted alphabetically (R-style factor default)
   const col = factors.makeColumn(['B', 'A', 'B', 'A'], {
     col_type: 'q', col_sep: '', includeBaseVariant: false
   });
-  // Append 'C' to the encoded values so it doesn't appear in labels (simulate stray)
-  // Easiest path: just check the typical case where all values are in labels
+  assert.deepEqual(col.col_values.labels, ['A', 'B']);
   const result = factors.getIndividualItemsWithCount(col, { sortByLevels: true });
-  // labels in order of appearance: ['B', 'A']
-  assert.deepEqual(result.map(r => r.Value), ['B', 'A']);
+  assert.deepEqual(result.map(r => r.Value), ['A', 'B']);
 });
 
 test("getIndividualItemsWithCount: defaults unchanged (alpha asc)", () => {

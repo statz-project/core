@@ -87,6 +87,8 @@ ns.shouldCompact = function (values, col_type = null, col_sep = ';') {
 
 /**
  * Factor-encode values (labels + codes), including list columns.
+ * For 'q' columns, labels are sorted alphabetically (R-style factor default).
+ * For 'l' columns, labels follow first-appearance order (frequency-driven UX).
  * @param {string[]} values
  * @param {'q'|'n'|'l'=} col_type
  * @param {string=} col_sep
@@ -103,7 +105,7 @@ ns.encodeAsFactor = function (values, col_type = null, col_sep = ';') {
     });
     return { col_compact: true, labels, codes, raw_values: null };
   }
-  const labels = [...new Set(values.map(v => v?.trim?.()).filter(Boolean))];
+  const labels = [...new Set(values.map(v => v?.trim?.()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const codes = values.map(v => { const idx = labels.indexOf(v?.trim?.()); return idx >= 0 ? idx + 1 : 0; });
   return { col_compact: true, labels, codes, raw_values: null };
 };
