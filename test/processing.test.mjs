@@ -173,12 +173,14 @@ test("applyProcessing: full pipeline NA + exclude + sort + top_n", () => {
   });
   const result = factors.applyProcessing(col);
   const values = decode(result);
-  // D should be excluded (null or empty)
-  assert.ok(values[4] === null || values[4] === '', `expected excluded, got: ${values[4]}`);
-  // Originally empty values -> N/A
-  // A=3, N/A=2, B=2, C=1, E=1 -> top 2 after sort: A, B or A, N/A (ties broken alphabetically)
-  // After top_n=2: first 2 labels kept, rest -> Outros
-  assert.ok(result.col_values.labels.length <= 3); // top_n + "Outros"
+  // With na_action='label', D (excluded) is also relabeled as 'N/A'
+  assert.equal(values[4], 'N/A');
+  // Originally empty values also become 'N/A'
+  assert.equal(values[1], 'N/A');
+  assert.equal(values[6], 'N/A');
+  // Frequencies after exclude+NA: A=3, N/A=3 (D + 2 originally empty), B=2, C=1, E=1
+  // freq_desc + alpha tie-break → [A, N/A, B, C, E] → top 2 kept → labels = ['A', 'N/A', 'Outros']
+  assert.ok(result.col_values.labels.length <= 3);
 });
 
 test("applyProcessing: numeric column only applies NA and exclude (no sort/top_n)", () => {
@@ -248,19 +250,18 @@ test("resolveColumn: pipeline order (replacements → exclude → NA → sort �
   const result = factors.resolveColumn(replaced);
   const values = decode(result);
 
-  // X (indices 5,6,7) was excluded BEFORE NA → stays empty, never relabeled as Missing
-  assert.ok(values[5] === null || values[5] === '', `excluded should be empty, got: ${values[5]}`);
-  assert.ok(values[6] === null || values[6] === '', `excluded should be empty, got: ${values[6]}`);
-  assert.ok(values[7] === null || values[7] === '', `excluded should be empty, got: ${values[7]}`);
+  // With na_action='label', X (excluded) AND originally-empty (index 8) are unified as 'Missing'
+  assert.equal(values[5], 'Missing');
+  assert.equal(values[6], 'Missing');
+  assert.equal(values[7], 'Missing');
+  assert.equal(values[8], 'Missing');
 
-  // Originally-empty (index 8) was labeled Missing, but Missing freq=1 → grouped into Others by top_n
-  // Frequencies after exclusion+NA: Group1=2, B=2, C=1, Missing=1
-  // freq_desc with alpha tie-break → [B, Group1, C, Missing] → top 2 → [B, Group1, Others]
-  assert.deepEqual(result.col_values.labels, ['B', 'Group1', 'Others']);
-  assert.equal(values[0], 'Group1'); // was A → Group1
+  // Frequencies after exclude+NA: Missing=4 (3 X + 1 originally empty), Group1=2, B=2, C=1
+  // freq_desc + alpha tie-break → [Missing, B, Group1, C] → top 2 → labels = ['Missing', 'B', 'Others']
+  assert.deepEqual(result.col_values.labels, ['Missing', 'B', 'Others']);
+  assert.equal(values[0], 'Others'); // Group1 grouped (not in top 2)
   assert.equal(values[2], 'B');
   assert.equal(values[4], 'Others'); // C grouped
-  assert.equal(values[8], 'Others'); // originally '' → Missing → grouped
 });
 
 test("recordReplacements + processing work together via resolveColumn", () => {

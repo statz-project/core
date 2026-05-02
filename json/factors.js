@@ -333,9 +333,19 @@ ns.resolveColumn = function (columnObject, options = {}) {
  * Returns a NEW column object with processed col_values.
  * The original columnObject is never mutated.
  *
- * @param {Object} columnObject A single column from db_data.columns
+ * Pipeline order:
+ *   1. Excluded values  — set excluded entries to empty (treated as missing)
+ *   2. NA handling      — labels ALL empty rows (originally missing OR just excluded) when na_action='label'
+ *   3. Sort labels (q only)
+ *   4. Top N (q only)
+ *
+ * Conceptually, `excluded_values` defines which values count as missing, and `na_action`/`na_label`
+ * decides how missing values are displayed. When the user wants to drop without labeling, they keep
+ * `na_action: 'keep'` (the default) so excluded rows just disappear from the analysis.
+ *
+ * @param {{col_values: ColValues, col_type?: 'q'|'n'|'l', col_sep?: string, meta?: any, [k:string]: any}} columnObject A single column from db_data.columns
  * @param {Object} [options] Override options (merged with meta.processing)
- * @returns {Object} New column object with processed col_values
+ * @returns {{col_values: ColValues, col_type?: 'q'|'n'|'l', col_sep?: string, meta?: any, [k:string]: any}} New column object with processed col_values
  */
 ns.applyProcessing = function (columnObject, options = {}) {
   const cloned = { ...columnObject, col_values: JSON.parse(JSON.stringify(columnObject.col_values)) };
@@ -346,15 +356,7 @@ ns.applyProcessing = function (columnObject, options = {}) {
   const col_sep = cloned.col_sep || (col_type === 'l' ? ';' : '');
   let values = ns.decodeColumn({ col_type, col_sep, col_values: cloned.col_values });
 
-  // Snapshot which rows are missing BEFORE any processing — NA handling only labels these,
-  // not values that become empty as a result of exclusion.
-  const originallyMissing = new Set();
-  values.forEach((v, i) => {
-    const s = v == null ? '' : String(v).trim();
-    if (s === '') originallyMissing.add(i);
-  });
-
-  // Step 1: Excluded values (all col_types) — remove first so subsequent steps act on kept data
+  // Step 1: Excluded values (all col_types) — set to empty so they're treated as missing
   if (Array.isArray(proc.excluded_values) && proc.excluded_values.length > 0) {
     const excludeSet = new Set(proc.excluded_values.map(String));
     if (col_type === 'l' && col_sep) {
@@ -372,10 +374,13 @@ ns.applyProcessing = function (columnObject, options = {}) {
     }
   }
 
-  // Step 2: NA handling — labels originally-missing rows only (excluded rows stay empty)
+  // Step 2: NA handling — labels ALL empty rows (originally missing OR just excluded)
   if (proc.na_action === 'label') {
     const naLabel = proc.na_label || translate('table.missing', proc.lang);
-    values = values.map((v, i) => originallyMissing.has(i) ? naLabel : v);
+    values = values.map(v => {
+      const s = v == null ? '' : String(v).trim();
+      return s === '' ? naLabel : v;
+    });
   }
 
   // Step 3: Re-encode
