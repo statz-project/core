@@ -32,8 +32,8 @@ test("recordReplacements + getIndividualItemsWithCount sees replaced values lazi
 
   const column = { "col_type": "q", "col_sep": "", "col_values": { "col_compact": true, "labels": ["male", "female"], "codes": [1, 1, 1, 1, 0, 1, 1, 1, 2, 2, 2, 2, 2, 0, 1, 1], "raw_values": null }, "col_name": "sex", "col_label": "sex", "col_hash": "3c3662bcb661d6de679c636744c66b62", "col_index": 2, "col_del": false, "col_vars": [] };
 
-  // Pre-replacement view (raw — no replacements applied)
-  const countsList = factors.getIndividualItemsWithCount(column, { includeEmpty: true, applyReplacements: false });
+  // Raw view (helpers operate on the column as-is)
+  const countsList = factors.getIndividualItemsWithCount(column, { includeEmpty: true });
 
   // Record replacements into meta (non-destructive — col_values unchanged)
   const newColumn = factors.recordReplacements(column, countsList.map(item => item.Value), ["EMPTY", "FEMALE", "MALE"]);
@@ -47,8 +47,8 @@ test("recordReplacements + getIndividualItemsWithCount sees replaced values lazi
     { from: 'male', to: 'MALE' }
   ]);
 
-  // At read-time (default applyReplacements=true), replacements are applied lazily
-  const newData = factors.getIndividualItemsWithCount(newColumn, { includeEmpty: true });
+  // To see post-replacement view, compose explicitly
+  const newData = factors.getIndividualItemsWithCount(factors.applyReplacements(newColumn), { includeEmpty: true });
   assert.deepEqual(newData, [{ "Value": "EMPTY", "Count": 2 }, { "Value": "FEMALE", "Count": 5 }, { "Value": "MALE", "Count": 9 }]);
 
 });

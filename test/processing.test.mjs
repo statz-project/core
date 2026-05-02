@@ -346,13 +346,13 @@ test("applyReplacements: persisted meta is NOT mutated by auto-translation", () 
   assert.deepEqual(col.meta.processing.excluded_values, ['female']);
 });
 
-test("getIndividualItems: applyReplacements=false returns raw values", () => {
+test("getIndividualItems: operates on column as-is (no implicit replacement application)", () => {
   const col = makeQCol(['m', 'f', 'm']);
   const recorded = factors.recordReplacements(col, ['m', 'f'], ['Male', 'Female']);
-  const raw = factors.getIndividualItems(recorded, { applyReplacements: false });
-  // Raw view: still sees original labels
+  // Raw view: helper sees the column as-is, replacements not applied
+  const raw = factors.getIndividualItems(recorded);
   assert.deepEqual(raw.sort(), ['f', 'm']);
-  // Default view: post-replacement
-  const resolved = factors.getIndividualItems(recorded);
+  // Post-replacement view: caller must compose explicitly
+  const resolved = factors.getIndividualItems(factors.applyReplacements(recorded));
   assert.deepEqual(resolved.sort(), ['Female', 'Male']);
 });

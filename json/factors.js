@@ -448,30 +448,28 @@ ns.applyProcessing = function (columnObject, options = {}) {
  * Collect the distinct values present in a column, splitting list columns into individual items.
  * Supports both a Column object and a variant object.
  *
- * `meta.replacements` is applied lazily by default (matching the post-replacement view that
- * the previous destructive `replaceColumnValues` produced). Pass `applyReplacements: false`
- * to inspect the raw values (e.g., when populating a replacements editor).
+ * **Operates on the column as-is** — does NOT apply `meta.replacements` or `meta.processing`.
+ * If you want the post-replacement / post-processing view, compose explicitly:
+ *   - `getIndividualItems(applyReplacements(col))` — replacements applied
+ *   - `getIndividualItems(resolveColumn(col))`     — replacements + processing applied
  *
  * @param {{ col_type?: 'q'|'n'|'l', col_sep?: string, col_values: any, raw_values?: string[], meta?: any }} colObject
- * @param {{ order?: 'levels'|'alpha', applyReplacements?: boolean }} [options]
+ * @param {{ order?: 'levels'|'alpha' }} [options]
  *   `order='levels'` returns `col_values.labels` (R-style factor levels).
  *   `order='alpha'` returns alphabetically sorted unique items.
  *   Default: `'levels'` for `col_type='q'`, `'alpha'` otherwise.
- *   `applyReplacements=true` (default) applies `meta.replacements` before extracting items.
  * @returns {string[]}
  */
 ns.getIndividualItems = function (colObject, options = {}) {
-  const applyReps = options.applyReplacements !== false;
-  const source = applyReps ? ns.applyReplacements(colObject) : colObject;
-  const col_type = source.col_type || 'q';
-  const col_sep = source.col_sep || ';';
+  const col_type = colObject.col_type || 'q';
+  const col_sep = colObject.col_sep || ';';
   const order = options.order ?? (col_type === 'q' ? 'levels' : 'alpha');
 
-  if (order === 'levels' && source.col_values?.col_compact && Array.isArray(source.col_values?.labels)) {
-    return [...source.col_values.labels];
+  if (order === 'levels' && colObject.col_values?.col_compact && Array.isArray(colObject.col_values?.labels)) {
+    return [...colObject.col_values.labels];
   }
 
-  const values = ns.decodeColumn({ col_type, col_sep, col_values: source.col_values, raw_values: source.raw_values });
+  const values = ns.decodeColumn({ col_type, col_sep, col_values: colObject.col_values, raw_values: colObject.raw_values });
   const allItems = (col_type === 'l') ? values.flatMap(v => (v || '').split(col_sep).map(s => s.trim()).filter(Boolean)) : values;
   const unique = [...new Set(allItems.filter(Boolean))];
   if (order === 'alpha') return unique.sort((a, b) => a.localeCompare(b));
@@ -481,9 +479,10 @@ ns.getIndividualItems = function (colObject, options = {}) {
 /**
  * Frequency count of individual values for a column or one of its variants.
  *
- * `meta.replacements` is applied lazily by default (matching the post-replacement view
- * the previous destructive `replaceColumnValues` produced). Pass `applyReplacements: false`
- * to inspect raw values (e.g., when populating a replacements editor).
+ * **Operates on the column as-is** — does NOT apply `meta.replacements` or `meta.processing`.
+ * If you want the post-replacement / post-processing view, compose explicitly:
+ *   - `getIndividualItemsWithCount(applyReplacements(col), opts)` — replacements applied
+ *   - `getIndividualItemsWithCount(resolveColumn(col), opts)`     — replacements + processing applied
  *
  * @param {Object} column Column object (optionally including col_vars)
  * @param {Object} [options]
@@ -494,7 +493,6 @@ ns.getIndividualItems = function (colObject, options = {}) {
  *   Takes precedence over `sortByCount`/`sortByValue`. Items not in labels fall back to alpha asc tie-break.
  * @param {'asc'|'desc'|null} [options.sortByCount=null] Sort by count (asc/desc). When null falls back to value sort.
  * @param {'asc'|'desc'} [options.sortByValue='asc'] Sort alphabetically when not ordering by count.
- * @param {boolean} [options.applyReplacements=true] Apply `meta.replacements` before counting.
  * @returns {{Value:string,Count:number}[]}
  */
 ns.getIndividualItemsWithCount = function (column, options = {}) {
@@ -506,8 +504,7 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
     includeEmpty = false,
     sortByLevels = false,
     sortByCount = null,
-    sortByValue = 'asc',
-    applyReplacements: applyReps = true
+    sortByValue = 'asc'
   } = options || {};
 
   const baseColumn = column;
@@ -518,12 +515,9 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
   let col_sep = variant?.col_sep ?? baseColumn.col_sep;
   if (!col_sep) col_sep = col_type === 'l' ? ';' : '';
 
-  const baseAny = /** @type {any} */ (baseColumn);
-  const variantAny = /** @type {any} */ (variant);
-  const rawSource = variant
-    ? { ...variant, col_type, col_sep, meta: variantAny?.meta ?? baseAny.meta }
+  const sourceColumn = variant
+    ? { ...variant, col_type, col_sep }
     : { ...baseColumn, col_type, col_sep };
-  const sourceColumn = applyReps ? ns.applyReplacements(rawSource) : rawSource;
 
   const values = ns.decodeColumn(sourceColumn);
   if (!Array.isArray(values) || values.length === 0) return [];
