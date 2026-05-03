@@ -12,6 +12,7 @@ import { getBinaryLabels, getDefaultMissingLabel, getTableHeaders, normalizeLang
  * @property {string} col_label
  * @property {'q'|'n'|'l'} col_type
  * @property {string=} col_sep
+ * @property {boolean=} col_del
  * @property {any[]=} raw_values
  * @property {{labels?: string[]}=} col_values
  */
@@ -714,13 +715,18 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
 /**
  * Summarize every column (and its variants) in a parsed database payload.
  * @param {{columns?: Column[]}|null|undefined} database
- * @param {{ lang?: string, formatFn?: Function, maxRows?: number, structured?: boolean }} [options]
+ * @param {{ lang?: string, formatFn?: Function, maxRows?: number, structured?: boolean, includeDeleted?: boolean }} [options]
  * @returns {Array<{ label: string, type: string, summary: Array<any>, variants: Array<{ label: string, type: string, summary: Array<any> }> }>}
  */
 ns.describeDataset = function (database, options = {}) {
   if (!database || !Array.isArray(database.columns)) return [];
 
-  return database.columns.map((column) => {
+  const includeDeleted = options.includeDeleted === true;
+  const columns = includeDeleted
+    ? database.columns
+    : database.columns.filter((col) => !col.col_del);
+
+  return columns.map((column) => {
     const label = column.col_label ?? column.col_name ?? column.col_hash ?? '';
     const type = column.col_type ?? 'q';
     const summary = ns.describeColumn(column, null, options);
