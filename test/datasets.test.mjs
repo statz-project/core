@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 // import { parseFixture } from '../scripts/dev/load-fixture.mjs';
 import factors from "../json/factors.js";
 import driver from "../json/driver.js";
+import { decode } from "node:punycode";
 
 // const {parsed} = parseFixture();
 
@@ -112,4 +113,156 @@ test("applyColumnMappings", () => {
   console.log(JSON.stringify(updated));
 
 })
+
+// ---------------------------------------------------------------------------
+// recodeColumn — change col_type / col_sep with full re-encoding
+// ---------------------------------------------------------------------------
+
+test("recodeColumn: q -> n with numeric labels preserves values and drops q-only processing", () => {
+  const original = factors.makeColumn(['10', '20', '10', '30', '20'], {
+    col_type: 'q',
+    var_label: 'score',
+    includeBaseVariant: false
+  });
+  original.col_hash = 'h_score';
+  original.col_label = 'Score';
+  original.col_name = 'score';
+  original.col_index = 1;
+  original.col_del = false;
+  original.meta = {
+    replacements: [{ from: '10', to: '10' }],
+    processing: {
+      sort_mode: 'freq_desc',
+      custom_order: ['10', '20', '30'],
+      top_n: 2,
+      top_n_label: 'Others',
+      excluded_values: ['30'],
+      na_action: 'label',
+      na_label: 'Missing'
+    }
+  };
+  const snapshot = JSON.parse(JSON.stringify(original));
+
+  const recoded = driver.recodeColumn(original, { col_type: 'n' });
+
+  // Identity preserved
+  assert.equal(recoded.col_hash, 'h_score');
+  assert.equal(recoded.col_label, 'Score');
+  assert.equal(recoded.col_name, 'score');
+  assert.equal(recoded.col_index, 1);
+  assert.equal(recoded.col_del, false);
+
+  // Recoded as numeric — values round-trip correctly
+  assert.equal(recoded.col_type, 'n');
+  assert.equal(recoded.col_sep, '');
+  assert.deepEqual(factors.decodeColumn(recoded), ['10', '20', '10', '30', '20']);
+
+  // q-only fields stripped, universal fields preserved
+  assert.deepEqual(recoded.meta.replacements, [{ from: '10', to: '10' }]);
+  assert.deepEqual(recoded.meta.processing, {
+    excluded_values: ['30'],
+    na_action: 'label',
+    na_label: 'Missing'
+  });
+
+  // Input not mutated
+  assert.deepEqual(original, snapshot);
+});
+
+test("recodeColumn: q -> l with sep=';' wraps each value into a single-item list", () => {
+  const original = factors.makeColumn(['fever', 'headache', 'fever'], {
+    col_type: 'q',
+    includeBaseVariant: false
+  });
+
+  const recoded = driver.recodeColumn(original, { col_type: 'l', col_sep: ';' });
+
+  assert.equal(recoded.col_type, 'l');
+  assert.equal(recoded.col_sep, ';');
+  const decoded = factors.decodeColumn(recoded);
+  assert.deepEqual(decoded, ['fever', 'headache', 'fever']);
+});
+
+test("recodeColumn: l -> q collapses lists to single qualitative levels", () => {
+  const original = factors.makeColumn(['fever;headache', 'fever', 'headache;cough'], {
+    col_type: 'l',
+    col_sep: ';',
+    includeBaseVariant: false
+  });
+
+  const recoded = driver.recodeColumn(original, { col_type: 'q' });
+
+  assert.equal(recoded.col_type, 'q');
+  assert.equal(recoded.col_sep, '');
+  const decoded = factors.decodeColumn(recoded);
+  assert.deepEqual(decoded, ['fever;headache', 'fever', 'headache;cough']);
+});
+
+test("recodeColumn: change col_sep on list column re-parses raw values without substituting characters", () => {
+  const original = factors.makeColumn(['a;b;c', 'a;c', 'b'], {
+    col_type: 'l',
+    col_sep: ';',
+    includeBaseVariant: false
+  });
+
+  // Switching the separator does NOT rewrite the raw characters — it only changes how the
+  // values are parsed into items. Re-decoding must yield the original raw strings.
+  const recoded = driver.recodeColumn(original, { col_sep: ',' });
+  assert.equal(recoded.col_type, 'l');
+  assert.equal(recoded.col_sep, ',');
+  const decoded = factors.decodeColumn(recoded);
+  assert.deepEqual(decoded, ['a;b;c', 'a;c', 'b']);
+});
+
+test("recodeColumn: l -> l with auto-inferred separator when none provided", () => {
+  // values whose decoded form (after decoding with old sep ';') will be ['x;y','x','y;z']
+  const original = factors.makeColumn(['x;y', 'x', 'y;z'], {
+    col_type: 'l',
+    col_sep: ';',
+    includeBaseVariant: false
+  });
+  // Force sep to empty — recodeColumn must infer (still ';' since data uses it)
+  const recoded = driver.recodeColumn(original, { col_type: 'l', col_sep: '' });
+  assert.equal(recoded.col_type, 'l');
+  assert.equal(recoded.col_sep, ';');
+});
+
+test("recodeColumn: rebuilds col_vars by replaying recipes", () => {
+  const base = factors.makeColumn(['male', 'female', 'male', 'female', 'male'], {
+    col_type: 'q',
+    var_label: 'sex',
+    includeBaseVariant: true
+  });
+  base.col_hash = 'h_sex';
+  base.col_label = 'sex';
+  base.col_name = 'sex';
+
+  // Append a search_replace variant via createVariant (so it carries a recipe)
+  const replaceVariant = driver.createVariant(base, {
+    kind: 'search_replace',
+    var_label: 'Sex (PT)',
+    sourceVarIndex: 0,
+    replacements: [{ search: 'male', replace: 'Homem' }, { search: 'female', replace: 'Mulher' }]
+  });
+  base.col_vars.push(replaceVariant);
+
+  // No-op recode (q -> q): variants should be rebuilt and recipe replayed
+  const recoded = driver.recodeColumn(base, { col_type: 'q' });
+
+  assert.equal(recoded.col_vars.length, 2);
+  assert.equal(recoded.col_vars[0].meta.kind, 'original');
+  assert.equal(recoded.col_vars[1].var_label, 'Sex (PT)');
+  const replayed = factors.decodeColumn(recoded.col_vars[1]);
+  assert.deepEqual(replayed, ['Homem', 'Mulher', 'Homem', 'Mulher', 'Homem']);
+});
+
+test("recodeColumn: returns a new object and does not mutate input", () => {
+  const original = factors.makeColumn(['a', 'b', 'a'], { col_type: 'q', includeBaseVariant: false });
+  original.meta = { replacements: [], processing: { sort_mode: 'alpha' } };
+  const snapshot = JSON.parse(JSON.stringify(original));
+
+  const recoded = driver.recodeColumn(original, { col_type: 'l', col_sep: ';' });
+  assert.notEqual(recoded, original);
+  assert.deepEqual(original, snapshot);
+});
 

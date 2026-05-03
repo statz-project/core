@@ -487,6 +487,114 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
 };
 
 /**
+ * Recode a column to a new `col_type` and/or `col_sep`.
+ *
+ * Pipeline:
+ *   1. Decode the column using its CURRENT `col_type` / `col_sep`
+ *   2. Apply the new type/separator (inferring `col_sep` for `'l'` when omitted)
+ *   3. Re-encode raw values via `factors.makeColumn`
+ *   4. Migrate `meta`: keep `replacements`, `excluded_values`, `na_action`, `na_label`;
+ *      drop q-only fields (`sort_mode`, `custom_order`, `top_n`, `top_n_label`) when leaving `'q'`
+ *   5. Rebuild `col_vars` (base variant adopts new shape; derived variants re-run their stored recipe)
+ *
+ * Returns a NEW column object; the input is never mutated.
+ *
+ * @param {{col_type?: 'q'|'n'|'l', col_sep?: string, col_values?: any, raw_values?: string[], col_vars?: any[], meta?: any, col_label?: string, col_name?: string, [k:string]: any}} column Source column object.
+ * @param {{col_type?: 'q'|'n'|'l', col_sep?: string}} [changes]
+ * @returns {Record<string, any>} New column object with re-encoded `col_values` and migrated metadata.
+ */
+ns.recodeColumn = function (column, changes = {}) {
+  if (!column || typeof column !== 'object') return column;
+
+  const oldType = column.col_type ?? 'q';
+  const rawValues = factors.decodeColumn(column);
+
+  const nextType = changes.col_type ?? oldType;
+  let nextSep = changes.col_sep !== undefined ? changes.col_sep : column.col_sep;
+  if (nextType === 'l') {
+    if (!nextSep) nextSep = factors.inferColSep(rawValues) || ';';
+  } else {
+    nextSep = '';
+  }
+
+  const rebuilt = factors.makeColumn(rawValues, {
+    col_type: nextType,
+    col_sep: nextSep,
+    includeBaseVariant: false,
+    encode: true
+  });
+
+  const { col_vars: _ignored, col_values: __ignored, col_type: ___ignored, col_sep: ____ignored, meta: oldMeta, ...rest } = column;
+  /** @type {Record<string, any>} */
+  const nextColumn = {
+    ...rest,
+    col_type: rebuilt.col_type,
+    col_sep: rebuilt.col_sep,
+    col_values: rebuilt.col_values
+  };
+
+  if (oldMeta && typeof oldMeta === 'object') {
+    const nextMeta = { ...oldMeta };
+    if (oldMeta.processing && typeof oldMeta.processing === 'object') {
+      const proc = { ...oldMeta.processing };
+      if (nextType !== 'q') {
+        delete proc.sort_mode;
+        delete proc.custom_order;
+        delete proc.top_n;
+        delete proc.top_n_label;
+      }
+      nextMeta.processing = proc;
+    }
+    nextColumn.meta = nextMeta;
+  }
+
+  if (Array.isArray(column.col_vars) && column.col_vars.length > 0) {
+    const baseLabel = column.col_vars[0]?.var_label
+      ?? nextColumn.col_label
+      ?? nextColumn.col_name
+      ?? 'Original';
+    const baseMeta = column.col_vars[0]?.meta?.kind === 'original'
+      ? column.col_vars[0].meta
+      : { kind: 'original' };
+    const baseVariant = {
+      var_label: baseLabel,
+      col_type: nextColumn.col_type,
+      col_sep: nextColumn.col_sep,
+      col_values: variants.cloneColValues(nextColumn.col_values),
+      meta: baseMeta
+    };
+    /** @type {Object[]} */
+    const rebuiltVariants = [baseVariant];
+    /** @type {string[]} */
+    const warnings = [];
+    let scratchBase = { ...nextColumn, col_vars: rebuiltVariants };
+    column.col_vars.slice(1).forEach((/** @type {any} */ v) => {
+      const recipe = v?.meta?.recipe;
+      if (!recipe) {
+        warnings.push(`Variant "${v?.var_label ?? 'unnamed'}" dropped: no recipe to replay against the new column shape.`);
+        return;
+      }
+      try {
+        const newVar = variants.createVariant(scratchBase, recipe);
+        if (v?.var_label) newVar.var_label = v.var_label;
+        rebuiltVariants.push(newVar);
+        scratchBase = { ...scratchBase, col_vars: rebuiltVariants };
+      } catch (/** @type {any} */ err) {
+        warnings.push(`Variant "${v?.var_label ?? 'unnamed'}" dropped: recipe failed (${err?.message || err}).`);
+      }
+    });
+    nextColumn.col_vars = rebuiltVariants;
+    if (warnings.length > 0) {
+      const meta = nextColumn.meta ? { ...nextColumn.meta } : {};
+      meta.warnings = [...(Array.isArray(meta.warnings) ? meta.warnings : []), ...warnings];
+      nextColumn.meta = meta;
+    }
+  }
+
+  return nextColumn;
+};
+
+/**
  * Summarize each predictor optionally against a qualitative response.
  * @param {Column[]} columns
  * @param {Array<{col_hash:string,col_label:string}>} predictors
