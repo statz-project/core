@@ -353,9 +353,11 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
         const vSep = variant?.col_sep ?? colSep;
         let effectiveVariant = variant;
         if (shouldApplyProcessing && hasMeta(variant?.meta)) {
-          effectiveVariant = factors.resolveColumn({ ...variant, col_type: vType, col_sep: vSep });
+          effectiveVariant = factors.resolveColumn({ ...variant, col_type: vType, col_sep: vSep, col_values: variant?.col_values ?? col.col_values });
         }
-        const vValues = factors.decodeColValues(effectiveVariant?.col_values, vType, vSep) ?? variant?.raw_values ?? [];
+        // Pointer-style base variants have no col_values — fall back to the parent column.
+        const variantValues = effectiveVariant?.col_values ?? col.col_values;
+        const vValues = factors.decodeColValues(variantValues, vType, vSep) ?? variant?.raw_values ?? [];
         const vLabel = escapeHtml(variant?.var_label ?? `${baseLabel} (v${idx + 1})`);
         entries.push({ hash: `${col.col_hash}__var${idx}`, label: vLabel, values: vValues, isDeleted: !!col.col_del, isVariant: true });
       });

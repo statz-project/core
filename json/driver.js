@@ -86,16 +86,8 @@ ns.addVariant = function (database, colHash, newVariant) {
   }
   if (!Array.isArray(column.col_vars) || column.col_vars.length === 0) {
     const colLabel = column.col_label ?? "Original";
-    const colType = column.col_type ?? 'q';
-    const colSep = column.col_sep ?? (colType === 'l' ? ';' : '');
-    const clone = variants.cloneColValues
-      ? variants.cloneColValues(column.col_values)
-      : (column.col_values ? JSON.parse(JSON.stringify(column.col_values)) : column.col_values);
     column.col_vars = [{
       var_label: colLabel,
-      col_type: colType,
-      col_sep: colSep,
-      col_values: clone,
       meta: { kind: 'original' }
     }];
   }
@@ -442,14 +434,12 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
         ? (oldCol.col_label ?? col.col_label)
         : (col.col_label ?? oldCol.col_label);
       if (Array.isArray(oldCol.col_vars) && oldCol.col_vars.length) {
-        // Rebuild variants when possible using stored recipes
+        // Rebuild variants when possible using stored recipes.
+        // Base variant is pointer-style (no col_values/col_type/col_sep) — readers fall back to the column.
         const baseLabel = oldCol.col_vars[0]?.var_label ?? (col.col_label ?? col.col_name ?? 'Original');
         const baseMeta = oldCol.col_vars[0]?.meta?.kind === 'original' ? oldCol.col_vars[0].meta : { kind: 'original' };
         const baseVariant = {
           var_label: baseLabel,
-          col_type: merged.col_type,
-          col_sep: merged.col_sep ?? (merged.col_type === 'l' ? ';' : ''),
-          col_values: variants.cloneColValues ? variants.cloneColValues(merged.col_values) : merged.col_values,
           meta: baseMeta
         };
         const rebuilt = [baseVariant];
@@ -556,11 +546,9 @@ ns.recodeColumn = function (column, changes = {}) {
     const baseMeta = column.col_vars[0]?.meta?.kind === 'original'
       ? column.col_vars[0].meta
       : { kind: 'original' };
+    // Pointer-style base variant (no col_values/col_type/col_sep) — readers use the column.
     const baseVariant = {
       var_label: baseLabel,
-      col_type: nextColumn.col_type,
-      col_sep: nextColumn.col_sep,
-      col_values: variants.cloneColValues(nextColumn.col_values),
       meta: baseMeta
     };
     /** @type {Object[]} */

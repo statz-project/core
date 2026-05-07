@@ -60,7 +60,10 @@ test("addVariant seeds original snapshot when missing", () => {
   const updatedColumn = database.columns[0];
   assert.equal(updatedColumn.col_vars.length, 2);
   assert.equal(updatedColumn.col_vars[0].meta.kind, "original");
-  assert.notStrictEqual(updatedColumn.col_vars[0].col_values, updatedColumn.col_values);
+  // Pointer-style base variant: no col_values/col_type/col_sep duplication
+  assert.equal(updatedColumn.col_vars[0].col_values, undefined);
+  assert.equal(updatedColumn.col_vars[0].col_type, undefined);
+  assert.equal(updatedColumn.col_vars[0].col_sep, undefined);
   assert.strictEqual(updatedColumn.col_vars[1], numericVariant);
 });
 

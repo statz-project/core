@@ -87,27 +87,39 @@ ns.shouldCompact = function (values, col_type = null, col_sep = ';') {
 
 /**
  * Factor-encode values (labels + codes), including list columns.
- * For 'q' columns, labels are sorted alphabetically (R-style factor default).
- * For 'l' columns, labels follow first-appearance order (frequency-driven UX).
+ *
+ * For `q` columns:
+ *   - When `levels` is provided, it is used verbatim as the canonical label order
+ *     (mirrors R's `factor(x, levels=...)`). Values not present in `levels` become
+ *     missing (code 0). Useful when the caller has an explicit ordering — e.g., `cut`
+ *     bins must follow interval order, not alphabetical.
+ *   - When `levels` is omitted, observed values are sorted alphabetically (R default).
+ *
+ * For `l` columns: items follow first-appearance order. The `levels` parameter is
+ * accepted symmetrically (canonical item order); ignored if not provided.
+ *
  * @param {string[]} values
  * @param {'q'|'n'|'l'=} col_type
  * @param {string=} col_sep
+ * @param {string[]=} levels Optional canonical label order; when provided, overrides default ordering.
  * @returns {ColValues}
  */
-ns.encodeAsFactor = function (values, col_type = null, col_sep = ';') {
+ns.encodeAsFactor = function (values, col_type = null, col_sep = ';', levels = undefined) {
   if (!Array.isArray(values)) return { col_compact: false, labels: null, codes: null, raw_values: values };
   if (col_type === 'l') {
     const allItems = values.flatMap(v => (v || '').split(col_sep).map(s => s.trim()).filter(Boolean));
-    const labels = [...new Set(allItems)];
+    const labels = Array.isArray(levels) && levels.length ? levels.slice() : [...new Set(allItems)];
     const codes = values.map(val => {
       const items = (val || '').split(col_sep).map(s => s.trim()).filter(Boolean);
-      return items.map(i => labels.indexOf(i) + 1).join(col_sep);
+      return items.map(i => labels.indexOf(i) + 1).filter(c => c > 0).join(col_sep);
     });
     return { col_compact: true, labels, codes, raw_values: null };
   }
-  const labels = [...new Set(values.map(v => v?.trim?.()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const codes = values.map(v => { const idx = labels.indexOf(v?.trim?.()); return idx >= 0 ? idx + 1 : 0; });
-  return { col_compact: true, labels, codes, raw_values: null };
+  const finalLabels = Array.isArray(levels) && levels.length
+    ? levels.slice()
+    : [...new Set(values.map(v => v?.trim?.()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const codes = values.map(v => { const idx = finalLabels.indexOf(v?.trim?.()); return idx >= 0 ? idx + 1 : 0; });
+  return { col_compact: true, labels: finalLabels, codes, raw_values: null };
 };
 
 /**
@@ -146,20 +158,14 @@ ns.decodeColumn = function (column) {
  * @param {string[]} values
  * @param {'q'|'n'|'l'=} col_type
  * @param {string=} col_sep
+ * @param {string[]=} levels Optional canonical label order forwarded to `encodeAsFactor`.
  * @returns {ColValues}
  */
-ns.encodeColValues = function (values, col_type = 'q', col_sep = ';') {
+ns.encodeColValues = function (values, col_type = 'q', col_sep = ';', levels = undefined) {
   const should = ns.shouldCompact(values, col_type, col_sep);
-  if (should) return ns.encodeAsFactor(values, col_type, col_sep);
+  if (should) return ns.encodeAsFactor(values, col_type, col_sep, levels);
   return { col_compact: false, labels: null, codes: null, raw_values: values };
 };
-/**
- * Deep clone a ColValues payload while avoiding structuredClone for Node 16 compatibility.
- * @param {ColValues|null|undefined} colValues
- * @returns {ColValues|null|undefined}
- */
-const cloneColValues = (colValues) => (colValues ? JSON.parse(JSON.stringify(colValues)) : colValues);
-
 /**
  * Build a column description from raw values with optional metadata overrides.
  * @param {string[]} values
@@ -201,11 +207,11 @@ ns.makeColumn = function (values, options = {}) {
     : { col_compact: false, labels: null, codes: null, raw_values: valueArray.slice() };
   const column = { col_type, col_sep, col_values, ...columnProps };
   if (includeBaseVariant) {
+    // Pointer-style base variant: omit col_values/col_type/col_sep — readers fall back to
+    // the parent column via `variant?.col_values ?? baseColumn.col_values`. Saves one full
+    // copy of the encoded payload per column.
     const baseVariant = {
       var_label: baseVariantLabel ?? var_label,
-      col_type,
-      col_sep,
-      col_values: cloneColValues(col_values),
       meta: { kind: 'original', ...(baseVariantMeta || {}) }
     };
     column.col_vars = Array.isArray(additionalVariants)
@@ -484,7 +490,7 @@ ns.getIndividualItems = function (colObject, options = {}) {
  *   - `getIndividualItemsWithCount(applyReplacements(col), opts)` — replacements applied
  *   - `getIndividualItemsWithCount(resolveColumn(col), opts)`     — replacements + processing applied
  *
- * @param {Object} column Column object (optionally including col_vars)
+ * @param {{col_type?:'q'|'n'|'l',col_sep?:string,col_values?:any,raw_values?:any[],col_vars?:any[],meta?:any,[k:string]:any}} column Column object (optionally including col_vars)
  * @param {Object} [options]
  * @param {number|null} [options.variantIndex] Variant index to inspect (defaults to base column)
  * @param {boolean} [options.splitList] Split list values using the column separator (defaults true for list columns)
@@ -509,14 +515,15 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
 
   const baseColumn = column;
   const variant = Number.isInteger(variantIndex) && Array.isArray(baseColumn.col_vars)
-    ? baseColumn.col_vars[variantIndex]
+    ? baseColumn.col_vars[/** @type {number} */ (variantIndex)]
     : null;
   const col_type = variant?.col_type ?? baseColumn.col_type ?? 'q';
   let col_sep = variant?.col_sep ?? baseColumn.col_sep;
   if (!col_sep) col_sep = col_type === 'l' ? ';' : '';
 
+  // Pointer-style variants (typically col_vars[0]) omit col_values — fall back to the parent column.
   const sourceColumn = variant
-    ? { ...variant, col_type, col_sep }
+    ? { ...variant, col_type, col_sep, col_values: variant.col_values ?? baseColumn.col_values }
     : { ...baseColumn, col_type, col_sep };
 
   const values = ns.decodeColumn(sourceColumn);

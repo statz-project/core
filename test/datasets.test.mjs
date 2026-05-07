@@ -266,3 +266,125 @@ test("recodeColumn: returns a new object and does not mutate input", () => {
   assert.deepEqual(original, snapshot);
 });
 
+// ---------------------------------------------------------------------------
+// Pointer-style base variant + normalized recipes
+// ---------------------------------------------------------------------------
+
+import variants from "../json/variants.js";
+
+test("makeColumn: base variant is pointer-style (no col_values/col_type/col_sep)", () => {
+  const column = factors.makeColumn(['a', 'b', 'a'], { col_type: 'q' });
+  assert.equal(column.col_vars.length, 1);
+  assert.equal(column.col_vars[0].col_values, undefined);
+  assert.equal(column.col_vars[0].col_type, undefined);
+  assert.equal(column.col_vars[0].col_sep, undefined);
+  assert.equal(column.col_vars[0].meta.kind, 'original');
+  assert.ok(column.col_vars[0].var_label);
+});
+
+test("getIndividualItemsWithCount: variantIndex=0 with pointer-style base falls back to column", () => {
+  const column = factors.makeColumn(['a', 'b', 'a', 'b', 'a'], { col_type: 'q' });
+  const fromBase = factors.getIndividualItemsWithCount(column);
+  const fromVariant0 = factors.getIndividualItemsWithCount(column, { variantIndex: 0 });
+  assert.deepEqual(fromVariant0, fromBase);
+});
+
+test("createVariant: sourceVarIndex=0 with pointer-style base reads column values", () => {
+  const column = factors.makeColumn(['male', 'female', 'male'], { col_type: 'q' });
+  const variant = variants.createVariant(column, {
+    kind: 'search_replace',
+    var_label: 'Sex (PT)',
+    sourceVarIndex: 0,
+    replacements: [{ search: 'male', replace: 'M' }, { search: 'female', replace: 'F' }]
+  });
+  const decoded = factors.decodeColumn(variant);
+  assert.deepEqual(decoded, ['M', 'F', 'M']);
+});
+
+test("recodeColumn: produces pointer-style base variant", () => {
+  const column = factors.makeColumn(['x', 'y', 'x'], { col_type: 'q' });
+  const recoded = driver.recodeColumn(column, { col_type: 'l', col_sep: ';' });
+  assert.equal(recoded.col_vars[0].col_values, undefined);
+  assert.equal(recoded.col_vars[0].col_type, undefined);
+  assert.equal(recoded.col_vars[0].col_sep, undefined);
+});
+
+test("normalizeRecipe: replacements aliases canonicalize to {from,to}", () => {
+  const recipe = variants.normalizeRecipe({
+    replacements: [
+      { search: 'a', replace: 'A' },
+      { from: 'b', to: 'B' },
+      { value: 'c', label: 'C' },
+      { level: 'd', to: 'D' },
+      { search: '', replace: 'skip' },
+      { from: '   ', to: 'also-skip' }
+    ]
+  });
+  assert.deepEqual(recipe.replacements, [
+    { from: 'a', to: 'A' },
+    { from: 'b', to: 'B' },
+    { from: 'c', to: 'C' },
+    { from: 'd', to: 'D' }
+  ]);
+});
+
+test("normalizeRecipe: merges aliases canonicalize to {label,levels}", () => {
+  const recipe = variants.normalizeRecipe({
+    merges: [
+      { target: 'High', levels: ['x', 'y'] },
+      { name: 'Low', values: ['a', 'b'] },
+      { label: '', levels: ['skip'] },
+      { label: 'NoLevels' }
+    ]
+  });
+  assert.deepEqual(recipe.merges, [
+    { label: 'High', levels: ['x', 'y'] },
+    { label: 'Low', levels: ['a', 'b'] }
+  ]);
+});
+
+test("normalizeRecipe: cut omits default right/includeLowest, keeps overrides", () => {
+  const recipeAllDefaults = variants.normalizeRecipe({
+    cut: { breaks: [0, 5, 10], right: true, includeLowest: true }
+  });
+  assert.deepEqual(recipeAllDefaults.cut, { breaks: [0, 5, 10] });
+
+  const recipeOverrides = variants.normalizeRecipe({
+    cut: { breaks: [0, 5, 10], right: false, includeLowest: false }
+  });
+  assert.deepEqual(recipeOverrides.cut, { breaks: [0, 5, 10], right: false, includeLowest: false });
+});
+
+test("normalizeRecipe: transform drops base when fn !== 'log'", () => {
+  const recipe = variants.normalizeRecipe({ transform: { fn: 'log10', base: 7 } });
+  assert.deepEqual(recipe.transform, { fn: 'log10' });
+
+  const recipeLog = variants.normalizeRecipe({ transform: { fn: 'log', base: 2 } });
+  assert.deepEqual(recipeLog.transform, { fn: 'log', base: 2 });
+});
+
+test("normalizeRecipe: drops var_label/label", () => {
+  const recipe = variants.normalizeRecipe({ var_label: 'Foo', label: 'Bar', kind: 'custom' });
+  assert.equal(recipe.var_label, undefined);
+  assert.equal(recipe.label, undefined);
+  assert.equal(recipe.kind, 'custom');
+});
+
+test("createVariant: stored recipe is canonical (replays identically)", () => {
+  const column = factors.makeColumn(['m', 'f', 'm', 'f'], { col_type: 'q' });
+  const variant1 = variants.createVariant(column, {
+    kind: 'search_replace',
+    var_label: 'Sex (long)',
+    sourceVarIndex: 0,
+    replacements: [{ search: 'm', replace: 'Male' }, { from: 'f', to: 'Female' }]
+  });
+  // Replay using the stored recipe
+  const variant2 = variants.createVariant(column, variant1.meta.recipe);
+  assert.deepEqual(factors.decodeColumn(variant2), factors.decodeColumn(variant1));
+  // Recipe is normalized
+  assert.deepEqual(variant1.meta.recipe.replacements, [
+    { from: 'm', to: 'Male' },
+    { from: 'f', to: 'Female' }
+  ]);
+});
+

@@ -607,6 +607,92 @@ const sortByFrequency = (processed, values, colType, colSep, meta) => {
 };
 
 /**
+ * Normalize a `VariantConfig` into the canonical recipe shape stored in `meta.recipe`.
+ *
+ * Goals: minimize JSON storage and standardize key names so that downstream tools (UI,
+ * replay in `applyColumnMappings`/`recodeColumn`) can rely on a single shape. The runtime
+ * helpers (`applySearchReplace`, `applyMerge`, etc.) accept the canonical form already.
+ *
+ * Transformations applied:
+ *  - drops `var_label` / `label` (rendering-only — variant.var_label carries the label)
+ *  - `replacements` / `searchReplace` → `replacements: [{from, to}]` (resolves all aliases,
+ *    drops entries with empty `from`)
+ *  - `merges` → `[{label, levels}]` (resolves aliases, drops entries without label or levels)
+ *  - `cut`: omits `right` and `includeLowest` when their value equals the helper's default (`true`),
+ *    omits empty `labels`
+ *  - `transform`: drops `base` when invalid or when `fn !== 'log'`
+ *  - strips `undefined` values and empty arrays/objects produced by the normalization
+ *
+ * Other fields (`fillEmpty`, `subsetLevels`, `forceNumeric`, `col_type`, `col_sep`,
+ * `sortByFrequency`, `sourceVarIndex`, `kind`, `note`, `lang`, `note`) pass through unchanged.
+ *
+ * @param {VariantConfig} [config]
+ * @returns {Record<string, any>}
+ */
+ns.normalizeRecipe = function (config = {}) {
+  /** @type {Record<string, any>} */
+  const recipe = {};
+  /** @type {Record<string, any>} */
+  const cfg = config || {};
+  const skip = new Set(['var_label', 'label', 'replacements', 'searchReplace', 'merges', 'cut', 'transform']);
+  Object.keys(cfg).forEach((key) => {
+    if (skip.has(key)) return;
+    const value = cfg[key];
+    if (value === undefined) return;
+    recipe[key] = value;
+  });
+  const replacementsInput = cfg.replacements ?? cfg.searchReplace;
+  if (Array.isArray(replacementsInput)) {
+    /** @type {Array<{from:string,to:string}>} */
+    const normalized = [];
+    replacementsInput.forEach((/** @type {any} */ item) => {
+      if (!item) return;
+      const from = toStringSafe(item.from ?? item.search ?? item.value ?? item.level ?? '').trim();
+      if (!from) return;
+      const to = toStringSafe(item.to ?? item.replace ?? item.label ?? '');
+      normalized.push({ from, to });
+    });
+    if (normalized.length) recipe.replacements = normalized;
+  }
+  if (Array.isArray(cfg.merges)) {
+    /** @type {Array<{label:string,levels:string[]}>} */
+    const normalized = [];
+    cfg.merges.forEach((/** @type {any} */ group) => {
+      if (!group) return;
+      const label = toStringSafe(group.label ?? group.target ?? group.name ?? '').trim();
+      if (!label) return;
+      const rawLevels = Array.isArray(group.levels) ? group.levels : Array.isArray(group.values) ? group.values : null;
+      if (!rawLevels) return;
+      const levels = rawLevels.map((/** @type {any} */ lvl) => toStringSafe(lvl).trim()).filter(Boolean);
+      if (!levels.length) return;
+      normalized.push({ label, levels });
+    });
+    if (normalized.length) recipe.merges = normalized;
+  }
+  if (cfg.cut && typeof cfg.cut === 'object') {
+    /** @type {Record<string, any>} */
+    const cut = {};
+    const cutCfg = cfg.cut;
+    if (Array.isArray(cutCfg.breaks) && cutCfg.breaks.length) cut.breaks = cutCfg.breaks.slice();
+    if (Number.isFinite(Number(cutCfg.width))) cut.width = Number(cutCfg.width);
+    if (Number.isFinite(Number(cutCfg.origin))) cut.origin = Number(cutCfg.origin);
+    if (cutCfg.right !== undefined && cutCfg.right !== true) cut.right = !!cutCfg.right;
+    if (cutCfg.includeLowest !== undefined && cutCfg.includeLowest !== true) cut.includeLowest = !!cutCfg.includeLowest;
+    if (Array.isArray(cutCfg.labels) && cutCfg.labels.length) cut.labels = cutCfg.labels.slice();
+    if (Object.keys(cut).length) recipe.cut = cut;
+  }
+  if (cfg.transform && typeof cfg.transform === 'object' && cfg.transform.fn) {
+    /** @type {Record<string, any>} */
+    const transform = { fn: cfg.transform.fn };
+    if (cfg.transform.fn === 'log' && Number.isFinite(Number(cfg.transform.base))) {
+      transform.base = Number(cfg.transform.base);
+    }
+    recipe.transform = transform;
+  }
+  return recipe;
+};
+
+/**
  * Create a column variant by applying the requested transformation pipeline.
  * @param {ColumnLike} baseCol
  * @param {VariantConfig} [config]
@@ -614,7 +700,8 @@ const sortByFrequency = (processed, values, colType, colSep, meta) => {
  */
 ns.createVariant = function (baseCol, config = {}) {
   if (!baseCol) throw new Error('Base column is required to create a variant.');
-  const variantIndex = Number.isInteger(config.sourceVarIndex) ? config.sourceVarIndex : null;
+  /** @type {number|null} */
+  const variantIndex = Number.isInteger(config.sourceVarIndex) ? /** @type {number} */ (config.sourceVarIndex) : null;
   const sourceVariant = variantIndex !== null && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[variantIndex] : null;
   const sourceType = sourceVariant?.col_type ?? baseCol.col_type ?? 'q';
   const sourceSep = sourceVariant?.col_sep ?? baseCol.col_sep ?? (sourceType === 'l' ? DEFAULT_LIST_SEP : '');
@@ -624,9 +711,8 @@ ns.createVariant = function (baseCol, config = {}) {
   let currentType = sourceType;
   let currentSep = sourceSep;
   const lang = normalizeLanguage(config.lang);
-  const recipe = JSON.parse(JSON.stringify(config || {}));
-  delete recipe.var_label;
-  delete recipe.label;
+  const recipe = ns.normalizeRecipe(config);
+  /** @type {VariantMeta} */
   const meta = {
     kind: config.kind ?? 'custom',
     source_var_index: variantIndex,
@@ -671,7 +757,9 @@ ns.createVariant = function (baseCol, config = {}) {
   if (config.col_sep !== undefined) currentSep = config.col_sep;
   if (currentType === 'l' && !currentSep) currentSep = sourceSep || DEFAULT_LIST_SEP;
   if (currentType !== 'l') currentSep = currentSep || '';
-  const processed = factors.encodeColValues(workingValues, currentType, currentSep);
+  // When `cut` produced bins, preserve interval order as canonical levels (R's `cut(..., levels=...)`).
+  const explicitLevels = cutInfo?.labels && currentType === 'q' ? cutInfo.labels : undefined;
+  const processed = factors.encodeColValues(workingValues, currentType, currentSep, explicitLevels);
 const finalValues = config.sortByFrequency
   ? sortByFrequency(processed, workingValues, currentType, currentSep, meta)
   : processed;
