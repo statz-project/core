@@ -820,6 +820,35 @@ ns.TRANSFORM_ORDER = [
   'sort_frequency'
 ];
 
+/**
+ * Default initial value for each recipe operation key.
+ *
+ * The UI uses this to seed a freshly-enabled operation in the recipe draft. The keys
+ * match the option keys referenced by `VARIANT_TEMPLATES[type][].options[]` and the
+ * canonical recipe shape produced by `normalizeRecipe`, so the UI can do
+ * `OPERATION_DEFAULTS[template.options[0]]` to obtain a starting value.
+ *
+ * Note: the search & replace operation is keyed `replacements` (canonical recipe key),
+ * not `searchReplace` — `createVariant` accepts both on input, but the stored/normalized
+ * recipe and the template options use `replacements`.
+ *
+ * IMPORTANT: this is a shared constant. Consumers MUST deep-clone the value before
+ * mutating it into a draft (e.g. `structuredClone(OPERATION_DEFAULTS.cut)` or
+ * `JSON.parse(JSON.stringify(...))`), otherwise edits leak across drafts.
+ *
+ * @type {{fillEmpty:string, replacements:any[], merges:any[], subsetLevels:string[], forceNumeric:boolean, transform:{fn:string,base:number}, cut:{breaks:number[],labels:string[],right:boolean,includeLowest:boolean}, sortByFrequency:boolean}}
+ */
+ns.OPERATION_DEFAULTS = {
+  fillEmpty: '',
+  replacements: [],
+  merges: [],
+  subsetLevels: [],
+  forceNumeric: true,
+  transform: { fn: 'log', base: 10 },
+  cut: { breaks: [], labels: [], right: true, includeLowest: true },
+  sortByFrequency: true
+};
+
 ns.cloneColValues = cloneColValues;
 ns.sanitizeNumericString = sanitizeNumericString;
 
