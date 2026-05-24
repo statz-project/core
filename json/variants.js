@@ -780,28 +780,62 @@ const finalValues = config.sortByFrequency
 
 /**
  * Variant templates grouped by base column type for UI presets.
- * @type {Record<'q'|'n'|'l', VariantTemplate[]>}
+ *
+ * Each entry carries:
+ *  - `id`: stable template identifier
+ *  - `labelKey`: dotted i18n key into `core/i18n` (resolved via `translate`)
+ *  - `label`: pre-resolved English label kept as a backward-compatible default
+ *    (UIs that need a translated label should call `getVariantTemplates(lang)` or
+ *    resolve `labelKey` directly via `translate(labelKey, lang)`)
+ *  - `options`: list of recipe option keys this template touches
+ *
+ * @type {Record<'q'|'n'|'l', Array<VariantTemplate & {labelKey:string}>>}
  */
 ns.VARIANT_TEMPLATES = {
   q: [
-    { id: 'search_replace', label: 'Search & replace levels', options: ['replacements'] },
-    { id: 'merge_levels', label: 'Merge levels', options: ['merges'] },
-    { id: 'subset', label: 'Keep subset', options: ['subsetLevels'] },
-    { id: 'fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
-    { id: 'sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
+    { id: 'search_replace', labelKey: 'variants.templates.search_replace.q', label: 'Search & replace levels', options: ['replacements'] },
+    { id: 'merge_levels', labelKey: 'variants.templates.merge_levels.q', label: 'Merge levels', options: ['merges'] },
+    { id: 'subset', labelKey: 'variants.templates.subset', label: 'Keep subset', options: ['subsetLevels'] },
+    { id: 'fill_missing', labelKey: 'variants.templates.fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
+    { id: 'sort_frequency', labelKey: 'variants.templates.sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
   ],
   n: [
-    { id: 'coerce_numeric', label: 'Force numeric', options: ['forceNumeric'] },
-    { id: 'cut_intervals', label: 'Cut into intervals', options: ['cut'] },
-    { id: 'transform', label: 'Apply transform', options: ['transform'] }
+    { id: 'coerce_numeric', labelKey: 'variants.templates.coerce_numeric', label: 'Force numeric', options: ['forceNumeric'] },
+    { id: 'cut_intervals', labelKey: 'variants.templates.cut_intervals', label: 'Cut into intervals', options: ['cut'] },
+    { id: 'transform', labelKey: 'variants.templates.transform', label: 'Apply transform', options: ['transform'] }
   ],
   l: [
-    { id: 'search_replace', label: 'Search & replace values', options: ['replacements'] },
-    { id: 'merge_levels', label: 'Merge values', options: ['merges'] },
-    { id: 'subset', label: 'Keep subset', options: ['subsetLevels'] },
-    { id: 'fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
-    { id: 'sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
+    { id: 'search_replace', labelKey: 'variants.templates.search_replace.l', label: 'Search & replace values', options: ['replacements'] },
+    { id: 'merge_levels', labelKey: 'variants.templates.merge_levels.l', label: 'Merge values', options: ['merges'] },
+    { id: 'subset', labelKey: 'variants.templates.subset', label: 'Keep subset', options: ['subsetLevels'] },
+    { id: 'fill_missing', labelKey: 'variants.templates.fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
+    { id: 'sort_frequency', labelKey: 'variants.templates.sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
   ]
+};
+
+/**
+ * Return `VARIANT_TEMPLATES` with each template's `label` resolved for the requested
+ * language. Use this instead of reading `VARIANT_TEMPLATES[type][i].label` directly
+ * when you need a localized label (the static `label` field is always English).
+ *
+ * Returns a deep-cloned copy — safe to mutate.
+ *
+ * @param {string=} lang Language tag (e.g. `'pt_br'`); falls back to default when omitted/unknown.
+ * @returns {Record<'q'|'n'|'l', Array<VariantTemplate & {labelKey:string}>>}
+ */
+ns.getVariantTemplates = function (lang = undefined) {
+  /** @type {any} */
+  const out = {};
+  /** @type {Array<'q'|'n'|'l'>} */
+  const types = ['q', 'n', 'l'];
+  types.forEach((type) => {
+    out[type] = ns.VARIANT_TEMPLATES[type].map((/** @type {any} */ tpl) => ({
+      ...tpl,
+      label: translate(tpl.labelKey, lang),
+      options: tpl.options.slice()
+    }));
+  });
+  return out;
 };
 
 /**

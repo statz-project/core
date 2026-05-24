@@ -70,6 +70,22 @@ const MESSAGES = {
         "cutInvalidIntervals": "Classificação: não foi possível gerar intervalos válidos.",
         "cutOutsideValues": "Classificação: {count} valores fora dos intervalos definidos.",
         "moreSuffix": " (e mais {count})"
+      },
+      "templates": {
+        "search_replace": {
+          "q": "Buscar e substituir níveis",
+          "l": "Buscar e substituir valores"
+        },
+        "merge_levels": {
+          "q": "Mesclar níveis",
+          "l": "Mesclar valores"
+        },
+        "subset": "Manter subconjunto",
+        "fill_missing": "Preencher células vazias",
+        "sort_frequency": "Ordenar por frequência",
+        "coerce_numeric": "Forçar numérico",
+        "cut_intervals": "Dividir em intervalos",
+        "transform": "Aplicar transformação"
       }
     },
     "tests": {
@@ -157,6 +173,22 @@ const MESSAGES = {
         "cutInvalidIntervals": "Cut: unable to build valid intervals.",
         "cutOutsideValues": "Cut: {count} values outside defined breaks.",
         "moreSuffix": " (and {count} more)"
+      },
+      "templates": {
+        "search_replace": {
+          "q": "Search & replace levels",
+          "l": "Search & replace values"
+        },
+        "merge_levels": {
+          "q": "Merge levels",
+          "l": "Merge values"
+        },
+        "subset": "Keep subset",
+        "fill_missing": "Fill empty cells",
+        "sort_frequency": "Sort by frequency",
+        "coerce_numeric": "Force numeric",
+        "cut_intervals": "Cut into intervals",
+        "transform": "Apply transform"
       }
     },
     "tests": {
@@ -244,6 +276,22 @@ const MESSAGES = {
         "cutInvalidIntervals": "Clasificación: no se pudieron generar intervalos válidos.",
         "cutOutsideValues": "Clasificación: {count} valores fuera de los intervalos definidos.",
         "moreSuffix": " (y {count} más)"
+      },
+      "templates": {
+        "search_replace": {
+          "q": "Buscar y reemplazar niveles",
+          "l": "Buscar y reemplazar valores"
+        },
+        "merge_levels": {
+          "q": "Combinar niveles",
+          "l": "Combinar valores"
+        },
+        "subset": "Mantener subconjunto",
+        "fill_missing": "Rellenar celdas vacías",
+        "sort_frequency": "Ordenar por frecuencia",
+        "coerce_numeric": "Forzar numérico",
+        "cut_intervals": "Dividir en intervalos",
+        "transform": "Aplicar transformación"
       }
     },
     "tests": {

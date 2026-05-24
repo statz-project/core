@@ -45,7 +45,8 @@ The module `core/json/variants.js` provides the transformation toolbox used to c
 Key exports:
 
 - `createVariant(baseCol, config)` — decodes the source column (or another variant), applies the requested operations, and returns a new variant object containing factor-encoded values plus action/warning metadata. Supported operations include replacements, merges, missing-value fills, list subsetting, numeric coercion, interval cuts (`cut`), numeric transforms (`log`, `sqrt`, etc.), and frequency-based ordering.
-- `VARIANT_TEMPLATES` — grouped presets Bubble can surface to users. Templates are grouped by base type (`q`, `n`, `l`) and describe which configuration keys are typically required in the UI.
+- `VARIANT_TEMPLATES` — grouped presets Bubble can surface to users. Templates are grouped by base type (`q`, `n`, `l`) and describe which configuration keys are typically required in the UI. Each entry carries a static English `label` plus a `labelKey` for i18n.
+- `getVariantTemplates(lang)` — returns a deep-cloned copy of `VARIANT_TEMPLATES` with each `label` resolved for the requested language via `core/i18n` (`'en_us'`, `'pt_br'`, `'es_es'`). Use this when the UI needs localized template labels.
 - `TRANSFORM_ORDER` — canonical pipeline order of the operation ids; drives sequential rendering and downstream-panel resets in the UI.
 - `OPERATION_DEFAULTS` — maps each recipe operation key (`fillEmpty`, `replacements`, `merges`, `subsetLevels`, `forceNumeric`, `transform`, `cut`, `sortByFrequency`) to its default initial value, so the UI can seed a newly-enabled operation in the recipe draft. Deep-clone before mutating (shared constant).
 
