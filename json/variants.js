@@ -878,7 +878,7 @@ ns.OPERATION_DEFAULTS = {
   merges: [],
   subsetLevels: [],
   forceNumeric: true,
-  transform: { fn: 'log', base: 10 },
+  transform: { fn: 'log10', base: NaN },
   cut: { breaks: [], labels: [], right: true, includeLowest: true },
   sortByFrequency: true
 };
