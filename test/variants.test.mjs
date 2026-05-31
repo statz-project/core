@@ -209,3 +209,62 @@ test("describeColumn structured output modes", () => {
     "overweight: 58 (58.0%)"
   ]);
 });
+
+// ---------------------------------------------------------------------------
+// Source resolution: createVariant honors source's meta.replacements + meta.processing
+// ---------------------------------------------------------------------------
+
+test("createVariant: applies source's meta.replacements before the pipeline", () => {
+  const baseColumn = factors.makeColumn(['m', 'f', 'm', 'f', 'm'], {
+    col_type: 'q',
+    includeBaseVariant: false
+  });
+  baseColumn.meta = { replacements: [{ from: 'm', to: 'male' }, { from: 'f', to: 'female' }] };
+
+  // Variant's replacements target the RESOLVED values ('male'/'female'), not raw ('m'/'f').
+  const variant = variants.createVariant(baseColumn, {
+    replacements: [{ from: 'male', to: 'Male' }, { from: 'female', to: 'Female' }]
+  });
+
+  const decoded = factors.decodeColumn(variant);
+  assert.deepEqual(decoded, ['Male', 'Female', 'Male', 'Female', 'Male']);
+});
+
+test("createVariant: applies source's meta.processing.excluded_values before the pipeline", () => {
+  // Source contains a sentinel '9' the user has marked as excluded.
+  const baseColumn = factors.makeColumn(['1', '2', '3', '4', '5', '9', '9'], {
+    col_type: 'n',
+    includeBaseVariant: false
+  });
+  baseColumn.meta = { processing: { excluded_values: ['9'] } };
+
+  // Cut a 0-10 range. With source resolution, '9' rows arrive at the pipeline as empty,
+  // so the (5, 10] bin should be empty even though raw values would fall there.
+  const variant = variants.createVariant(baseColumn, {
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  });
+
+  const counts = factors.getIndividualItemsWithCount(variant, { includeEmpty: true });
+  const fiveTenBin = counts.find(c => c.Value === '(5, 10]');
+  // Without source resolution, count would be 2 (the two '9' rows). With resolution, 0.
+  assert.equal(fiveTenBin?.Count ?? 0, 0);
+
+  // Sanity: the [0, 5] bin still receives the 5 valid rows.
+  const lowBin = counts.find(c => c.Value === '[0, 5]');
+  assert.equal(lowBin?.Count, 5);
+});
+
+test("createVariant: pointer-style base variant resolves through parent column's meta", () => {
+  // Build a column with meta.replacements and a pointer-style base variant
+  const baseColumn = factors.makeColumn(['a', 'b', 'a'], { col_type: 'q' });
+  baseColumn.meta = { replacements: [{ from: 'a', to: 'Alpha' }, { from: 'b', to: 'Beta' }] };
+
+  // sourceVarIndex: 0 → pointer-style base; createVariant must fall back to baseColumn for both values AND meta.
+  const variant = variants.createVariant(baseColumn, {
+    sourceVarIndex: 0,
+    replacements: [{ from: 'Alpha', to: 'A' }, { from: 'Beta', to: 'B' }]
+  });
+
+  const decoded = factors.decodeColumn(variant);
+  assert.deepEqual(decoded, ['A', 'B', 'A']);
+});

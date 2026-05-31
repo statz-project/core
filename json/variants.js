@@ -703,10 +703,15 @@ ns.createVariant = function (baseCol, config = {}) {
   /** @type {number|null} */
   const variantIndex = Number.isInteger(config.sourceVarIndex) ? /** @type {number} */ (config.sourceVarIndex) : null;
   const sourceVariant = variantIndex !== null && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[variantIndex] : null;
-  const sourceType = sourceVariant?.col_type ?? baseCol.col_type ?? 'q';
-  const sourceSep = sourceVariant?.col_sep ?? baseCol.col_sep ?? (sourceType === 'l' ? DEFAULT_LIST_SEP : '');
-  const sourceValues = sourceVariant?.col_values ?? baseCol.col_values;
-  const decoded = factors.decodeColValues(sourceValues, sourceType, sourceSep) || [];
+  // Source resolution: apply meta.replacements + meta.processing of the source
+  // BEFORE running the variant pipeline. This aligns with the user mental model — variants
+  // operate on the effective view of the data, not raw col_values.
+  // Pointer-style variants (no own col_values) fall back to the parent column.
+  const sourceTarget = (sourceVariant && sourceVariant.col_values) ? sourceVariant : baseCol;
+  const resolvedSource = factors.resolveColumn(sourceTarget);
+  const sourceType = resolvedSource.col_type ?? 'q';
+  const sourceSep = resolvedSource.col_sep ?? (sourceType === 'l' ? DEFAULT_LIST_SEP : '');
+  const decoded = factors.decodeColValues(resolvedSource.col_values, sourceType, sourceSep) || [];
   let workingValues = decoded.map(toStringSafe);
   let currentType = sourceType;
   let currentSep = sourceSep;
