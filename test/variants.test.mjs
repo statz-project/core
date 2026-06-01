@@ -268,3 +268,187 @@ test("createVariant: pointer-style base variant resolves through parent column's
   const decoded = factors.decodeColumn(variant);
   assert.deepEqual(decoded, ['A', 'B', 'A']);
 });
+
+// ---------------------------------------------------------------------------
+// replaceVariantAt: cascading re-replay when an existing variant is edited
+// ---------------------------------------------------------------------------
+
+function buildScenarioDb() {
+  // Column with values 1..10 (str) of type 'n'
+  const col = factors.makeColumn(
+    ['1','2','3','4','5','6','7','8','9','10'],
+    { col_type: 'n', var_label: 'Score', includeBaseVariant: true }
+  );
+  col.col_hash = 'h_score';
+  col.col_label = 'Score';
+  col.col_name = 'score';
+
+  // v1 = cut into [0, 5, 10]
+  const v1 = variants.createVariant(col, {
+    var_label: 'Score (binned)',
+    kind: 'cut_intervals',
+    sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  });
+  col.col_vars.push(v1);
+
+  // v2 = search_replace on top of v1 ([0, 5] → Low, (5, 10] → High)
+  const v2 = variants.createVariant(col, {
+    var_label: 'Score (label)',
+    kind: 'search_replace',
+    sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'Low' }, { from: '(5, 10]', to: 'High' }]
+  });
+  col.col_vars.push(v2);
+
+  return { database: { columns: [col] }, col };
+}
+
+test("replaceVariantAt: downstream variants are re-replayed against the new chain", () => {
+  const { database, col } = buildScenarioDb();
+  const lowCountBefore = factors.getIndividualItemsWithCount(col.col_vars[2])
+    .find(c => c.Value === 'Low')?.Count;
+  assert.equal(lowCountBefore, 5);
+
+  // Edit v1 (index 1): tighter bins
+  const newV1 = variants.createVariant(col, {
+    var_label: 'Score (binned tight)',
+    kind: 'cut_intervals',
+    sourceVarIndex: 0,
+    cut: { breaks: [0, 3, 10], includeLowest: true, right: true }
+  });
+
+  const { warnings } = driver.replaceVariantAt(database, 'h_score', 1, newV1);
+  assert.equal(warnings.length, 0);
+
+  // v1 updated
+  assert.equal(col.col_vars[1].var_label, 'Score (binned tight)');
+  const v1Labels = col.col_vars[1].col_values.labels;
+  assert.deepEqual(v1Labels, ['[0, 3]', '(3, 10]']);
+
+  // v2 was rebuilt against new v1: original replacement keys no longer match.
+  // The v2 recipe ('[0, 5]'→'Low', '(5, 10]'→'High') will not find those labels in the new v1,
+  // so values pass through unchanged — v2 should now hold the new bin labels.
+  const v2Decoded = factors.decodeColumn(col.col_vars[2]);
+  // First three rows are in [0,3] → '[0, 3]' (no replacement); rows 4-10 are in (3,10] → '(3, 10]'.
+  assert.equal(v2Decoded[0], '[0, 3]');
+  assert.equal(v2Decoded[5], '(3, 10]');
+  // v2 label preserved
+  assert.equal(col.col_vars[2].var_label, 'Score (label)');
+});
+
+test("replaceVariantAt: downstream depending on an earlier (untouched) variant still works", () => {
+  const { database, col } = buildScenarioDb();
+  // Append v3 that depends on v1 (not v2)
+  const v3 = variants.createVariant(col, {
+    var_label: 'V3 from v1',
+    kind: 'search_replace',
+    sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'X' }]
+  });
+  col.col_vars.push(v3);
+
+  // Edit v2 (index 2) — v3 depends on v1, not v2; replay should be equivalent
+  const newV2 = variants.createVariant(col, {
+    var_label: 'Score (label v2)',
+    kind: 'search_replace',
+    sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'L' }, { from: '(5, 10]', to: 'H' }]
+  });
+  const { warnings } = driver.replaceVariantAt(database, 'h_score', 2, newV2);
+  assert.equal(warnings.length, 0);
+
+  // v3 still has expected data (one X on rows in [0,5], pass-through on (5,10])
+  const v3Decoded = factors.decodeColumn(col.col_vars[3]);
+  assert.equal(v3Decoded[0], 'X');
+  assert.equal(v3Decoded[5], '(5, 10]');
+});
+
+test("replaceVariantAt: variant without recipe is kept with a stale warning", () => {
+  const { database, col } = buildScenarioDb();
+  // Strip recipe from v2
+  delete col.col_vars[2].meta.recipe;
+  const oldV2Snapshot = JSON.parse(JSON.stringify(col.col_vars[2]));
+
+  const newV1 = variants.createVariant(col, {
+    var_label: 'V1 again',
+    kind: 'cut_intervals',
+    sourceVarIndex: 0,
+    cut: { breaks: [0, 3, 10], includeLowest: true, right: true }
+  });
+  const { warnings } = driver.replaceVariantAt(database, 'h_score', 1, newV1);
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /no stored recipe/);
+  assert.deepEqual(col.col_vars[2], oldV2Snapshot);
+});
+
+test("replaceVariantAt: chain v1 -> v2 -> v3 all rebuilt in order", () => {
+  const { database, col } = buildScenarioDb();
+  // Append v3 derived from v2
+  const v3 = variants.createVariant(col, {
+    var_label: 'V3 from v2',
+    kind: 'search_replace',
+    sourceVarIndex: 2,
+    replacements: [{ from: 'Low', to: 'L' }, { from: 'High', to: 'H' }]
+  });
+  col.col_vars.push(v3);
+
+  const newV1 = variants.createVariant(col, {
+    var_label: 'V1 retuned',
+    kind: 'cut_intervals',
+    sourceVarIndex: 0,
+    cut: { breaks: [0, 7, 10], includeLowest: true, right: true }
+  });
+  const { warnings } = driver.replaceVariantAt(database, 'h_score', 1, newV1);
+  assert.equal(warnings.length, 0);
+
+  // v1 has new labels
+  assert.deepEqual(col.col_vars[1].col_values.labels, ['[0, 7]', '(7, 10]']);
+  // v2 (search_replace [0,5]→Low, (5,10]→High) ran against new v1 — labels don't match → pass-through
+  const v2Decoded = factors.decodeColumn(col.col_vars[2]);
+  assert.equal(v2Decoded[0], '[0, 7]');
+  // v3 (search_replace Low→L, High→H) ran against new v2 — labels don't match → pass-through
+  const v3Decoded = factors.decodeColumn(col.col_vars[3]);
+  assert.equal(v3Decoded[0], '[0, 7]');
+});
+
+test("replaceVariantAt: editIndex must be >= 1", () => {
+  const { database } = buildScenarioDb();
+  const newVar = variants.createVariant(database.columns[0], { sourceVarIndex: 0 });
+  assert.throws(
+    () => driver.replaceVariantAt(database, 'h_score', 0, newVar),
+    /base variant is not editable/
+  );
+});
+
+test("replaceVariantAt: editIndex out of bounds throws", () => {
+  const { database } = buildScenarioDb();
+  const newVar = variants.createVariant(database.columns[0], { sourceVarIndex: 0 });
+  assert.throws(
+    () => driver.replaceVariantAt(database, 'h_score', 99, newVar),
+    /out of bounds/
+  );
+});
+
+test("replaceVariantAt: unknown colHash throws", () => {
+  const { database } = buildScenarioDb();
+  const newVar = variants.createVariant(database.columns[0], { sourceVarIndex: 0 });
+  assert.throws(
+    () => driver.replaceVariantAt(database, 'NO_SUCH_HASH', 1, newVar),
+    /not found/
+  );
+});
+
+test("replaceVariantAt: does not mutate the provided newVariant", () => {
+  const { database, col } = buildScenarioDb();
+  const newV1 = variants.createVariant(col, {
+    var_label: 'V1 retuned',
+    sourceVarIndex: 0,
+    cut: { breaks: [0, 3, 10], includeLowest: true, right: true }
+  });
+  const snapshot = JSON.parse(JSON.stringify(newV1));
+
+  driver.replaceVariantAt(database, 'h_score', 1, newV1);
+  assert.deepEqual(newV1, snapshot);
+});
