@@ -878,14 +878,23 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
 
 /**
  * Summarize every column (and its variants) in a parsed database payload.
+ *
+ * The `variants` array in each entry mirrors `col_vars` by default — including the
+ * pointer-style base variant at index 0 whose `summary` is empty (since it has no own
+ * data; the column-level `summary` already represents the base). Set
+ * `includeBaseAsVariant: false` to skip the base and return only user-created variants
+ * (indices ≥ 1) — useful when callers want a clean list of derived variants.
+ *
  * @param {{columns?: Column[]}|null|undefined} database
- * @param {{ lang?: string, formatFn?: Function, maxRows?: number, structured?: boolean, includeDeleted?: boolean }} [options]
+ * @param {{ lang?: string, formatFn?: Function, maxRows?: number, structured?: boolean, includeDeleted?: boolean, includeBaseAsVariant?: boolean }} [options]
  * @returns {Array<{ label: string, type: string, summary: Array<any>, variants: Array<{ label: string, type: string, summary: Array<any> }> }>}
  */
 ns.describeDataset = function (database, options = {}) {
   if (!database || !Array.isArray(database.columns)) return [];
 
   const includeDeleted = options.includeDeleted === true;
+  // Default true for backward compatibility — current callers expect col_vars[0] in the list.
+  const includeBaseAsVariant = options.includeBaseAsVariant !== false;
   const columns = includeDeleted
     ? database.columns
     : database.columns.filter((col) => !col.col_del);
@@ -894,13 +903,14 @@ ns.describeDataset = function (database, options = {}) {
     const label = column.col_label ?? column.col_name ?? column.col_hash ?? '';
     const type = column.col_type ?? 'q';
     const summary = ns.describeColumn(column, null, options);
-    const variants = Array.isArray(column.col_vars)
-      ? column.col_vars.map((variant) => ({
-          label: variant.var_label ?? label,
-          type: variant.col_type ?? type,
-          summary: ns.describeColumn(variant, null, options)
-        }))
+    const variantEntries = Array.isArray(column.col_vars)
+      ? (includeBaseAsVariant ? column.col_vars : column.col_vars.slice(1))
       : [];
+    const variants = variantEntries.map((variant) => ({
+      label: variant.var_label ?? label,
+      type: variant.col_type ?? type,
+      summary: ns.describeColumn(variant, null, options)
+    }));
 
     return { label, type, summary, variants };
   });

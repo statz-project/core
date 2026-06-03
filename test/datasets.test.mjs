@@ -388,3 +388,68 @@ test("createVariant: stored recipe is canonical (replays identically)", () => {
   ]);
 });
 
+// ---------------------------------------------------------------------------
+// describeDataset — includeBaseAsVariant option
+// ---------------------------------------------------------------------------
+
+function buildDescribeDatasetFixture() {
+  // Column with a base + one derived variant
+  const col = factors.makeColumn(['a','b','a','b','a'], { col_type: 'q', var_label: 'Letter' });
+  col.col_hash = 'h_letter';
+  col.col_label = 'Letter';
+  col.col_name = 'letter';
+
+  const replaceVariant = driver.createVariant(col, {
+    kind: 'search_replace',
+    var_label: 'Letter (caps)',
+    sourceVarIndex: 0,
+    replacements: [{ from: 'a', to: 'A' }, { from: 'b', to: 'B' }]
+  });
+  col.col_vars.push(replaceVariant);
+
+  return { columns: [col] };
+}
+
+test('describeDataset: default keeps pointer-style base variant (backward-compat)', () => {
+  const db = buildDescribeDatasetFixture();
+  const out = driver.describeDataset(db);
+
+  assert.equal(out.length, 1);
+  assert.equal(out[0].label, 'Letter');
+  assert.equal(out[0].variants.length, 2);
+  // index 0 is the pointer-style base; describeColumn yields empty summary because
+  // the variant carries no own col_values/col_type
+  assert.deepEqual(out[0].variants[0].summary, []);
+  // index 1 is the user-created variant with real data
+  assert.equal(out[0].variants[1].label, 'Letter (caps)');
+  assert.ok(out[0].variants[1].summary.length > 0);
+});
+
+test('describeDataset: includeBaseAsVariant=false drops col_vars[0]', () => {
+  const db = buildDescribeDatasetFixture();
+  const out = driver.describeDataset(db, { includeBaseAsVariant: false });
+
+  assert.equal(out.length, 1);
+  assert.equal(out[0].variants.length, 1);
+  assert.equal(out[0].variants[0].label, 'Letter (caps)');
+  assert.ok(out[0].variants[0].summary.length > 0);
+});
+
+test('describeDataset: includeBaseAsVariant=false on column with no derived variants gives empty variants', () => {
+  const col = factors.makeColumn(['x','y','x'], { col_type: 'q' });
+  col.col_hash = 'h_xy';
+  col.col_label = 'XY';
+  const out = driver.describeDataset({ columns: [col] }, { includeBaseAsVariant: false });
+
+  assert.equal(out[0].variants.length, 0);
+  // column-level summary still present
+  assert.ok(out[0].summary.length > 0);
+});
+
+test('describeDataset: includeBaseAsVariant=false on column with no col_vars stays empty', () => {
+  const col = { col_type: 'q', col_sep: '', col_values: { col_compact: true, labels: ['x'], codes: [1, 1] }, col_hash: 'h', col_label: 'NoVars' };
+  // no col_vars at all
+  const out = driver.describeDataset({ columns: [col] }, { includeBaseAsVariant: false });
+  assert.equal(out[0].variants.length, 0);
+});
+
