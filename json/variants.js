@@ -715,6 +715,21 @@ ns.createVariant = function (baseCol, config = {}) {
   let workingValues = decoded.map(toStringSafe);
   let currentType = sourceType;
   let currentSep = sourceSep;
+
+  // Track the expected level order through the pipeline so the final encoding preserves
+  // R-style factor semantics (level order follows the source + transformations, not
+  // alphabetical default). Starts from the resolved source's labels (which already include
+  // meta.processing.custom_order if set on the source). Each step updates this in lock-step
+  // with workingValues; numeric steps reset it to null.
+  /** @type {string[]|null} */
+  let workingLabels = null;
+  if ((sourceType === 'q' || sourceType === 'l')
+      && resolvedSource.col_values
+      && resolvedSource.col_values.col_compact
+      && Array.isArray(resolvedSource.col_values.labels)) {
+    workingLabels = resolvedSource.col_values.labels.slice();
+  }
+
   const lang = normalizeLanguage(config.lang);
   const recipe = ns.normalizeRecipe(config);
   /** @type {VariantMeta} */
@@ -731,25 +746,86 @@ ns.createVariant = function (baseCol, config = {}) {
   const getListContext = () => ({ isList: currentType === 'l', sep: currentSep || sourceSep || DEFAULT_LIST_SEP, meta });
   if (config.fillEmpty !== undefined) {
     workingValues = applyFill(workingValues, config.fillEmpty, meta);
+    if (workingLabels) {
+      const fillStr = toStringSafe(config.fillEmpty).trim();
+      if (fillStr && !workingLabels.includes(fillStr)) workingLabels.push(fillStr);
+    }
   }
   if (config.replacements || config.searchReplace) {
-    workingValues = applySearchReplace(workingValues, config.replacements ?? config.searchReplace, getListContext());
+    /** @type {ReplaceSpec[]} */
+    const rawReplacements = config.replacements ?? config.searchReplace ?? [];
+    workingValues = applySearchReplace(workingValues, rawReplacements, getListContext());
+    if (workingLabels && Array.isArray(rawReplacements)) {
+      /** @type {Map<string,string>} */
+      const replaceMap = new Map();
+      rawReplacements.forEach((/** @type {any} */ item) => {
+        if (!item) return;
+        const search = toStringSafe(item.search ?? item.from ?? item.value ?? item.level ?? '').trim();
+        if (!search) return;
+        const replacement = toStringSafe(item.replace ?? item.to ?? item.label ?? '');
+        replaceMap.set(search, replacement);
+      });
+      /** @type {Set<string>} */
+      const seen = new Set();
+      /** @type {string[]} */
+      const next = [];
+      workingLabels.forEach((label) => {
+        const mapped = replaceMap.has(label) ? /** @type {string} */ (replaceMap.get(label)) : label;
+        if (!mapped || seen.has(mapped)) return;
+        seen.add(mapped);
+        next.push(mapped);
+      });
+      workingLabels = next;
+    }
   }
   if (config.merges) {
     workingValues = applyMerge(workingValues, config.merges, getListContext());
+    if (workingLabels && Array.isArray(config.merges)) {
+      /** @type {Map<string,string>} */
+      const mergeMap = new Map();
+      config.merges.forEach((/** @type {any} */ group) => {
+        if (!group) return;
+        const target = toStringSafe(group.label ?? group.target ?? group.name ?? '').trim();
+        if (!target) return;
+        const levels = Array.isArray(group.levels) ? group.levels : Array.isArray(group.values) ? group.values : [];
+        levels.forEach((/** @type {any} */ lvl) => {
+          const key = toStringSafe(lvl).trim();
+          if (key) mergeMap.set(key, target);
+        });
+      });
+      if (mergeMap.size > 0) {
+        /** @type {Set<string>} */
+        const seen = new Set();
+        /** @type {string[]} */
+        const next = [];
+        workingLabels.forEach((label) => {
+          const mapped = mergeMap.has(label) ? /** @type {string} */ (mergeMap.get(label)) : label;
+          if (!mapped || seen.has(mapped)) return;
+          seen.add(mapped);
+          next.push(mapped);
+        });
+        workingLabels = next;
+      }
+    }
   }
   if (config.subsetLevels) {
     workingValues = applySubset(workingValues, config.subsetLevels, getListContext());
+    if (workingLabels && Array.isArray(config.subsetLevels)) {
+      const allowed = new Set(config.subsetLevels.map((/** @type {any} */ v) => toStringSafe(v).trim()).filter(Boolean));
+      workingLabels = workingLabels.filter((l) => allowed.has(l));
+    }
   }
   if (config.forceNumeric) {
     workingValues = coerceToNumeric(workingValues, config.forceNumeric, meta);
     currentType = 'n';
     currentSep = '';
+    workingLabels = null;
   }
   if (config.transform) {
     workingValues = transformNumeric(workingValues, config.transform, meta);
     currentType = 'n';
     currentSep = '';
+    workingLabels = null;
   }
   let cutInfo = null;
   if (config.cut) {
@@ -757,13 +833,15 @@ ns.createVariant = function (baseCol, config = {}) {
     workingValues = cutInfo.values;
     currentType = 'q';
     currentSep = '';
+    workingLabels = cutInfo.labels.slice();
   }
   if (config.col_type) currentType = config.col_type;
   if (config.col_sep !== undefined) currentSep = config.col_sep;
   if (currentType === 'l' && !currentSep) currentSep = sourceSep || DEFAULT_LIST_SEP;
   if (currentType !== 'l') currentSep = currentSep || '';
-  // When `cut` produced bins, preserve interval order as canonical levels (R's `cut(..., levels=...)`).
-  const explicitLevels = cutInfo?.labels && currentType === 'q' ? cutInfo.labels : undefined;
+  // Preserve level order through the pipeline (R-style factor semantics) for q/l.
+  // Falls back to encodeAsFactor's default (alphabetical for q) when workingLabels is null.
+  const explicitLevels = (currentType !== 'n' && workingLabels && workingLabels.length) ? workingLabels : undefined;
   const processed = factors.encodeColValues(workingValues, currentType, currentSep, explicitLevels);
 const finalValues = config.sortByFrequency
   ? sortByFrequency(processed, workingValues, currentType, currentSep, meta)

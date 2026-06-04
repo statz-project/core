@@ -453,3 +453,178 @@ test('describeDataset: includeBaseAsVariant=false on column with no col_vars sta
   assert.equal(out[0].variants.length, 0);
 });
 
+// ---------------------------------------------------------------------------
+// Realistic scenario: income with column-level replacements + custom_order processing
+// + two merge variants derived from the resolved source.
+// ---------------------------------------------------------------------------
+
+test('income: replacements + custom_order processing + Low/Middle and Middle/High merge variants', () => {
+  // 1. Build "income" as a q column with raw lowercase levels (3 of each, plus an extra Low → 4 Lows total).
+  const income = factors.makeColumn(
+    ['high', 'low', 'middle', 'high', 'low', 'middle', 'high', 'low', 'middle', 'low'],
+    { col_type: 'q', var_label: 'Income' }
+  );
+  income.col_hash = 'h_income';
+  income.col_label = 'Income';
+  income.col_name = 'income';
+
+  // 2. Column-level replacements: capitalize each level.
+  // 3. Column-level processing: enforce custom level order [Low, Middle, High].
+  income.meta = {
+    replacements: [
+      { from: 'high', to: 'High' },
+      { from: 'low', to: 'Low' },
+      { from: 'middle', to: 'Middle' }
+    ],
+    processing: {
+      sort_mode: 'custom',
+      custom_order: ['Low', 'Middle', 'High']
+    }
+  };
+
+  // Sanity: the resolved base column has the capitalized labels in the custom order.
+  const resolvedBase = factors.resolveColumn(income);
+  assert.deepEqual(resolvedBase.col_values.labels, ['Low', 'Middle', 'High']);
+
+  // 4. income1: merge Low + Middle into "Low/Middle". createVariant resolves the source first,
+  // so the recipe targets the RESOLVED labels (Low/Middle/High), not the raw (low/middle/high).
+  const income1 = driver.createVariant(income, {
+    var_label: 'income1',
+    kind: 'merge_levels',
+    sourceVarIndex: 0,
+    merges: [{ label: 'Low/Middle', levels: ['Low', 'Middle'] }]
+  });
+  income.col_vars.push(income1);
+
+  // 5. income2: merge Middle + High into "Middle/High".
+  const income2 = driver.createVariant(income, {
+    var_label: 'income2',
+    kind: 'merge_levels',
+    sourceVarIndex: 0,
+    merges: [{ label: 'Middle/High', levels: ['Middle', 'High'] }]
+  });
+  income.col_vars.push(income2);
+
+  // Verify income1's decoded values: rows that were Low or Middle become "Low/Middle"; High stays.
+  const income1Decoded = factors.decodeColumn(income1);
+  assert.deepEqual(income1Decoded, [
+    'High', 'Low/Middle', 'Low/Middle',
+    'High', 'Low/Middle', 'Low/Middle',
+    'High', 'Low/Middle', 'Low/Middle',
+    'Low/Middle'
+  ]);
+
+  // Counts: Low/Middle = 4 Lows + 3 Middles = 7; High = 3.
+  const income1Counts = factors.getIndividualItemsWithCount(income1, { sortByCount: 'desc' });
+  assert.deepEqual(income1Counts, [
+    { Value: 'Low/Middle', Count: 7 },
+    { Value: 'High', Count: 3 }
+  ]);
+
+  // Level order preserved from source's custom_order ([Low, Middle, High]) — merged group
+  // takes Low's position (first source level it covers), High keeps its position.
+  // R-style: 'Low/Middle' before 'High' (not alphabetical 'H' < 'L').
+  assert.deepEqual(income1.col_values.labels, ['Low/Middle', 'High']);
+
+  // Verify income2's decoded values: rows that were Middle or High become "Middle/High"; Low stays.
+  const income2Decoded = factors.decodeColumn(income2);
+  assert.deepEqual(income2Decoded, [
+    'Middle/High', 'Low', 'Middle/High',
+    'Middle/High', 'Low', 'Middle/High',
+    'Middle/High', 'Low', 'Middle/High',
+    'Low'
+  ]);
+
+  // Counts: Middle/High = 3 Middles + 3 Highs = 6; Low = 4.
+  const income2Counts = factors.getIndividualItemsWithCount(income2, { sortByCount: 'desc' });
+  assert.deepEqual(income2Counts, [
+    { Value: 'Middle/High', Count: 6 },
+    { Value: 'Low', Count: 4 }
+  ]);
+
+  // Level order: Low first (its source position), Middle/High in the position where Middle was.
+  assert.deepEqual(income2.col_values.labels, ['Low', 'Middle/High']);
+
+  // Recipe is canonical: merges normalized to {label, levels}.
+  assert.deepEqual(income1.meta.recipe.merges, [
+    { label: 'Low/Middle', levels: ['Low', 'Middle'] }
+  ]);
+  assert.deepEqual(income2.meta.recipe.merges, [
+    { label: 'Middle/High', levels: ['Middle', 'High'] }
+  ]);
+});
+
+// ---------------------------------------------------------------------------
+// R-style factor level order preserved through the pipeline (no alphabetical default)
+// ---------------------------------------------------------------------------
+
+test('createVariant: merges preserve source level order (R-style, not alphabetical)', () => {
+  // Source labels in the natural data order ['high', 'low', 'middle'] (alphabetical default
+  // for a freshly-built q column). Without source-order tracking, merging low+middle would
+  // produce ['high', 'low/middle'] (alphabetical 'h' < 'l'). With tracking we keep the
+  // merged group at the position of its first level: ['low/middle' takes low's slot, 'high'
+  // keeps its original first position].
+  const col = factors.makeColumn(['high','low','middle','high','low','middle'], { col_type: 'q' });
+  col.col_hash = 'h_test';
+  col.col_label = 'Test';
+  // sanity: default labels are alphabetical
+  assert.deepEqual(col.col_values.labels, ['high', 'low', 'middle']);
+
+  const variant = driver.createVariant(col, {
+    sourceVarIndex: 0,
+    merges: [{ label: 'low/middle', levels: ['low', 'middle'] }]
+  });
+  // 'high' is at position 0 in source, kept at position 0.
+  // 'low' (at position 1) is replaced by the merge target 'low/middle' → 'low/middle' at position 1.
+  // 'middle' (at position 2) also maps to 'low/middle' (already seen) → deduped.
+  assert.deepEqual(variant.col_values.labels, ['high', 'low/middle']);
+});
+
+test('createVariant: replacements preserve source level order', () => {
+  const col = factors.makeColumn(['a','b','c'], { col_type: 'q' });
+  col.col_hash = 'h_letters';
+  // source labels: ['a', 'b', 'c'] (alphabetical default)
+  const variant = driver.createVariant(col, {
+    sourceVarIndex: 0,
+    replacements: [{ from: 'a', to: 'Z' }, { from: 'b', to: 'Y' }, { from: 'c', to: 'X' }]
+  });
+  // R-style: Z/Y/X take their respective source positions, not re-sorted alphabetically.
+  // Without ordering, this would be ['X', 'Y', 'Z'] (alphabetical).
+  assert.deepEqual(variant.col_values.labels, ['Z', 'Y', 'X']);
+});
+
+test('createVariant: subsetLevels keeps source order of the surviving levels', () => {
+  const col = factors.makeColumn(['high','low','middle','high'], { col_type: 'q' });
+  col.col_hash = 'h_subset';
+  // Source labels: ['high', 'low', 'middle']
+  const variant = driver.createVariant(col, {
+    sourceVarIndex: 0,
+    subsetLevels: ['middle', 'high']
+  });
+  // 'high' kept (position 0), 'low' dropped, 'middle' kept (position 2). Output: ['high', 'middle'].
+  assert.deepEqual(variant.col_values.labels, ['high', 'middle']);
+});
+
+test('createVariant: fillEmpty appends fill value as a new level at the end', () => {
+  const col = factors.makeColumn(['a','b','', 'a'], { col_type: 'q' });
+  col.col_hash = 'h_fill';
+  // Source labels: ['a', 'b']
+  const variant = driver.createVariant(col, {
+    sourceVarIndex: 0,
+    fillEmpty: 'Missing'
+  });
+  // 'a', 'b' keep their source positions; 'Missing' appended (new level introduced by fill).
+  assert.deepEqual(variant.col_values.labels, ['a', 'b', 'Missing']);
+});
+
+test('createVariant: source meta.processing.custom_order flows into variant level order', () => {
+  const col = factors.makeColumn(['a','b','c','a'], { col_type: 'q' });
+  col.col_hash = 'h_custom';
+  col.meta = { processing: { sort_mode: 'custom', custom_order: ['c', 'a', 'b'] } };
+
+  // Variant with no transformations — should inherit source's custom_order, not revert
+  // to alphabetical.
+  const variant = driver.createVariant(col, { sourceVarIndex: 0 });
+  assert.deepEqual(variant.col_values.labels, ['c', 'a', 'b']);
+});
+
