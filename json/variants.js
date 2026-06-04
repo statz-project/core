@@ -888,11 +888,14 @@ ns.VARIANT_TEMPLATES = {
     { id: 'transform', labelKey: 'variants.templates.transform', label: 'Apply transform', options: ['transform'] }
   ],
   l: [
+    // `sort_frequency` intentionally NOT exposed for `l`: list-type values are surfaced
+    // by descending frequency in the UI by default (no meaningful intrinsic level order to
+    // preserve, unlike `q` factors), so an explicit "Sort by frequency" template would be
+    // redundant. The recipe key `sortByFrequency` remains usable programmatically.
     { id: 'search_replace', labelKey: 'variants.templates.search_replace.l', label: 'Search & replace values', options: ['replacements'] },
     { id: 'merge_levels', labelKey: 'variants.templates.merge_levels.l', label: 'Merge values', options: ['merges'] },
     { id: 'subset', labelKey: 'variants.templates.subset', label: 'Keep subset', options: ['subsetLevels'] },
-    { id: 'fill_missing', labelKey: 'variants.templates.fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
-    { id: 'sort_frequency', labelKey: 'variants.templates.sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
+    { id: 'fill_missing', labelKey: 'variants.templates.fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] }
   ]
 };
 
