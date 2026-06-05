@@ -452,3 +452,158 @@ test("replaceVariantAt: does not mutate the provided newVariant", () => {
   driver.replaceVariantAt(database, 'h_score', 1, newV1);
   assert.deepEqual(newV1, snapshot);
 });
+
+// ---------------------------------------------------------------------------
+// createVariant: sort_mode + custom_order (parity with column-level meta.processing)
+// ---------------------------------------------------------------------------
+
+function buildSortFixtureCol() {
+  // 4 a's, 2 b's, 3 c's — counts distinct enough for ordering tests
+  const col = factors.makeColumn(
+    ['a','a','a','a','b','b','c','c','c'],
+    { col_type: 'q', var_label: 'Letter', includeBaseVariant: true }
+  );
+  col.col_hash = 'h_sort';
+  col.col_label = 'Letter';
+  col.col_name = 'letter';
+  return col;
+}
+
+test('createVariant: sort_mode "freq_desc" orders labels by descending count', () => {
+  const col = buildSortFixtureCol();
+  const variant = variants.createVariant(col, { sourceVarIndex: 0, sort_mode: 'freq_desc' });
+  // a:4, c:3, b:2 → ['a','c','b']
+  assert.deepEqual(variant.col_values.labels, ['a', 'c', 'b']);
+});
+
+test('createVariant: sort_mode "freq_asc" orders labels by ascending count', () => {
+  const col = buildSortFixtureCol();
+  const variant = variants.createVariant(col, { sourceVarIndex: 0, sort_mode: 'freq_asc' });
+  // b:2, c:3, a:4 → ['b','c','a']
+  assert.deepEqual(variant.col_values.labels, ['b', 'c', 'a']);
+});
+
+test('createVariant: sort_mode "alpha" sorts alphabetically regardless of source order', () => {
+  const col = buildSortFixtureCol();
+  // Force a non-alphabetical source order via custom_order on the column meta
+  col.meta = { processing: { sort_mode: 'custom', custom_order: ['c', 'a', 'b'] } };
+  const variant = variants.createVariant(col, { sourceVarIndex: 0, sort_mode: 'alpha' });
+  assert.deepEqual(variant.col_values.labels, ['a', 'b', 'c']);
+});
+
+test('createVariant: sort_mode "custom" with complete custom_order', () => {
+  const col = buildSortFixtureCol();
+  const variant = variants.createVariant(col, {
+    sourceVarIndex: 0,
+    sort_mode: 'custom',
+    custom_order: ['b', 'a', 'c']
+  });
+  assert.deepEqual(variant.col_values.labels, ['b', 'a', 'c']);
+});
+
+test('createVariant: sort_mode "custom" with partial custom_order keeps remaining in original order', () => {
+  const col = buildSortFixtureCol();
+  // custom_order only lists 'c' — 'a' and 'b' go to the tail in original (alphabetical) order
+  const variant = variants.createVariant(col, {
+    sourceVarIndex: 0,
+    sort_mode: 'custom',
+    custom_order: ['c']
+  });
+  assert.deepEqual(variant.col_values.labels, ['c', 'a', 'b']);
+});
+
+test('createVariant: sort_mode "default" / omitted preserves natural workingLabels order', () => {
+  const col = buildSortFixtureCol();
+  col.meta = { processing: { sort_mode: 'custom', custom_order: ['c', 'a', 'b'] } };
+  // No sort_mode in variant config → workingLabels (source custom_order) wins
+  const variant = variants.createVariant(col, { sourceVarIndex: 0 });
+  assert.deepEqual(variant.col_values.labels, ['c', 'a', 'b']);
+
+  // Explicit 'default' also preserves
+  const variantDef = variants.createVariant(col, { sourceVarIndex: 0, sort_mode: 'default' });
+  assert.deepEqual(variantDef.col_values.labels, ['c', 'a', 'b']);
+});
+
+test('createVariant: backward-compat — sortByFrequency:true equals sort_mode:freq_desc', () => {
+  const col = buildSortFixtureCol();
+  const viaLegacy = variants.createVariant(col, { sourceVarIndex: 0, sortByFrequency: true });
+  const viaModern = variants.createVariant(col, { sourceVarIndex: 0, sort_mode: 'freq_desc' });
+  assert.deepEqual(viaLegacy.col_values.labels, viaModern.col_values.labels);
+});
+
+test('normalizeRecipe: canonicalizes sortByFrequency:true into sort_mode:freq_desc', () => {
+  const recipe = variants.normalizeRecipe({ sortByFrequency: true });
+  assert.equal(recipe.sort_mode, 'freq_desc');
+  assert.equal(recipe.sortByFrequency, undefined);
+});
+
+test('normalizeRecipe: drops sort_mode "default" and sortByFrequency:false', () => {
+  const r1 = variants.normalizeRecipe({ sort_mode: 'default' });
+  assert.equal(r1.sort_mode, undefined);
+  const r2 = variants.normalizeRecipe({ sortByFrequency: false });
+  assert.equal(r2.sort_mode, undefined);
+  assert.equal(r2.sortByFrequency, undefined);
+});
+
+test('normalizeRecipe: keeps custom_order only when sort_mode is "custom"', () => {
+  const r1 = variants.normalizeRecipe({ sort_mode: 'custom', custom_order: ['a', 'b'] });
+  assert.deepEqual(r1.custom_order, ['a', 'b']);
+  // freq_desc with custom_order — custom_order is irrelevant, drop it
+  const r2 = variants.normalizeRecipe({ sort_mode: 'freq_desc', custom_order: ['a', 'b'] });
+  assert.equal(r2.custom_order, undefined);
+});
+
+test('createVariant: variant sort overrides source column sort_mode', () => {
+  // Source has custom_order via meta.processing; variant requests alpha.
+  const col = buildSortFixtureCol();
+  col.meta = { processing: { sort_mode: 'custom', custom_order: ['c', 'a', 'b'] } };
+  const variant = variants.createVariant(col, {
+    sourceVarIndex: 0,
+    sort_mode: 'custom',
+    custom_order: ['b', 'c', 'a']
+  });
+  // Variant's custom_order wins over source's
+  assert.deepEqual(variant.col_values.labels, ['b', 'c', 'a']);
+});
+
+test('createVariant: sort_mode combined with merges respects merge labels', () => {
+  // income-style scenario: merge then sort the merged labels by custom_order.
+  const col = factors.makeColumn(
+    ['high','low','middle','high','low','middle','high','low','middle','low'],
+    { col_type: 'q', includeBaseVariant: true }
+  );
+  col.col_hash = 'h_income';
+  col.meta = {
+    replacements: [{ from: 'high', to: 'High' }, { from: 'low', to: 'Low' }, { from: 'middle', to: 'Middle' }],
+    processing: { sort_mode: 'custom', custom_order: ['Low', 'Middle', 'High'] }
+  };
+  const variant = variants.createVariant(col, {
+    sourceVarIndex: 0,
+    merges: [{ label: 'Low/Middle', levels: ['Low', 'Middle'] }],
+    sort_mode: 'custom',
+    custom_order: ['High', 'Low/Middle']
+  });
+  // Custom variant order overrides the natural ['Low/Middle', 'High'] from merge tracking.
+  assert.deepEqual(variant.col_values.labels, ['High', 'Low/Middle']);
+});
+
+test('VARIANT_TEMPLATES.q exposes sort_levels (not sort_frequency)', () => {
+  const q = variants.VARIANT_TEMPLATES.q;
+  const ids = q.map((t) => t.id);
+  assert.ok(ids.includes('sort_levels'));
+  assert.equal(ids.includes('sort_frequency'), false);
+  const sortTpl = q.find((t) => t.id === 'sort_levels');
+  assert.deepEqual(sortTpl.options, ['sort_mode', 'custom_order']);
+});
+
+test('TRANSFORM_ORDER: sort_frequency replaced by sort_levels', () => {
+  assert.ok(variants.TRANSFORM_ORDER.includes('sort_levels'));
+  assert.equal(variants.TRANSFORM_ORDER.includes('sort_frequency'), false);
+});
+
+test('OPERATION_DEFAULTS exposes sort_mode and custom_order', () => {
+  assert.equal(variants.OPERATION_DEFAULTS.sort_mode, 'freq_desc');
+  assert.deepEqual(variants.OPERATION_DEFAULTS.custom_order, []);
+  // sortByFrequency kept for legacy
+  assert.equal(variants.OPERATION_DEFAULTS.sortByFrequency, true);
+});

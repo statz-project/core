@@ -83,6 +83,7 @@ const MESSAGES = {
         "subset": "Manter subconjunto",
         "fill_missing": "Preencher células vazias",
         "sort_frequency": "Ordenar por frequência",
+        "sort_levels": "Ordenar níveis",
         "coerce_numeric": "Forçar numérico",
         "cut_intervals": "Dividir em intervalos",
         "transform": "Aplicar transformação"
@@ -186,6 +187,7 @@ const MESSAGES = {
         "subset": "Keep subset",
         "fill_missing": "Fill empty cells",
         "sort_frequency": "Sort by frequency",
+        "sort_levels": "Sort levels",
         "coerce_numeric": "Force numeric",
         "cut_intervals": "Cut into intervals",
         "transform": "Apply transform"
@@ -289,6 +291,7 @@ const MESSAGES = {
         "subset": "Mantener subconjunto",
         "fill_missing": "Rellenar celdas vacías",
         "sort_frequency": "Ordenar por frecuencia",
+        "sort_levels": "Ordenar niveles",
         "coerce_numeric": "Forzar numérico",
         "cut_intervals": "Dividir en intervalos",
         "transform": "Aplicar transformación"

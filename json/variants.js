@@ -542,49 +542,88 @@ const cutNumeric = (values, options, meta) => {
 };
 
 /**
- * Reorder factor labels by observed frequency, updating codes accordingly.
+ * Reorder factor labels according to `mode` and update codes accordingly.
+ *
+ * Supported modes:
+ *   - `freq_desc` — by observed count descending; alpha tiebreak.
+ *   - `freq_asc`  — by observed count ascending; alpha tiebreak.
+ *   - `alpha`     — alphabetical (locale-aware).
+ *   - `custom`    — entries listed in `customOrder` first (in the given order);
+ *                   remaining labels keep their original relative order at the tail.
+ *   - anything else (including `'default'` / `undefined`) — no-op.
+ *
+ * Operates on q and l columns. Returns `processed` unchanged when no-op or when the
+ * shape is incompatible (non-compact, missing labels, numeric type).
+ *
  * @param {ColValues} processed
  * @param {string[]} values
  * @param {'q'|'n'|'l'} colType
  * @param {string} colSep
+ * @param {string} mode
+ * @param {string[]|undefined} customOrder
  * @param {VariantMeta} meta
  * @returns {ColValues}
  */
-const sortByFrequency = (processed, values, colType, colSep, meta) => {
+const sortLabels = (processed, values, colType, colSep, mode, customOrder, meta) => {
   if (!processed?.col_compact || !Array.isArray(processed.labels)) return processed;
   if (colType !== 'q' && colType !== 'l') return processed;
-  const counts = new Map();
-  if (colType === 'l') {
-    values.forEach((value) => {
-      const text = toStringSafe(value);
-      if (!text) return;
-      text.split(colSep).map((x) => x.trim()).filter(Boolean).forEach((item) => {
-        counts.set(item, (counts.get(item) || 0) + 1);
-      });
-    });
-  } else {
-    values.forEach((value) => {
-      const key = toStringSafe(value).trim();
-      if (!key) return;
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-  }
+  if (!mode || mode === 'default') return processed;
+
   const originalLabels = processed.labels;
-  const sortedLabels = [...originalLabels].sort((a, b) => {
-    const diff = (counts.get(b) || 0) - (counts.get(a) || 0);
-    if (diff !== 0) return diff;
-    return a.localeCompare(b);
-  });
+  /** @type {string[]|null} */
+  let sortedLabels = null;
+  /** @type {Record<string, any>|null} */
+  let actionEntry = null;
+
+  if (mode === 'freq_desc' || mode === 'freq_asc') {
+    const counts = new Map();
+    if (colType === 'l') {
+      values.forEach((value) => {
+        const text = toStringSafe(value);
+        if (!text) return;
+        text.split(colSep).map((x) => x.trim()).filter(Boolean).forEach((item) => {
+          counts.set(item, (counts.get(item) || 0) + 1);
+        });
+      });
+    } else {
+      values.forEach((value) => {
+        const key = toStringSafe(value).trim();
+        if (!key) return;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+    }
+    sortedLabels = [...originalLabels].sort((a, b) => {
+      const diff = (counts.get(b) || 0) - (counts.get(a) || 0);
+      const primary = mode === 'freq_desc' ? diff : -diff;
+      if (primary !== 0) return primary;
+      return a.localeCompare(b);
+    });
+    actionEntry = { type: 'sort_by_frequency', direction: mode === 'freq_desc' ? 'desc' : 'asc' };
+  } else if (mode === 'alpha') {
+    sortedLabels = [...originalLabels].sort((a, b) => a.localeCompare(b));
+    actionEntry = { type: 'sort_alpha' };
+  } else if (mode === 'custom') {
+    if (!Array.isArray(customOrder)) return processed;
+    const ordered = customOrder.filter((v) => originalLabels.includes(v));
+    const remaining = originalLabels.filter((v) => !ordered.includes(v));
+    sortedLabels = [...ordered, ...remaining];
+    actionEntry = { type: 'sort_custom' };
+  } else {
+    return processed;
+  }
+
+  if (!sortedLabels) return processed;
   const changed = sortedLabels.some((label, idx) => label !== originalLabels[idx]);
   if (!changed) return processed;
-  meta.actions.push({ type: 'sort_by_frequency' });
+  if (actionEntry) meta.actions.push(actionEntry);
+
   const indexMap = new Map(sortedLabels.map((label, idx) => [label, idx + 1]));
   const updated = { ...processed, labels: sortedLabels };
   if (colType === 'l') {
     const oldLabels = originalLabels;
     updated.codes = (processed.codes || []).map((codeStr) => {
       if (!codeStr) return codeStr;
-      const tokens = codeStr.split(colSep).map((token) => token.trim()).filter(Boolean);
+      const tokens = String(codeStr).split(colSep).map((token) => token.trim()).filter(Boolean);
       const remapped = tokens
         .map((token) => {
           const originalLabel = oldLabels[parseInt(token, 10) - 1];
@@ -598,12 +637,27 @@ const sortByFrequency = (processed, values, colType, colSep, meta) => {
     const oldLabels = originalLabels;
     updated.codes = (processed.codes || []).map((code) => {
       if (!code) return 0;
-      const originalLabel = oldLabels[code - 1];
+      const originalLabel = oldLabels[/** @type {number} */ (code) - 1];
       const newIndex = indexMap.get(originalLabel);
       return newIndex ?? 0;
     });
   }
   return updated;
+};
+
+/**
+ * Resolve which sort mode to apply based on the variant config. Honors the modern
+ * `sort_mode` field; falls back to legacy `sortByFrequency: true` (= `freq_desc`).
+ * Returns `'default'` when neither is set.
+ *
+ * @param {VariantConfig} config
+ * @returns {string}
+ */
+const resolveVariantSortMode = (config) => {
+  const cfg = /** @type {Record<string, any>} */ (config || {});
+  if (typeof cfg.sort_mode === 'string' && cfg.sort_mode.length > 0) return cfg.sort_mode;
+  if (cfg.sortByFrequency === true) return 'freq_desc';
+  return 'default';
 };
 
 /**
@@ -634,7 +688,12 @@ ns.normalizeRecipe = function (config = {}) {
   const recipe = {};
   /** @type {Record<string, any>} */
   const cfg = config || {};
-  const skip = new Set(['var_label', 'label', 'replacements', 'searchReplace', 'merges', 'cut', 'transform']);
+  const skip = new Set([
+    'var_label', 'label', 'replacements', 'searchReplace', 'merges', 'cut', 'transform',
+    // Sort fields handled in a dedicated block below (canonicalizes legacy sortByFrequency
+    // into modern sort_mode + drops defaults).
+    'sort_mode', 'custom_order', 'sortByFrequency'
+  ]);
   Object.keys(cfg).forEach((key) => {
     if (skip.has(key)) return;
     const value = cfg[key];
@@ -688,6 +747,18 @@ ns.normalizeRecipe = function (config = {}) {
       transform.base = Number(cfg.transform.base);
     }
     recipe.transform = transform;
+  }
+  // Sort: canonicalize legacy `sortByFrequency: true` into modern `sort_mode: 'freq_desc'`;
+  // drop defaults (`sort_mode: 'default'`, empty `custom_order`, `sortByFrequency: false`).
+  let sortMode = null;
+  if (typeof cfg.sort_mode === 'string' && cfg.sort_mode.length > 0 && cfg.sort_mode !== 'default') {
+    sortMode = cfg.sort_mode;
+  } else if (cfg.sortByFrequency === true) {
+    sortMode = 'freq_desc';
+  }
+  if (sortMode) recipe.sort_mode = sortMode;
+  if (sortMode === 'custom' && Array.isArray(cfg.custom_order) && cfg.custom_order.length > 0) {
+    recipe.custom_order = cfg.custom_order.slice();
   }
   return recipe;
 };
@@ -843,9 +914,12 @@ ns.createVariant = function (baseCol, config = {}) {
   // Falls back to encodeAsFactor's default (alphabetical for q) when workingLabels is null.
   const explicitLevels = (currentType !== 'n' && workingLabels && workingLabels.length) ? workingLabels : undefined;
   const processed = factors.encodeColValues(workingValues, currentType, currentSep, explicitLevels);
-const finalValues = config.sortByFrequency
-  ? sortByFrequency(processed, workingValues, currentType, currentSep, meta)
-  : processed;
+  // Post-encode: optional level reordering. `sort_mode` (modern API) takes precedence;
+  // legacy `sortByFrequency: true` is accepted as a `freq_desc` alias.
+  const sortMode = resolveVariantSortMode(config);
+  const finalValues = sortMode === 'default'
+    ? processed
+    : sortLabels(processed, workingValues, currentType, currentSep, sortMode, /** @type {string[]|undefined} */ (/** @type {Record<string,any>} */ (config).custom_order), meta);
   if (cutInfo?.breaks) {
     meta.breaks = cutInfo.breaks;
     meta.labels = cutInfo.labels;
@@ -880,7 +954,7 @@ ns.VARIANT_TEMPLATES = {
     { id: 'merge_levels', labelKey: 'variants.templates.merge_levels.q', label: 'Merge levels', options: ['merges'] },
     { id: 'subset', labelKey: 'variants.templates.subset', label: 'Keep subset', options: ['subsetLevels'] },
     { id: 'fill_missing', labelKey: 'variants.templates.fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
-    { id: 'sort_frequency', labelKey: 'variants.templates.sort_frequency', label: 'Sort by frequency', options: ['sortByFrequency'] }
+    { id: 'sort_levels', labelKey: 'variants.templates.sort_levels', label: 'Sort levels', options: ['sort_mode', 'custom_order'] }
   ],
   n: [
     { id: 'coerce_numeric', labelKey: 'variants.templates.coerce_numeric', label: 'Force numeric', options: ['forceNumeric'] },
@@ -937,7 +1011,7 @@ ns.TRANSFORM_ORDER = [
   'coerce_numeric',
   'transform',
   'cut_intervals',
-  'sort_frequency'
+  'sort_levels'
 ];
 
 /**
@@ -956,7 +1030,7 @@ ns.TRANSFORM_ORDER = [
  * mutating it into a draft (e.g. `structuredClone(OPERATION_DEFAULTS.cut)` or
  * `JSON.parse(JSON.stringify(...))`), otherwise edits leak across drafts.
  *
- * @type {{fillEmpty:string, replacements:any[], merges:any[], subsetLevels:string[], forceNumeric:boolean, transform:{fn:string,base:number}, cut:{breaks:number[],labels:string[],right:boolean,includeLowest:boolean}, sortByFrequency:boolean}}
+ * @type {{fillEmpty:string, replacements:any[], merges:any[], subsetLevels:string[], forceNumeric:boolean, transform:{fn:string,base:number}, cut:{breaks:number[],labels:string[],right:boolean,includeLowest:boolean}, sort_mode:string, custom_order:string[], sortByFrequency:boolean}}
  */
 ns.OPERATION_DEFAULTS = {
   fillEmpty: '',
@@ -966,6 +1040,11 @@ ns.OPERATION_DEFAULTS = {
   forceNumeric: true,
   transform: { fn: 'log10', base: NaN },
   cut: { breaks: [], labels: [], right: true, includeLowest: true },
+  // Sort: modern API uses `sort_mode` + `custom_order`. `sortByFrequency` is kept as a
+  // backward-compat alias (= `sort_mode: 'freq_desc'`) for any consumer that still
+  // references the old key.
+  sort_mode: 'freq_desc',
+  custom_order: [],
   sortByFrequency: true
 };
 
