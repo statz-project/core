@@ -164,6 +164,111 @@ ns.replaceVariantAt = function (database, colHash, editIndex, newVariant) {
 };
 
 /**
+ * Remove the variant at `removeIndex` from `col_vars`, cascade-deleting any variants
+ * that depend on it (directly or transitively via `sourceVarIndex`), and re-replay the
+ * remaining downstream variants against the updated chain with adjusted indices.
+ *
+ * Cascade detection walks `col_vars` once in order, growing a set of "dependent" indices:
+ * any variant whose `meta.recipe.sourceVarIndex` is in the set is added to the set.
+ *
+ * Preserved downstream variants are re-encoded via `variants.createVariant` with their
+ * recipe's `sourceVarIndex` remapped to the new position. Variants with no recipe or
+ * whose replay throws are silently kept in place (no warning) — only cascade removals
+ * are reported via the `warnings` array, translated through `core/i18n`.
+ *
+ * Mutates `database`. Throws on invalid input (unknown column, removeIndex < 1 or out
+ * of bounds — the base variant is not removable).
+ *
+ * @param {{columns?: Column[]}|null|undefined} database
+ * @param {string} colHash
+ * @param {number} removeIndex Index in `col_vars` of the variant to remove. Must be ≥ 1.
+ * @param {{lang?: string}} [options]
+ * @returns {{warnings: string[]}}
+ */
+ns.removeVariantAt = function (database, colHash, removeIndex, options = {}) {
+  if (!database || !Array.isArray(database.columns)) {
+    throw new Error('Invalid database payload; expected an object with columns.');
+  }
+  if (!Number.isInteger(removeIndex) || removeIndex < 1) {
+    throw new Error(`Invalid removeIndex ${removeIndex}; must be an integer ≥ 1 (the base variant is not removable).`);
+  }
+  const column = ns.getColumn(database, colHash);
+  if (!column) {
+    throw new Error(`Column with hash ${colHash} not found in database.`);
+  }
+  if (!Array.isArray(column.col_vars) || removeIndex >= column.col_vars.length) {
+    throw new Error(`removeIndex ${removeIndex} out of bounds for col_vars length ${column.col_vars?.length ?? 0}.`);
+  }
+
+  const lang = normalizeLanguage(options?.lang);
+  const oldVars = column.col_vars;
+
+  // Step 1: identify the set of variants to remove (target + transitive dependents).
+  /** @type {Set<number>} */
+  const dependentSet = new Set([removeIndex]);
+  for (let i = removeIndex + 1; i < oldVars.length; i++) {
+    const srcIdx = oldVars[i]?.meta?.recipe?.sourceVarIndex;
+    if (Number.isInteger(srcIdx) && dependentSet.has(srcIdx)) {
+      dependentSet.add(i);
+    }
+  }
+
+  // Step 2: build old → new index remap for preserved variants.
+  /** @type {Map<number, number>} */
+  const indexMap = new Map();
+  let newIdx = 0;
+  for (let i = 0; i < oldVars.length; i++) {
+    if (!dependentSet.has(i)) {
+      indexMap.set(i, newIdx);
+      newIdx += 1;
+    }
+  }
+
+  // Step 3: pre-removeIndex variants reference indices < removeIndex (sourceVarIndex < self
+  // by contract), all preserved with unchanged positions — copy intact, no replay needed.
+  column.col_vars = oldVars.slice(0, removeIndex);
+
+  // Step 4: re-replay each preserved variant after removeIndex, in order, with sourceVarIndex
+  // remapped. Failures are silent (variant kept as-is, original col_values preserved).
+  for (let i = removeIndex + 1; i < oldVars.length; i++) {
+    if (dependentSet.has(i)) continue;
+    const oldVar = oldVars[i];
+    const recipe = oldVar?.meta?.recipe;
+    if (!recipe) {
+      column.col_vars.push(oldVar);
+      continue;
+    }
+    const oldSrcIdx = recipe.sourceVarIndex;
+    const remappedSrc = Number.isInteger(oldSrcIdx) ? indexMap.get(oldSrcIdx) : undefined;
+    if (remappedSrc === undefined) {
+      column.col_vars.push(oldVar);
+      continue;
+    }
+    const adjustedRecipe = { ...recipe, sourceVarIndex: remappedSrc };
+    try {
+      const replayed = variants.createVariant(column, adjustedRecipe);
+      if (oldVar.var_label) replayed.var_label = oldVar.var_label;
+      column.col_vars.push(replayed);
+    } catch {
+      column.col_vars.push(oldVar);
+    }
+  }
+
+  // Step 5: warnings — only for cascade-removed dependents (not the explicitly removed one).
+  /** @type {string[]} */
+  const warnings = [];
+  Array.from(dependentSet)
+    .sort((a, b) => a - b)
+    .forEach((idx) => {
+      if (idx === removeIndex) return;
+      const label = oldVars[idx]?.var_label ?? `index ${idx}`;
+      warnings.push(translate('variants.warnings.cascadeDeleted', lang, { label }));
+    });
+
+  return { warnings };
+};
+
+/**
  * Build row-wise objects from column-major raw_values.
  * @param {Column[]} columns
  * @returns {Array<Record<string, any>>}

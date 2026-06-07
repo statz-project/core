@@ -607,3 +607,188 @@ test('OPERATION_DEFAULTS exposes sort_mode and custom_order', () => {
   // sortByFrequency kept for legacy
   assert.equal(variants.OPERATION_DEFAULTS.sortByFrequency, true);
 });
+
+// ---------------------------------------------------------------------------
+// removeVariantAt — cascade-delete with re-indexing of preserved downstream
+// ---------------------------------------------------------------------------
+
+function buildRemovalScenarioDb() {
+  // base column: 'n' with values 1..10
+  const col = factors.makeColumn(
+    ['1','2','3','4','5','6','7','8','9','10'],
+    { col_type: 'n', var_label: 'Score', includeBaseVariant: true }
+  );
+  col.col_hash = 'h_score';
+  col.col_label = 'Score';
+  col.col_name = 'score';
+  return { database: { columns: [col] }, col };
+}
+
+test('removeVariantAt: leaf variant with no dependents is removed cleanly', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  // v1 = cut into [0, 5, 10] (depends on base)
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+
+  const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
+  assert.equal(warnings.length, 0);
+  assert.equal(col.col_vars.length, 1); // only base
+});
+
+test('removeVariantAt: cascade removes direct dependent + warning per cascade', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  // v1: cut, v2: search_replace based on v1
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1 (cut)', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v2 (relabel)', kind: 'search_replace', sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'Low' }, { from: '(5, 10]', to: 'High' }]
+  }));
+
+  const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
+  assert.equal(col.col_vars.length, 1); // both removed
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /v2 \(relabel\)/);
+  assert.match(warnings[0], /cascade/i);
+});
+
+test('removeVariantAt: deep chain v1 -> v2 -> v3 all cascade when v1 removed', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v2', kind: 'search_replace', sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'Low' }]
+  }));
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v3', kind: 'search_replace', sourceVarIndex: 2,
+    replacements: [{ from: 'Low', to: 'L' }]
+  }));
+
+  const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
+  assert.equal(col.col_vars.length, 1); // base only
+  assert.equal(warnings.length, 2); // v2 + v3
+  const joined = warnings.join('\n');
+  assert.match(joined, /v2/);
+  assert.match(joined, /v3/);
+});
+
+test('removeVariantAt: non-dependent sibling is preserved with shifted index', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  // v1: cut (depends on base)
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  // v2: search_replace depends on v1
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v2', kind: 'search_replace', sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'Low' }]
+  }));
+  // v3: cut depending on base directly (sibling of v1)
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v3', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 3, 10], includeLowest: true, right: true }
+  }));
+
+  const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
+  // base + v3 remain (v1 + v2 removed)
+  assert.equal(col.col_vars.length, 2);
+  assert.equal(col.col_vars[1].var_label, 'v3');
+  // v3's recipe now has sourceVarIndex remapped from 0 → 0 (base unchanged) — verify it's still 0
+  assert.equal(col.col_vars[1].meta.recipe.sourceVarIndex, 0);
+  // Only one cascade warning (v2)
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /v2/);
+});
+
+test('removeVariantAt: branching dependents — A→B, A→C — both cascade when A removed', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  // A: cut
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'A', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  // B: derived from A
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'B', kind: 'search_replace', sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'Low' }]
+  }));
+  // C: also derived from A
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'C', kind: 'search_replace', sourceVarIndex: 1,
+    replacements: [{ from: '(5, 10]', to: 'High' }]
+  }));
+
+  const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
+  assert.equal(col.col_vars.length, 1);
+  assert.equal(warnings.length, 2);
+});
+
+test('removeVariantAt: variant without recipe downstream is silently kept (no warning)', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  // v1: cut (depends on base)
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  // v2: another cut, then we strip its recipe so it can't be replayed
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v2', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 3, 10], includeLowest: true, right: true }
+  }));
+  delete col.col_vars[2].meta.recipe;
+
+  // Remove v1 (index 1). v2 has no recipe → can't be checked as dependent → preserved.
+  const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
+  assert.equal(col.col_vars.length, 2);          // base + v2 (kept as-is)
+  assert.equal(col.col_vars[1].var_label, 'v2');
+  assert.equal(warnings.length, 0);              // silent — no warning for recipe-less preservation
+});
+
+test('removeVariantAt: warnings translate via core/i18n (pt_br)', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v2', kind: 'search_replace', sourceVarIndex: 1,
+    replacements: [{ from: '[0, 5]', to: 'Low' }]
+  }));
+
+  const { warnings } = driver.removeVariantAt(database, 'h_score', 1, { lang: 'pt_br' });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /removida \(cascade\)/);
+  assert.match(warnings[0], /v2/);
+});
+
+test('removeVariantAt: rejects removeIndex 0 (base not removable)', () => {
+  const { database } = buildRemovalScenarioDb();
+  assert.throws(
+    () => driver.removeVariantAt(database, 'h_score', 0),
+    /base variant is not removable/
+  );
+});
+
+test('removeVariantAt: rejects removeIndex out of bounds', () => {
+  const { database } = buildRemovalScenarioDb();
+  assert.throws(
+    () => driver.removeVariantAt(database, 'h_score', 99),
+    /out of bounds/
+  );
+});
+
+test('removeVariantAt: rejects unknown colHash', () => {
+  const { database } = buildRemovalScenarioDb();
+  assert.throws(
+    () => driver.removeVariantAt(database, 'NO_SUCH', 1),
+    /not found/
+  );
+});

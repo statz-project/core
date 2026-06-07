@@ -69,7 +69,8 @@ const MESSAGES = {
         "cutNoNumeric": "Classificação: nenhum valor numérico para agrupar.",
         "cutInvalidIntervals": "Classificação: não foi possível gerar intervalos válidos.",
         "cutOutsideValues": "Classificação: {count} valores fora dos intervalos definidos.",
-        "moreSuffix": " (e mais {count})"
+        "moreSuffix": " (e mais {count})",
+        "cascadeDeleted": "Variante \"{label}\" também foi removida (cascade) porque dependia da variante deletada."
       },
       "templates": {
         "search_replace": {
@@ -173,7 +174,8 @@ const MESSAGES = {
         "cutNoNumeric": "Cut: no numeric values to bin.",
         "cutInvalidIntervals": "Cut: unable to build valid intervals.",
         "cutOutsideValues": "Cut: {count} values outside defined breaks.",
-        "moreSuffix": " (and {count} more)"
+        "moreSuffix": " (and {count} more)",
+        "cascadeDeleted": "Variant \"{label}\" was also removed (cascade) because it depended on the deleted variant."
       },
       "templates": {
         "search_replace": {
@@ -277,7 +279,8 @@ const MESSAGES = {
         "cutNoNumeric": "Clasificación: sin valores numéricos para agrupar.",
         "cutInvalidIntervals": "Clasificación: no se pudieron generar intervalos válidos.",
         "cutOutsideValues": "Clasificación: {count} valores fuera de los intervalos definidos.",
-        "moreSuffix": " (y {count} más)"
+        "moreSuffix": " (y {count} más)",
+        "cascadeDeleted": "La variante \"{label}\" también fue eliminada (cascada) porque dependía de la variante eliminada."
       },
       "templates": {
         "search_replace": {
