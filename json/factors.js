@@ -622,36 +622,4 @@ ns.parseColumns = function (data, hashes, filename, currTime, options = {}) {
   };
 };
 
-/**
- * Extract key values from array of JSON strings.
- */
-ns.extractKeyValues = function (list, key, empty) {
-  return list.map(item => { try { const parsed = JSON.parse(item); return key in parsed ? String(parsed[key]) : empty; } catch { return empty; } });
-};
-
-/**
- * Merge a set of serialized variables replacing the ones of a given database while keeping order consistent.
- * @param {string[]} selectedVars JSON strings representing variable entries to insert
- * @param {string[]} existingVars JSON strings representing the current variable list
- * @param {string} databaseId Database identifier whose variables should be replaced
- * @returns {string[]} Updated list of variable JSON strings with sequential order
- */
-ns.mergeVariablesReplacingForDatabase = function (selectedVars, existingVars, databaseId) {
-  const parsedSelected = selectedVars.map(JSON.parse);
-  const parsedExisting = existingVars.map(JSON.parse);
-  const varKey = (v) => `${v.database_id}|${v.col_hash}|${v.col_var_index ?? 'null'}`;
-
-  // Drop existing vars from the target database; keep others
-  const preserved = parsedExisting.filter(v => v.database_id !== databaseId);
-
-  // Build a map to ensure uniqueness across all databases, preferring selected vars
-  const mergedMap = new Map();
-  parsedSelected.forEach(v => mergedMap.set(varKey(v), v));
-  preserved.forEach(v => { if (!mergedMap.has(varKey(v))) mergedMap.set(varKey(v), v); });
-
-  const merged = Array.from(mergedMap.values());
-  merged.forEach((v, i) => { v.order = i + 1; });
-  return merged.map(JSON.stringify);
-};
-
 export default ns;
