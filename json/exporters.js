@@ -186,9 +186,10 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
  * @param {{ columns: string[], rows: Array<Record<string, string>>, test_legend?: Array<{ method: string, symbol: string }>, posthoc_legend?: string[], resid_symbol_greater_used?: boolean, resid_symbol_lower_used?: boolean, lang?: string, percent_by?: string, percent_total_full?: boolean }} combined
  * @param {string=} title
  * @param {boolean=} wrap
+ * @param {string=} footerFree Optional user-provided footer suffix appended after the auto-generated legend. Trimmed; a terminal "." is added if missing.
  * @returns {string}
  */
-ns.exportCombinedAsHTML = function (combined, title, wrap = false) {
+ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = '') {
   if (!combined || !combined.columns || !combined.rows) return '';
   const langCandidate = combined?.lang;
   const lang = normalizeLanguage(langCandidate);
@@ -238,9 +239,20 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false) {
   if (combined.percent_by === 'col') legendSegments.push(translate('table.legends.percentByColumn', lang));
   else if (combined.percent_by === 'row') legendSegments.push(translate('table.legends.percentByRow', lang));
   if (combined.percent_total_full) legendSegments.push(translate('table.legends.percentTotalFull', lang));
+  let footerText = '';
   if (legendSegments.length > 0) {
     const legendHeading = translate('table.legends.heading', lang);
-    html += `<tfoot><tr><td colspan="${combined.columns.length}" style="text-align:left;">${legendHeading} ${legendSegments.join('; ')}.</td></tr></tfoot>`;
+    footerText = `${legendHeading} ${legendSegments.join('; ')}.`;
+  }
+  if (typeof footerFree === 'string') {
+    const trimmed = footerFree.trim();
+    if (trimmed) {
+      const punctuated = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+      footerText = footerText ? `${footerText} ${punctuated}` : punctuated;
+    }
+  }
+  if (footerText) {
+    html += `<tfoot><tr><td colspan="${combined.columns.length}" style="text-align:left;">${footerText}</td></tr></tfoot>`;
   }
   html += `</table>`;
   if (!wrap) return html;
@@ -386,7 +398,7 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
     return `<th${style}>${col.label}</th>`;
   }).join('')}</tr></thead>`;
   const colLabels = columns.map(c => c.label);
-  const tbody = `<tbody>${rows.map(row => `<tr>${colLabels.map(col => `<td>${row[col] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  const tbody = `<tbody>${rows.map((row, i) => `<tr${i == 0 ? ' id="statz-database-row1"' : ""}>${colLabels.map(col => `<td>${row[col] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>`;
   const tableHTML = `<table class="statz-viewer">${thead}${tbody}</table>`;
   if (!includeStyles) return tableHTML;
   return `<style>
