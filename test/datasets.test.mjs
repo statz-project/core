@@ -628,3 +628,159 @@ test('createVariant: source meta.processing.custom_order flows into variant leve
   assert.deepEqual(variant.col_values.labels, ['c', 'a', 'b']);
 });
 
+// ---------------------------------------------------------------------------
+// reorderVariableList — 4 directions (up/down/top/bottom)
+// ---------------------------------------------------------------------------
+
+function buildListFixture() {
+  // 5 entries A..E with sequential order 1..5
+  return ['A', 'B', 'C', 'D', 'E'].map((label, i) =>
+    JSON.stringify({ label, order: i + 1 })
+  );
+}
+
+const labelsOf = (list) => list.map((s) => JSON.parse(s).label);
+const ordersOf = (list) => list.map((s) => JSON.parse(s).order);
+
+test('reorderVariableList: "up" moves item one position toward head', () => {
+  const list = buildListFixture();
+  const out = driver.reorderVariableList(list, 2, 'up');  // C → between A and B
+  assert.deepEqual(labelsOf(out), ['A', 'C', 'B', 'D', 'E']);
+  assert.deepEqual(ordersOf(out), [1, 2, 3, 4, 5]);
+});
+
+test('reorderVariableList: "down" moves item one position toward tail', () => {
+  const list = buildListFixture();
+  const out = driver.reorderVariableList(list, 2, 'down');  // C → between D and E
+  assert.deepEqual(labelsOf(out), ['A', 'B', 'D', 'C', 'E']);
+  assert.deepEqual(ordersOf(out), [1, 2, 3, 4, 5]);
+});
+
+test('reorderVariableList: "top" moves item to position 0', () => {
+  const list = buildListFixture();
+  const out = driver.reorderVariableList(list, 3, 'top');  // D → first
+  assert.deepEqual(labelsOf(out), ['D', 'A', 'B', 'C', 'E']);
+  assert.deepEqual(ordersOf(out), [1, 2, 3, 4, 5]);
+});
+
+test('reorderVariableList: "bottom" moves item to last position', () => {
+  const list = buildListFixture();
+  const out = driver.reorderVariableList(list, 1, 'bottom');  // B → last
+  assert.deepEqual(labelsOf(out), ['A', 'C', 'D', 'E', 'B']);
+  assert.deepEqual(ordersOf(out), [1, 2, 3, 4, 5]);
+});
+
+test('reorderVariableList: no-op moves return the input unchanged', () => {
+  const list = buildListFixture();
+  // up from index 0 → out of bounds
+  assert.equal(driver.reorderVariableList(list, 0, 'up'), list);
+  // down from last → out of bounds
+  assert.equal(driver.reorderVariableList(list, 4, 'down'), list);
+  // top from index 0 → no-op (targetIndex === idx)
+  assert.equal(driver.reorderVariableList(list, 0, 'top'), list);
+  // bottom from last → no-op
+  assert.equal(driver.reorderVariableList(list, 4, 'bottom'), list);
+});
+
+test('reorderVariableList: unknown direction returns input unchanged', () => {
+  const list = buildListFixture();
+  assert.equal(driver.reorderVariableList(list, 2, 'left'), list);
+  assert.equal(driver.reorderVariableList(list, 2, ''), list);
+  assert.equal(driver.reorderVariableList(list, 2, null), list);
+});
+
+test('reorderVariableList: invalid index returns input unchanged', () => {
+  const list = buildListFixture();
+  assert.equal(driver.reorderVariableList(list, -1, 'up'), list);
+  assert.equal(driver.reorderVariableList(list, 99, 'down'), list);
+  assert.equal(driver.reorderVariableList(list, 'foo', 'top'), list);
+});
+
+test('reorderVariableList: top from last position moves through all intermediates', () => {
+  const list = buildListFixture();
+  const out = driver.reorderVariableList(list, 4, 'top');  // E from last → first
+  assert.deepEqual(labelsOf(out), ['E', 'A', 'B', 'C', 'D']);
+  assert.deepEqual(ordersOf(out), [1, 2, 3, 4, 5]);
+});
+
+test('reorderVariableList: preserves unparseable JSON items (no renumber for those)', () => {
+  const list = [
+    JSON.stringify({ label: 'A', order: 1 }),
+    'NOT_JSON',
+    JSON.stringify({ label: 'C', order: 3 })
+  ];
+  const out = driver.reorderVariableList(list, 2, 'top');  // C → first
+  // After splice+reinsert: ['C', 'A', 'NOT_JSON']. Parseable items get renumbered;
+  // the corrupt one is preserved verbatim (no order field added).
+  assert.equal(JSON.parse(out[0]).label, 'C');
+  assert.equal(JSON.parse(out[0]).order, 1);
+  assert.equal(JSON.parse(out[1]).label, 'A');
+  assert.equal(JSON.parse(out[1]).order, 2);
+  assert.equal(out[2], 'NOT_JSON');
+});
+
+// ---------------------------------------------------------------------------
+// expandIndexRange — parse "1,3-6,15" into a sorted, deduped integer array
+// ---------------------------------------------------------------------------
+
+import { expandIndexRange } from "../string_utils.js";
+
+test('expandIndexRange: single number', () => {
+  assert.deepEqual(expandIndexRange('5'), [5]);
+});
+
+test('expandIndexRange: comma-separated singles', () => {
+  assert.deepEqual(expandIndexRange('1,3,7'), [1, 3, 7]);
+});
+
+test('expandIndexRange: simple range', () => {
+  assert.deepEqual(expandIndexRange('3-6'), [3, 4, 5, 6]);
+});
+
+test('expandIndexRange: mixed singles and ranges', () => {
+  assert.deepEqual(expandIndexRange('1,3-6,15'), [1, 3, 4, 5, 6, 15]);
+});
+
+test('expandIndexRange: dedup and sort', () => {
+  assert.deepEqual(expandIndexRange('3,3,3,5,1'), [1, 3, 5]);
+  assert.deepEqual(expandIndexRange('10-12,11,1-3'), [1, 2, 3, 10, 11, 12]);
+});
+
+test('expandIndexRange: inverted range is normalized to ascending', () => {
+  assert.deepEqual(expandIndexRange('6-3'), [3, 4, 5, 6]);
+});
+
+test('expandIndexRange: whitespace around tokens is tolerated', () => {
+  assert.deepEqual(expandIndexRange(' 1 , 3 - 5 , 8 '), [1, 3, 4, 5, 8]);
+});
+
+test('expandIndexRange: empty / whitespace-only input returns []', () => {
+  assert.deepEqual(expandIndexRange(''), []);
+  assert.deepEqual(expandIndexRange('   '), []);
+  assert.deepEqual(expandIndexRange(',,,'), []);
+});
+
+test('expandIndexRange: invalid tokens are silently dropped', () => {
+  assert.deepEqual(expandIndexRange('abc,1,xyz-3,5'), [1, 5]);
+  assert.deepEqual(expandIndexRange('1,a-b,3'), [1, 3]);
+  // Negative numbers don't match the digit-only pattern → dropped
+  assert.deepEqual(expandIndexRange('-1,2,3'), [2, 3]);
+});
+
+test('expandIndexRange: non-string input returns []', () => {
+  assert.deepEqual(expandIndexRange(null), []);
+  assert.deepEqual(expandIndexRange(undefined), []);
+  assert.deepEqual(expandIndexRange(123), []);
+  assert.deepEqual(expandIndexRange([]), []);
+});
+
+test('expandIndexRange: ranges larger than 10000 are dropped (DoS guard)', () => {
+  // Range of 10001+ is dropped; the singles around it survive.
+  assert.deepEqual(expandIndexRange('1,5-100007,9'), [1, 9]);
+  // Range of exactly 10001 indices (lo=1, hi=10001) is also dropped (hi - lo = 10000 is at the boundary; the guard uses `>`, so this passes).
+  const result = expandIndexRange('1-10001');
+  assert.equal(result.length, 10001);
+  assert.equal(result[0], 1);
+  assert.equal(result[10000], 10001);
+});
+

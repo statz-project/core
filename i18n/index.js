@@ -42,7 +42,14 @@ const MESSAGES = {
       "no": "Não"
     },
       "warnings": {
-        "summarizeFailure": "Erro ao resumir \"{label}\" em \"{context}\""
+        "summarizeFailure": "Erro ao resumir \"{label}\" em \"{context}\"",
+        "pairedMixedTypes": "Análise pareada requer respostas do mesmo tipo; obteve {types}.",
+        "pairedNonBinaryQ": "Análise pareada qualitativa requer níveis binários; obteve {levels} níveis.",
+        "pairedListNotSupported": "Análise pareada para respostas de tipo lista ainda não é suportada.",
+        "pairedTooFewMomentos": "Análise pareada requer ao menos 2 momentos.",
+        "llSubsetRequired": "Análise lista × lista requer um subconjunto de itens em ambos predictor e response.",
+        "multiDbMissingResponse": "A response \"{label}\" não está presente em todos os databases dos predictors: faltando em {databases}.",
+        "pairedMultiDbNotAllowed": "Análise pareada requer todas as responses do mesmo database; obteve {databases}."
       },
       "mapping": {
         "invalid": "Mapeamento inválido para \"{label}\"",
@@ -96,7 +103,24 @@ const MESSAGES = {
       "anova": "ANOVA",
       "kruskalWallis": "Kruskal-Wallis",
       "mannWhitney": "Mann-Whitney",
-      "tStudent": "t de Student"
+      "tStudent": "t de Student",
+      "pearson": "Correlação de Pearson",
+      "spearman": "Correlação de Spearman",
+      "pairedT": "t pareado",
+      "wilcoxonSigned": "Wilcoxon (postos com sinais)",
+      "mcnemar": "McNemar",
+      "cochranQ": "Q de Cochran",
+      "friedman": "Friedman",
+      "rmAnova": "ANOVA de medidas repetidas"
+    },
+    "popupVariables": {
+      "warnings": {
+        "pairedNeedsMomentos": "Análise pareada precisa de 2 ou mais responses deste database.",
+        "pairedSameDbRequired": "Análise pareada requer todas as responses do mesmo database.",
+        "singleResponseRequired": "Apenas uma response é permitida para análise inferencial.",
+        "pairedNoPredictors": "Análise pareada não usa predictors.",
+        "predictorRequired": "Selecione ao menos um predictor."
+      }
     },
     "stats": {
       "labels": {
@@ -147,7 +171,14 @@ const MESSAGES = {
       "no": "No"
     },
       "warnings": {
-        "summarizeFailure": "Error summarizing \"{label}\" in \"{context}\""
+        "summarizeFailure": "Error summarizing \"{label}\" in \"{context}\"",
+        "pairedMixedTypes": "Paired analysis requires responses of the same type; got {types}.",
+        "pairedNonBinaryQ": "Qualitative paired analysis requires binary levels; got {levels} levels.",
+        "pairedListNotSupported": "Paired analysis for list-type responses is not yet supported.",
+        "pairedTooFewMomentos": "Paired analysis requires at least 2 momentos.",
+        "llSubsetRequired": "List × list analysis requires a subset of items in both predictor and response.",
+        "multiDbMissingResponse": "Response \"{label}\" is not present in every database used by predictors: missing in {databases}.",
+        "pairedMultiDbNotAllowed": "Paired analysis requires all responses from the same database; got {databases}."
       },
       "mapping": {
         "invalid": "Invalid mapping for \"{label}\"",
@@ -201,7 +232,24 @@ const MESSAGES = {
       "anova": "ANOVA",
       "kruskalWallis": "Kruskal–Wallis",
       "mannWhitney": "Mann–Whitney",
-      "tStudent": "Student’s t-test"
+      "tStudent": "Student’s t-test",
+      "pearson": "Pearson correlation",
+      "spearman": "Spearman correlation",
+      "pairedT": "Paired t-test",
+      "wilcoxonSigned": "Wilcoxon signed-rank",
+      "mcnemar": "McNemar",
+      "cochranQ": "Cochran’s Q",
+      "friedman": "Friedman",
+      "rmAnova": "Repeated-measures ANOVA"
+    },
+    "popupVariables": {
+      "warnings": {
+        "pairedNeedsMomentos": "Paired analysis needs 2 or more responses from this database.",
+        "pairedSameDbRequired": "Paired analysis requires all responses from the same database.",
+        "singleResponseRequired": "Only one response is allowed for inferential analysis.",
+        "pairedNoPredictors": "Paired analysis does not use predictors.",
+        "predictorRequired": "Select at least one predictor."
+      }
     },
     "stats": {
       "labels": {
@@ -252,7 +300,14 @@ const MESSAGES = {
       "no": "No"
     },
       "warnings": {
-        "summarizeFailure": "Error al resumir \"{label}\" en \"{context}\""
+        "summarizeFailure": "Error al resumir \"{label}\" en \"{context}\"",
+        "pairedMixedTypes": "El análisis pareado requiere respuestas del mismo tipo; obtuvo {types}.",
+        "pairedNonBinaryQ": "El análisis pareado cualitativo requiere niveles binarios; obtuvo {levels} niveles.",
+        "pairedListNotSupported": "El análisis pareado para respuestas de tipo lista aún no es compatible.",
+        "pairedTooFewMomentos": "El análisis pareado requiere al menos 2 momentos.",
+        "llSubsetRequired": "El análisis lista × lista requiere un subconjunto de elementos en ambos predictor y response.",
+        "multiDbMissingResponse": "La response \"{label}\" no está presente en todas las bases de datos de los predictors: falta en {databases}.",
+        "pairedMultiDbNotAllowed": "El análisis pareado requiere todas las responses de la misma base de datos; obtuvo {databases}."
       },
       "mapping": {
         "invalid": "Asignación no válida para \"{label}\"",
@@ -306,7 +361,24 @@ const MESSAGES = {
       "anova": "ANOVA",
       "kruskalWallis": "Kruskal–Wallis",
       "mannWhitney": "Mann–Whitney",
-      "tStudent": "t de Student"
+      "tStudent": "t de Student",
+      "pearson": "Correlación de Pearson",
+      "spearman": "Correlación de Spearman",
+      "pairedT": "t pareada",
+      "wilcoxonSigned": "Wilcoxon (rangos con signo)",
+      "mcnemar": "McNemar",
+      "cochranQ": "Q de Cochran",
+      "friedman": "Friedman",
+      "rmAnova": "ANOVA de medidas repetidas"
+    },
+    "popupVariables": {
+      "warnings": {
+        "pairedNeedsMomentos": "El análisis pareado necesita 2 o más responses de esta base de datos.",
+        "pairedSameDbRequired": "El análisis pareado requiere todas las responses de la misma base de datos.",
+        "singleResponseRequired": "Sólo se permite una response para el análisis inferencial.",
+        "pairedNoPredictors": "El análisis pareado no usa predictors.",
+        "predictorRequired": "Seleccione al menos un predictor."
+      }
     },
     "stats": {
       "labels": {

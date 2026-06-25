@@ -153,6 +153,373 @@ ns.runTukeyHSD = function (groupMap, alpha = 0.05) {
   try { const jStat = getJStat(); const groupNames = Object.keys(groupMap); const groupArrays = groupNames.map(name => groupMap[name]); const comparisons = jStat.tukeyhsd(groupArrays); return comparisons.map(([indexes, p]) => ({ groupA: groupNames[indexes[0]], groupB: groupNames[indexes[1]], pValue: +p.toFixed(4), significant: p < alpha })); } catch { return []; }
 };
 
+/**
+ * Compute mid-ranks of a numeric array, averaging ranks across ties.
+ * @param {number[]} xs
+ * @returns {number[]}
+ */
+const computeRanks = (xs) => {
+  const indexed = xs.map((val, i) => ({ val, i }));
+  indexed.sort((a, b) => a.val - b.val);
+  const ranks = new Array(xs.length);
+  let pos = 0;
+  while (pos < indexed.length) {
+    let start = pos;
+    while (pos + 1 < indexed.length && indexed[pos + 1].val === indexed[start].val) pos++;
+    const avgRank = (start + pos + 2) / 2;
+    for (let k = start; k <= pos; k++) ranks[indexed[k].i] = avgRank;
+    pos++;
+  }
+  return ranks;
+};
+
+/**
+ * Pearson product-moment correlation coefficient.
+ * @param {number[]} xs
+ * @param {number[]} ys
+ * @returns {number}
+ */
+const pearsonR = (xs, ys) => {
+  const n = xs.length;
+  let sumX = 0, sumY = 0;
+  for (let i = 0; i < n; i++) { sumX += xs[i]; sumY += ys[i]; }
+  const mx = sumX / n, my = sumY / n;
+  let num = 0, dx2 = 0, dy2 = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx, dy = ys[i] - my;
+    num += dx * dy; dx2 += dx * dx; dy2 += dy * dy;
+  }
+  const denom = Math.sqrt(dx2 * dy2);
+  return denom > 0 ? num / denom : 0;
+};
+
+/**
+ * Two-sided p-value for the test H0: ρ = 0 given Pearson r and sample size n.
+ * Uses the t-statistic t = r·sqrt((n-2)/(1-r²)) with df = n-2.
+ * @param {number} r
+ * @param {number} n
+ * @returns {number}
+ */
+const correlationPValue = (r, n) => {
+  if (n <= 2 || !Number.isFinite(r)) return NaN;
+  if (Math.abs(r) >= 1) return 0;
+  const jStat = getJStat();
+  if (!jStat) return NaN;
+  const t = r * Math.sqrt((n - 2) / (1 - r * r));
+  const p = 2 * (1 - jStat.studentt.cdf(Math.abs(t), n - 2));
+  return Number.isFinite(p) ? p : NaN;
+};
+
+/**
+ * Summarize two numeric vectors with a correlation coefficient (Pearson when both
+ * vectors look normal by marginal KS test, Spearman otherwise). Confidence interval
+ * computed via Fisher's z-transformation.
+ *
+ * @param {Array<string|number>} predictorVals
+ * @param {Array<string|number>} responseVals
+ * @param {Function|null} [formatFn] Currently unused; kept for signature symmetry with siblings.
+ * @param {{alpha?:number, lang?:string, [k:string]:any}} [options]
+ * @returns {{columns:string[], rows:Array<Record<string,any>>, test_used:string|null, p_value:number, correlation:number, ci_lower:number, ci_upper:number, n:number, lang:string}|null}
+ */
+ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, options = {}) {
+  const lang = normalizeLanguage(options?.lang);
+  // 1. Pair-wise filter (drop rows where either value is non-numeric/finite).
+  /** @type {number[]} */ const xs = [];
+  /** @type {number[]} */ const ys = [];
+  const len = Math.min(predictorVals.length, responseVals.length);
+  for (let i = 0; i < len; i++) {
+    const pRaw = predictorVals[i]; const rRaw = responseVals[i];
+    const xSan = typeof pRaw === 'string' ? variants.sanitizeNumericString(pRaw) : String(pRaw ?? '');
+    const ySan = typeof rRaw === 'string' ? variants.sanitizeNumericString(rRaw) : String(rRaw ?? '');
+    const x = Number.parseFloat(xSan); const y = Number.parseFloat(ySan);
+    if (Number.isFinite(x) && Number.isFinite(y)) { xs.push(x); ys.push(y); }
+  }
+  const n = xs.length;
+  if (n < 3) return null;
+
+  // 2. Marginal normality (KS on z-scores). Mirrors the strategy used in summarize_n_q.
+  const stats = getStatsLib();
+  /** @param {number[]} arr */
+  const isMarginalNormal = (arr) => {
+    if (!stats || arr.length < 2) return false;
+    const mean = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + b, 0) / arr.length;
+    const variance = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + (b - mean) ** 2, 0) / arr.length;
+    if (variance <= 0) return false;
+    const sd = Math.sqrt(variance);
+    const z = arr.map((/** @type {number} */ v) => (v - mean) / sd);
+    try {
+      const result = stats.kstest(z, 'normal', 0, 1);
+      return Number.isFinite(result?.pValue) && result.pValue >= 0.05;
+    } catch { return false; }
+  };
+  const parametric = isMarginalNormal(xs) && isMarginalNormal(ys);
+
+  // 3. Compute correlation.
+  let r;
+  let method;
+  if (parametric) {
+    r = pearsonR(xs, ys);
+    method = translate('tests.pearson', lang);
+  } else {
+    r = pearsonR(computeRanks(xs), computeRanks(ys));
+    method = translate('tests.spearman', lang);
+  }
+  const p_value = correlationPValue(r, n);
+
+  // 4. CI 95% via Fisher's z-transformation.
+  let ci_lower = NaN, ci_upper = NaN;
+  if (n > 3 && Math.abs(r) < 1) {
+    const z = 0.5 * Math.log((1 + r) / (1 - r));
+    const se = 1 / Math.sqrt(n - 3);
+    const zLow = z - 1.96 * se; const zHigh = z + 1.96 * se;
+    ci_lower = (Math.exp(2 * zLow) - 1) / (Math.exp(2 * zLow) + 1);
+    ci_upper = (Math.exp(2 * zHigh) - 1) / (Math.exp(2 * zHigh) + 1);
+  }
+
+  // 5. Build display table.
+  const statisticLabel = translate('table.columns.variable', lang) || 'Statistic';
+  const valueLabel = translate('table.columns.description', lang) || 'Value';
+  const fmt = (/** @type {number} */ v, decimals = 4) => Number.isFinite(v) ? formatNumberLocale(v, decimals, lang) : '';
+  const ciText = (Number.isFinite(ci_lower) && Number.isFinite(ci_upper))
+    ? `[${fmt(ci_lower)}, ${fmt(ci_upper)}]`
+    : '';
+  const pText = Number.isFinite(p_value)
+    ? (p_value < 0.0001 ? '<0.0001' : fmt(p_value))
+    : '';
+  const rows = [
+    { [statisticLabel]: 'n', [valueLabel]: String(n) },
+    { [statisticLabel]: 'r', [valueLabel]: fmt(r) },
+    { [statisticLabel]: '95% CI', [valueLabel]: ciText },
+    { [statisticLabel]: 'p-value', [valueLabel]: pText }
+  ];
+  return {
+    columns: [statisticLabel, valueLabel],
+    rows,
+    test_used: method,
+    p_value: Number.isFinite(p_value) ? +p_value.toFixed(4) : NaN,
+    correlation: +r.toFixed(4),
+    ci_lower: Number.isFinite(ci_lower) ? +ci_lower.toFixed(4) : NaN,
+    ci_upper: Number.isFinite(ci_upper) ? +ci_upper.toFixed(4) : NaN,
+    n,
+    lang
+  };
+};
+
+/**
+ * Compare K paired numeric responses across the same individuals (Profile B, n-typed).
+ *
+ * Pipeline:
+ *  - Aligns rows across `responses` (array of K numeric vectors). Drops rows where any
+ *    of the K values is non-numeric or non-finite (complete-case analysis).
+ *  - For K = 2: tests normality of the differences via KS. If normal → paired t-test;
+ *    else Wilcoxon signed-rank.
+ *  - For K ≥ 3: tests marginal normality of each response. If all normal → Friedman is
+ *    still preferred (RM-ANOVA requires sphericity correction that adds complexity);
+ *    deferred. Else Friedman.
+ *
+ * Output mirrors `summarize_n_q` style: rows = descriptive stats per momento, columns =
+ * the momentos (response labels) + a p-value cell. `test_used` carries the test name.
+ *
+ * @param {Array<Array<string|number>>} responses K arrays of numeric values, all same length.
+ * @param {string[]} labels Labels for each response (column headers).
+ * @param {Function|null} [formatFn]
+ * @param {Set<string>|null} [flagsUsed]
+ * @param {Record<string,any>} [options]
+ * @returns {{columns:string[], rows:Array<Record<string,any>>, test_used:string|null, p_value:number, n:number, k:number, lang:string}|null}
+ */
+ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed = null, options = {}) {
+  const lang = normalizeLanguage(options?.lang);
+  const K = responses.length;
+  if (K < 2) return null;
+  const len = Math.min(...responses.map((r) => r?.length ?? 0));
+  if (len < 3) return null;
+
+  // Complete-case row alignment + numeric sanitization.
+  /** @type {number[][]} */
+  const aligned = Array.from({ length: K }, () => []);
+  for (let i = 0; i < len; i++) {
+    const row = [];
+    let ok = true;
+    for (let k = 0; k < K; k++) {
+      const raw = responses[k][i];
+      const sanitized = typeof raw === 'string' ? variants.sanitizeNumericString(raw) : String(raw ?? '');
+      const val = Number.parseFloat(sanitized);
+      if (!Number.isFinite(val)) { ok = false; break; }
+      row.push(val);
+    }
+    if (ok) for (let k = 0; k < K; k++) aligned[k].push(row[k]);
+  }
+  const n = aligned[0].length;
+  if (n < 3) return null;
+
+  const stats = getStatsLib();
+  const jStat = getJStat();
+
+  // Decide parametric branch.
+  /** @param {number[]} arr */
+  const isMarginalNormal = (arr) => {
+    if (!stats || arr.length < 2) return false;
+    const mean = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + b, 0) / arr.length;
+    const variance = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + (b - mean) ** 2, 0) / arr.length;
+    if (variance <= 0) return false;
+    const sd = Math.sqrt(variance);
+    const z = arr.map((/** @type {number} */ v) => (v - mean) / sd);
+    try {
+      const result = stats.kstest(z, 'normal', 0, 1);
+      return Number.isFinite(result?.pValue) && result.pValue >= 0.05;
+    } catch { return false; }
+  };
+
+  let method = null;
+  let p_value = NaN;
+  let test_stat = null;
+
+  if (K === 2) {
+    // Differences for paired comparison.
+    const diff = aligned[0].map((v, i) => v - aligned[1][i]);
+    const parametric = isMarginalNormal(diff);
+    if (parametric && stats) {
+      // Paired t-test: t = mean(diff) / (sd(diff)/sqrt(n)), df = n-1.
+      const meanD = diff.reduce((a, b) => a + b, 0) / n;
+      const sdD = Math.sqrt(diff.reduce((a, b) => a + (b - meanD) ** 2, 0) / (n - 1));
+      const se = sdD / Math.sqrt(n);
+      const t = se > 0 ? meanD / se : 0;
+      test_stat = t;
+      p_value = jStat && se > 0 ? 2 * (1 - jStat.studentt.cdf(Math.abs(t), n - 1)) : NaN;
+      method = translate('tests.pairedT', lang);
+    } else {
+      // Wilcoxon signed-rank.
+      const result = wilcoxonSignedRank(diff, jStat);
+      method = translate('tests.wilcoxonSigned', lang);
+      p_value = result.p;
+      test_stat = result.W;
+    }
+  } else {
+    // K ≥ 3: Friedman.
+    const result = friedmanTest(aligned, jStat);
+    method = translate('tests.friedman', lang);
+    p_value = result.p;
+    test_stat = result.Q;
+  }
+
+  // Build display table — rows = stats (Mean ± SD, Median ± IQR, n), cols = momentos.
+  const groupLabel = translate('table.columns.variable', lang) || 'Statistic';
+  const pValueLabel = translate('table.columns.pValue', lang) || 'p-value';
+  const fmt = (/** @type {number} */ v, decimals = 2) => Number.isFinite(v) ? formatNumberLocale(v, decimals, lang) : '';
+  /** @param {number[]} arr */
+  const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  /** @param {number[]} arr */
+  const sd = (arr) => {
+    const m = mean(arr);
+    return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / (arr.length - 1));
+  };
+  /** @param {number[]} arr */
+  const median = (arr) => {
+    const s = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(s.length / 2);
+    return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
+  };
+  /** @param {number[]} arr */
+  const iqr = (arr) => {
+    const s = [...arr].sort((a, b) => a - b);
+    const q = (p) => {
+      const pos = p * (s.length - 1);
+      const lo = Math.floor(pos); const hi = Math.ceil(pos); const frac = pos - lo;
+      return s[lo] + (s[hi] - s[lo]) * frac;
+    };
+    return q(0.75) - q(0.25);
+  };
+
+  const rowMeanSD = { [groupLabel]: 'Mean ± SD' };
+  const rowMedIQR = { [groupLabel]: 'Median ± IQR' };
+  const rowN = { [groupLabel]: 'n' };
+  for (let k = 0; k < K; k++) {
+    const col = labels[k];
+    rowMeanSD[col] = `${fmt(mean(aligned[k]))} ± ${fmt(sd(aligned[k]))}`;
+    rowMedIQR[col] = `${fmt(median(aligned[k]))} ± ${fmt(iqr(aligned[k]))}`;
+    rowN[col] = String(n);
+  }
+  rowMeanSD[pValueLabel] = '';
+  rowMedIQR[pValueLabel] = '';
+  rowN[pValueLabel] = Number.isFinite(p_value)
+    ? (p_value < 0.0001 ? '<0.0001' : fmt(p_value, 4))
+    : '';
+
+  return {
+    columns: [groupLabel, ...labels, pValueLabel],
+    rows: [rowMeanSD, rowMedIQR, rowN],
+    test_used: method,
+    p_value: Number.isFinite(p_value) ? +p_value.toFixed(4) : NaN,
+    test_statistic: Number.isFinite(test_stat) ? +test_stat.toFixed(4) : NaN,
+    n,
+    k: K,
+    lang
+  };
+};
+
+/**
+ * Wilcoxon signed-rank test on a vector of differences.
+ * Two-sided, with mid-rank tie correction and normal approximation for the p-value.
+ * @param {number[]} diff
+ * @param {any} jStat
+ * @returns {{W:number, p:number}}
+ */
+const wilcoxonSignedRank = (diff, jStat) => {
+  const nonZero = diff.filter((d) => d !== 0);
+  const n = nonZero.length;
+  if (n < 1) return { W: 0, p: NaN };
+  const abs = nonZero.map((d) => Math.abs(d));
+  const ranks = computeRanks(abs);
+  let Wplus = 0;
+  for (let i = 0; i < n; i++) if (nonZero[i] > 0) Wplus += ranks[i];
+  const Wminus = (n * (n + 1)) / 2 - Wplus;
+  const W = Math.min(Wplus, Wminus);
+  const mean = (n * (n + 1)) / 4;
+  // Tie correction
+  const tieCounts = new Map();
+  ranks.forEach((r) => { tieCounts.set(r, (tieCounts.get(r) || 0) + 1); });
+  let tieSum = 0;
+  tieCounts.forEach((t) => { if (t > 1) tieSum += t ** 3 - t; });
+  const variance = (n * (n + 1) * (2 * n + 1)) / 24 - tieSum / 48;
+  const se = Math.sqrt(variance);
+  let p = NaN;
+  if (jStat && se > 0) {
+    const z = (W - mean) / se;
+    p = 2 * jStat.normal.cdf(-Math.abs(z), 0, 1);
+  }
+  return { W, p };
+};
+
+/**
+ * Friedman test on K paired numeric vectors (already row-aligned, same length n).
+ * @param {number[][]} aligned K arrays of length n.
+ * @param {any} jStat
+ * @returns {{Q:number, p:number}}
+ */
+const friedmanTest = (aligned, jStat) => {
+  const K = aligned.length;
+  const n = aligned[0].length;
+  // Rank within each row (across K conditions).
+  const colRankSums = new Array(K).fill(0);
+  let tieAdjustment = 0;
+  for (let i = 0; i < n; i++) {
+    const rowVals = aligned.map((col) => col[i]);
+    const rowRanks = computeRanks(rowVals);
+    for (let k = 0; k < K; k++) colRankSums[k] += rowRanks[k];
+    // Tie correction term for this row.
+    const tieCounts = new Map();
+    rowRanks.forEach((r) => { tieCounts.set(r, (tieCounts.get(r) || 0) + 1); });
+    tieCounts.forEach((t) => { if (t > 1) tieAdjustment += t ** 3 - t; });
+  }
+  const sumSq = colRankSums.reduce((a, b) => a + b * b, 0);
+  let Q = (12 / (n * K * (K + 1))) * sumSq - 3 * n * (K + 1);
+  // Tie correction: divide by 1 - tieAdjustment / (n * (K^3 - K)).
+  const tieFactor = 1 - tieAdjustment / (n * (K ** 3 - K));
+  if (tieFactor > 0) Q = Q / tieFactor;
+  const p = jStat ? 1 - jStat.chisquare.cdf(Q, K - 1) : NaN;
+  return { Q, p };
+};
+
 /** Dunn post-hoc for Kruskal–Wallis with p-adjust (bonferroni|holm|none). */
 ns.runDunnTest = function (groupMap, alpha = 0.05, adjust = 'bonferroni') {
   try {

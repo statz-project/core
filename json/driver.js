@@ -373,6 +373,287 @@ ns.summarize_l_q = function (listValues, responseVals, formatFn = null, options 
 };
 
 /**
+ * Profile B dispatcher: paired analysis across K ≥ 2 response columns (same individuals,
+ * different momentos). Type-locked to the first response: all responses must share its type.
+ * Currently supports numeric (paired t / Wilcoxon / Friedman) and binary qualitative
+ * (McNemar / Cochran's Q). List responses and non-binary qualitative are rejected with
+ * a translated warning surfaced via `table.warning`.
+ *
+ * @param {any[]} columns Resolved column objects (built by `runAnalysis`).
+ * @param {Array<{col_hash:string, col_var_index?:number|null, col_label:string}>} responses
+ * @param {Record<string,any>} options
+ * @param {Set<string>} flagsUsed
+ * @param {string} lang
+ * @returns {{predictor:null, response:string|null, predictor_type:null, response_type:string|null, table:any}|null}
+ */
+ns.summarizePaired = function (columns, responses, options, flagsUsed, lang) {
+  if (responses.length < 2) {
+    flagsUsed.add('has_paired');
+    return {
+      predictor: null,
+      response: responses[0]?.col_label || null,
+      predictor_type: null,
+      response_type: null,
+      table: { warning: translate('warnings.pairedTooFewMomentos', lang) }
+    };
+  }
+  // Cross-DB guard: paired analysis assumes same-individual row alignment, which only
+  // holds within a single database. Cross-DB responses would produce silently bogus
+  // pairings (rows truncated to min length, indices treated as same individual across DBs).
+  const dbIds = new Set(responses.map((/** @type {any} */ r) => r.database_id));
+  if (dbIds.size > 1) {
+    flagsUsed.add('has_paired');
+    return {
+      predictor: null,
+      response: responses[0]?.col_label || null,
+      predictor_type: null,
+      response_type: null,
+      table: { warning: translate('warnings.pairedMultiDbNotAllowed', lang, {
+        databases: [...dbIds].join(', ')
+      }) }
+    };
+  }
+  const resolvedCols = responses.map((r) =>
+    columns.find((c) => c.col_hash === r.col_hash && c.col_var_index === (r.col_var_index ?? null))
+      || columns.find((c) => c.col_hash === r.col_hash)
+  );
+  if (resolvedCols.some((c) => !c)) return null;
+  /** @type {string[]} */
+  const types = resolvedCols.map((c) => c.col_type);
+  const firstType = types[0];
+  // Type-lock: reject mixed responses.
+  if (types.some((t) => t !== firstType)) {
+    flagsUsed.add('has_paired');
+    return {
+      predictor: null,
+      response: responses[0]?.col_label || null,
+      predictor_type: null,
+      response_type: firstType,
+      table: { warning: translate('warnings.pairedMixedTypes', lang, { types: types.join(', ') }) }
+    };
+  }
+  const labels = responses.map((r) => r.col_label);
+  if (firstType === 'n') {
+    flagsUsed.add('has_paired_n');
+    const arrays = resolvedCols.map((c) => c.raw_values || []);
+    const table = numeric.summarize_n_paired(arrays, labels, null, flagsUsed, { ...options, lang });
+    return {
+      predictor: null,
+      response: labels.join(' × '),
+      predictor_type: null,
+      response_type: 'n',
+      table
+    };
+  }
+  if (firstType === 'q') {
+    // Binary check: all responses must have ≤ 2 distinct non-empty levels.
+    const levelSets = resolvedCols.map((c) => new Set((c.raw_values || []).map((v) => v?.toString().trim()).filter(Boolean)));
+    const allBinary = levelSets.every((s) => s.size <= 2 && s.size >= 1);
+    if (!allBinary) {
+      flagsUsed.add('has_paired');
+      const maxLevels = Math.max(...levelSets.map((s) => s.size));
+      return {
+        predictor: null,
+        response: responses[0]?.col_label || null,
+        predictor_type: null,
+        response_type: 'q',
+        table: { warning: translate('warnings.pairedNonBinaryQ', lang, { levels: maxLevels }) }
+      };
+    }
+    // Use the union of observed levels as the binary pair.
+    const unionLevels = [...new Set(levelSets.flatMap((s) => [...s]))].sort();
+    if (unionLevels.length !== 2) {
+      flagsUsed.add('has_paired');
+      return {
+        predictor: null,
+        response: responses[0]?.col_label || null,
+        predictor_type: null,
+        response_type: 'q',
+        table: { warning: translate('warnings.pairedNonBinaryQ', lang, { levels: unionLevels.length }) }
+      };
+    }
+    flagsUsed.add('has_paired_q');
+    const arrays = resolvedCols.map((c) => c.raw_values || []);
+    const table = contingency.summarize_q_binary_paired(arrays, labels, null, { ...options, lang }, { levels: unionLevels });
+    return {
+      predictor: null,
+      response: labels.join(' × '),
+      predictor_type: null,
+      response_type: 'q',
+      table
+    };
+  }
+  if (firstType === 'l') {
+    flagsUsed.add('has_paired');
+    return {
+      predictor: null,
+      response: responses[0]?.col_label || null,
+      predictor_type: null,
+      response_type: 'l',
+      table: { warning: translate('warnings.pairedListNotSupported', lang) }
+    };
+  }
+  return null;
+};
+
+/**
+ * Cross-tabulation of a qualitative predictor vs a list response.
+ *
+ * The list response is decomposed into binary (Yes/No) columns per item, and each binary
+ * column is treated as the response in a `summarize_q_q` call against the qualitative
+ * predictor. Mirror of `summarize_l_q` with predictor/response axes swapped.
+ *
+ * @param {string[]} predictorVals Qualitative predictor values (one per row).
+ * @param {string[]} responseVals List response values (semi-colon-separated by default).
+ * @param {((ctx:{count:number,percent:number,rowTotal:number,colTotal:number})=>string)|null} [formatFn]
+ * @param {Record<string,any>} [options]
+ * @param {{separator?:string, predictorLabel?:string|null, responseLabel?:string|null, lang?:string, includePrefix?:boolean}} [meta]
+ * @returns {Array<{label:string, display_label:string, predictor_label:string|null, response_label:string|null, response_label_stripped:string|null, table:any}>}
+ */
+ns.summarize_q_l = function (predictorVals, responseVals, formatFn = null, options = {}, meta = {}) {
+  const separator = meta?.separator ?? ';';
+  const predictorLabel = meta?.predictorLabel ?? null;
+  const responseLabel = meta?.responseLabel ?? null;
+  const lang = normalizeLanguage(meta?.lang ?? options?.lang);
+  const includePrefix = meta?.includePrefix ?? true;
+  const cleanedResponse = responseLabel ? responseLabel.replace(/[\s\p{P}]+$/u, '') : responseLabel;
+  const { columns: binaryColumns = {} } = numeric.decomposeListAsBinaryCols(responseVals, separator, options);
+  const results = [];
+  Object.entries(binaryColumns).forEach(([label, binVals]) => {
+    try {
+      const table = contingency.summarize_q_q(predictorVals, binVals, formatFn ?? undefined, options);
+      const displayLabel = includePrefix && (cleanedResponse || responseLabel)
+        ? `${cleanedResponse || responseLabel}: ${label}`
+        : label;
+      results.push({
+        label,
+        display_label: displayLabel,
+        predictor_label: predictorLabel,
+        response_label: responseLabel,
+        response_label_stripped: cleanedResponse,
+        table
+      });
+    } catch (e) {
+      const warnMessage = translate('warnings.summarizeFailure', lang, { label, context: responseLabel ?? '' });
+      console.warn(`${warnMessage}:`, e.message);
+    }
+  });
+  return results;
+};
+
+/**
+ * Cross-tabulation of a list predictor vs a list response with explicit subset selection.
+ *
+ * Both columns are decomposed into binary (Yes/No) item columns. For each pair
+ * `(predItem ∈ predSubset, respItem ∈ respSubset)`, a 2×2 contingency table is built via
+ * `contingency.summarize_q_q`. Items in the subsets that do not occur in the data are
+ * skipped silently.
+ *
+ * The subset gate is enforced by the dispatcher in `summarizePredictors` — without
+ * both subsets, the dispatch emits a warning instead of calling this helper.
+ *
+ * @param {string[]} predictorVals List predictor values.
+ * @param {string[]} responseVals List response values.
+ * @param {((ctx:{count:number,percent:number,rowTotal:number,colTotal:number})=>string)|null} [formatFn]
+ * @param {Record<string,any>} [options]
+ * @param {{predictorSep?:string, responseSep?:string, predictorLabel?:string|null, responseLabel?:string|null, predSubset?:string[], respSubset?:string[], lang?:string, includePrefix?:boolean}} [meta]
+ * @returns {Array<{predictor_item:string, response_item:string, display_predictor:string, display_response:string, table:any}>}
+ */
+ns.summarize_l_l = function (predictorVals, responseVals, formatFn = null, options = {}, meta = {}) {
+  const predictorSep = meta?.predictorSep ?? ';';
+  const responseSep = meta?.responseSep ?? ';';
+  const predictorLabel = meta?.predictorLabel ?? null;
+  const responseLabel = meta?.responseLabel ?? null;
+  const lang = normalizeLanguage(meta?.lang ?? options?.lang);
+  const includePrefix = meta?.includePrefix ?? true;
+  const predSubset = Array.isArray(meta?.predSubset) ? meta.predSubset.filter(Boolean) : [];
+  const respSubset = Array.isArray(meta?.respSubset) ? meta.respSubset.filter(Boolean) : [];
+  if (!predSubset.length || !respSubset.length) return [];
+
+  const cleanedPredictor = predictorLabel ? predictorLabel.replace(/[\s\p{P}]+$/u, '') : predictorLabel;
+  const cleanedResponse = responseLabel ? responseLabel.replace(/[\s\p{P}]+$/u, '') : responseLabel;
+
+  const { columns: predBinary = {} } = numeric.decomposeListAsBinaryCols(predictorVals, predictorSep, options);
+  const { columns: respBinary = {} } = numeric.decomposeListAsBinaryCols(responseVals, responseSep, options);
+
+  const results = [];
+  for (const pItem of predSubset) {
+    if (!predBinary[pItem]) continue;
+    for (const rItem of respSubset) {
+      if (!respBinary[rItem]) continue;
+      try {
+        const table = contingency.summarize_q_q(predBinary[pItem], respBinary[rItem], formatFn ?? undefined, options);
+        const displayPred = includePrefix && (cleanedPredictor || predictorLabel)
+          ? `${cleanedPredictor || predictorLabel}: ${pItem}`
+          : pItem;
+        const displayResp = includePrefix && (cleanedResponse || responseLabel)
+          ? `${cleanedResponse || responseLabel}: ${rItem}`
+          : rItem;
+        results.push({
+          predictor_item: pItem,
+          response_item: rItem,
+          display_predictor: displayPred,
+          display_response: displayResp,
+          table
+        });
+      } catch (e) {
+        const warnMessage = translate('warnings.summarizeFailure', lang, { label: `${pItem} × ${rItem}`, context: predictorLabel ?? '' });
+        console.warn(`${warnMessage}:`, e.message);
+      }
+    }
+  }
+  return results;
+};
+
+/**
+ * Compare a numeric response across binary "presence" groups derived from a list predictor.
+ *
+ * The list predictor is decomposed into binary (Yes/No) columns per item, and each item
+ * becomes the grouping variable in a `summarize_n_q` call against the numeric response.
+ * Mirror of `summarize_l_q` for the `l × n` case.
+ *
+ * @param {string[]} predictorVals List predictor values.
+ * @param {string[]} responseVals Numeric response values.
+ * @param {Function|null} [formatFn]
+ * @param {Set<string>|null} [flagsUsed]
+ * @param {Record<string,any>} [options]
+ * @param {{separator?:string, predictorLabel?:string|null, responseLabel?:string|null, lang?:string, includePrefix?:boolean}} [meta]
+ * @returns {Array<{label:string, display_label:string, predictor_label:string|null, predictor_label_stripped:string|null, response_label:string|null, table:any}>}
+ */
+ns.summarize_l_n = function (predictorVals, responseVals, formatFn = null, flagsUsed = null, options = {}, meta = {}) {
+  const separator = meta?.separator ?? ';';
+  const predictorLabel = meta?.predictorLabel ?? null;
+  const responseLabel = meta?.responseLabel ?? null;
+  const lang = normalizeLanguage(meta?.lang ?? options?.lang);
+  const includePrefix = meta?.includePrefix ?? true;
+  const cleanedPredictor = predictorLabel ? predictorLabel.replace(/[\s\p{P}]+$/u, '') : predictorLabel;
+  const { columns: binaryColumns = {} } = numeric.decomposeListAsBinaryCols(predictorVals, separator, options);
+  const results = [];
+  Object.entries(binaryColumns).forEach(([label, binVals]) => {
+    try {
+      // summarize_n_q signature is (numericVals, groupingVals). The binary Yes/No column
+      // is the grouping variable; the numeric response is summarized within each group.
+      const table = numeric.summarize_n_q(responseVals, binVals, formatFn, flagsUsed, options);
+      const displayLabel = includePrefix && (cleanedPredictor || predictorLabel)
+        ? `${cleanedPredictor || predictorLabel}: ${label}`
+        : label;
+      results.push({
+        label,
+        display_label: displayLabel,
+        predictor_label: predictorLabel,
+        predictor_label_stripped: cleanedPredictor,
+        response_label: responseLabel,
+        table
+      });
+    } catch (e) {
+      const warnMessage = translate('warnings.summarizeFailure', lang, { label, context: predictorLabel ?? '' });
+      console.warn(`${warnMessage}:`, e.message);
+    }
+  });
+  return results;
+};
+
+/**
  * Build a map of statistical test methods to display symbols.
  * @param {string[]} methods
  * @param {{symbol_style?: 'numeric'|'alpha'}=} options
@@ -774,6 +1055,13 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
     : null;
   const responseType = responseCol?.col_type || null; const responseVals = responseCol?.raw_values || null;
   const lang = normalizeLanguage(options?.lang);
+
+  // Profile B: no predictors + multiple responses → paired analysis across momentos.
+  if (predictors.length === 0 && responses.length >= 1) {
+    const pairedEntry = ns.summarizePaired(columns, responses, options, flagsUsed, lang);
+    return pairedEntry ? [pairedEntry] : [];
+  }
+
   return predictors.map(pred => {
     const predictorCol = columns.find(c => c.col_hash === pred.col_hash && c.col_var_index === (pred.col_var_index ?? null))
       || columns.find(c => c.col_hash === pred.col_hash);
@@ -808,6 +1096,82 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         }));
         flagsUsed.add('has_lq');
         return summaries;
+      } else if (predictorType === 'q' && responseType === 'l') {
+        const includePrefix = options?.label_list_with_column ?? true;
+        const responseSep = responseCol?.col_sep || ';';
+        const summaries = ns.summarize_q_l(predictorVals, responseVals, formatFn, options, {
+          separator: responseSep,
+          predictorLabel: pred.col_label,
+          responseLabel: response?.col_label || null,
+          lang,
+          includePrefix
+        }).map(entry => ({
+          predictor: pred.col_label,
+          response: entry.display_label,
+          predictor_type: 'q',
+          response_type: 'q',
+          table: entry.table
+        }));
+        flagsUsed.add('has_ql');
+        return summaries;
+      } else if (predictorType === 'n' && responseType === 'n') {
+        flagsUsed.add('has_nn');
+        table = numeric.summarize_n_n(predictorVals ?? [], responseVals ?? [], formatFn, options);
+      } else if (predictorType === 'q' && responseType === 'n') {
+        // Axis inversion: pass numeric response as the "predictor" arg and qualitative
+        // predictor as the "response" arg. summarize_n_q's output naturally lays out
+        // groups (from the qualitative) as rows and numeric stats as columns — the
+        // layout we want when q is the predictor.
+        flagsUsed.add('has_qn');
+        const qnOptions = { ...options, responseLabels: predictorCol.col_values?.labels ?? null };
+        table = numeric.summarize_n_q(responseVals ?? [], predictorVals ?? [], formatFn, flagsUsed, qnOptions);
+      } else if (predictorType === 'l' && responseType === 'l') {
+        /** @type {string[]} */
+        const predSubset = Array.isArray(/** @type {any} */ (pred).subset_items)
+          ? /** @type {any} */ (pred).subset_items.filter(Boolean) : [];
+        /** @type {string[]} */
+        const respSubset = Array.isArray(/** @type {any} */ (response).subset_items)
+          ? /** @type {any} */ (response).subset_items.filter(Boolean) : [];
+        flagsUsed.add('has_ll');
+        if (!predSubset.length || !respSubset.length) {
+          table = { warning: translate('warnings.llSubsetRequired', lang) };
+        } else {
+          const includePrefix = options?.label_list_with_column ?? true;
+          const summaries = ns.summarize_l_l(predictorVals, responseVals, formatFn, options, {
+            predictorSep,
+            responseSep: responseCol?.col_sep || ';',
+            predictorLabel: pred.col_label,
+            responseLabel: response?.col_label || null,
+            predSubset,
+            respSubset,
+            lang,
+            includePrefix
+          }).map((/** @type {any} */ entry) => ({
+            predictor: entry.display_predictor,
+            response: entry.display_response,
+            predictor_type: 'q',
+            response_type: 'q',
+            table: entry.table
+          }));
+          return summaries;
+        }
+      } else if (predictorType === 'l' && responseType === 'n') {
+        const includePrefix = options?.label_list_with_column ?? true;
+        const summaries = ns.summarize_l_n(predictorVals, responseVals, formatFn, flagsUsed, options, {
+          separator: predictorSep,
+          predictorLabel: pred.col_label,
+          responseLabel: response?.col_label || null,
+          lang,
+          includePrefix
+        }).map(entry => ({
+          predictor: entry.display_label,
+          response: entry.response_label,
+          predictor_type: 'q',
+          response_type: 'n',
+          table: entry.table
+        }));
+        flagsUsed.add('has_ln');
+        return summaries;
       }
     }
     if (table?.used_resid_greater || table?.used_resid_lower) flagsUsed.add('has_residuals');
@@ -827,6 +1191,69 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const mergedOptions = ns.getDefaultAnalysisOptions(options);
   const predictors = elementPredictors.map(JSON.parse); const responses = elementResponses.map(JSON.parse); const flagsUsed = new Set();
   const lang = mergedOptions.lang;
+
+  // Multi-DB D2 broadcast (Profile C only): when predictors span multiple databases
+  // and there's a response, the response must exist in every participating database;
+  // analyses run per-DB and results are concatenated. Profile A (descriptive only)
+  // already works across DBs naturally via per-predictor resolution.
+  const predictorDbIds = new Set(predictors.map((/** @type {any} */ p) => p.database_id));
+  if (predictorDbIds.size > 1 && responses.length > 0) {
+    const response = responses[0];
+    /** @type {string[]} */
+    const missingDbs = [];
+    for (const dbId of predictorDbIds) {
+      const db = dbs[/** @type {string} */ (dbId)];
+      const responseCol = db ? ns.getColumn(db, response.col_hash) : null;
+      if (!responseCol) missingDbs.push(/** @type {string} */ (dbId));
+    }
+    if (missingDbs.length > 0) {
+      flagsUsed.add('has_multi_db_missing_response');
+      /** @type {any} */
+      const missingEntry = {
+        predictor: null,
+        response: response.col_label || null,
+        predictor_type: null,
+        response_type: null,
+        table: { warning: translate('warnings.multiDbMissingResponse', lang, {
+          label: response.col_label || response.col_hash,
+          databases: missingDbs.join(', ')
+        }) }
+      };
+      return /** @type {any} */ ({
+        result: { analysis: [missingEntry], test_legend: [], lang },
+        flags: Array.from(flagsUsed)
+      });
+    }
+    flagsUsed.add('has_multi_db_broadcast');
+    /** @type {any[]} */
+    const aggregatedEntries = [];
+    for (const dbId of predictorDbIds) {
+      const dbPredictors = predictors.filter((/** @type {any} */ p) => p.database_id === dbId);
+      const dbResponse = { ...response, database_id: dbId };
+      const subResult = ns.runAnalysis(
+        dbPredictors.map((/** @type {any} */ p) => JSON.stringify(p)),
+        [JSON.stringify(dbResponse)],
+        dbs,
+        options
+      );
+      subResult.flags.forEach((/** @type {string} */ f) => flagsUsed.add(f));
+      aggregatedEntries.push(...subResult.result.analysis);
+    }
+    // Rebuild symbol map on combined methods so symbols are consistent across DBs.
+    const allMethods = aggregatedEntries.map((r) => r.table?.test_used).filter(Boolean);
+    const symbolMap = ns.generateTestSymbolMap(allMethods, mergedOptions);
+    aggregatedEntries.forEach((r) => {
+      if (r.table?.test_used) {
+        r.table.test_symbol = symbolMap[r.table.test_used];
+      }
+    });
+    const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+    return /** @type {any} */ ({
+      result: { analysis: aggregatedEntries, test_legend, lang },
+      flags: Array.from(flagsUsed)
+    });
+  }
+
   const columns = predictors.concat(responses).map(col => {
     const db = dbs[col.database_id];
     if (!db) return null;
@@ -1022,22 +1449,47 @@ ns.describeDataset = function (database, options = {}) {
 };
 
 /**
- * Reorder a JSON-string list by swapping an item with its neighbor and renumbering "order".
+ * Reorder a JSON-string list by moving an item and renumbering the `order` field.
+ *
+ * Supported directions, mapped to array index movement (and natural vertical-list
+ * orientation):
+ *  - `'up'`     → one position towards the head (`idx - 1`).
+ *  - `'down'`   → one position towards the tail (`idx + 1`).
+ *  - `'top'`    → first position (`0`).
+ *  - `'bottom'` → last position (`list.length - 1`).
+ *
+ * The helper returns the **original list unchanged** when:
+ *  - `index` is invalid (NaN, negative, or out of bounds);
+ *  - the resulting target index is the same as `index` (no-op);
+ *  - `direction` is not one of the four supported values.
+ *
+ * Items with unparseable JSON are preserved as-is; only the surrounding items get
+ * their `order` field renumbered.
+ *
  * @param {string[]} list JSON strings with an "order" field
  * @param {number|string} index 0-based index of the item to move
- * @param {'backward'|'forward'} direction Move direction
- * @returns {string[]} Updated list
+ * @param {'up'|'down'|'top'|'bottom'} direction Move direction
+ * @returns {string[]} Updated list with renumbered `order` fields, or the input unchanged
  */
 ns.reorderVariableList = function (list, index, direction) {
   const copy = list.slice();
   const idx = parseInt(index, 10);
-  const dir = direction;
   if (!Array.isArray(copy) || Number.isNaN(idx) || idx < 0 || idx >= copy.length) return list;
-  const targetIndex = dir === 'forward' ? idx + 1 : idx - 1;
-  if (targetIndex < 0 || targetIndex >= copy.length) return list;
-  const tmp = copy[idx];
-  copy[idx] = copy[targetIndex];
-  copy[targetIndex] = tmp;
+  /** @type {number} */
+  let targetIndex;
+  switch (direction) {
+    case 'up':     targetIndex = idx - 1; break;
+    case 'down':   targetIndex = idx + 1; break;
+    case 'top':    targetIndex = 0; break;
+    case 'bottom': targetIndex = copy.length - 1; break;
+    default: return list;
+  }
+  if (targetIndex < 0 || targetIndex >= copy.length || targetIndex === idx) return list;
+  // Move (not swap): splice out, then re-insert at the target position. Equivalent to a
+  // single-step swap when |targetIndex - idx| === 1; for top/bottom, splice shifts all
+  // intermediate items correctly.
+  const [moved] = copy.splice(idx, 1);
+  copy.splice(targetIndex, 0, moved);
   const updated = copy.map((item, i) => {
     try {
       const obj = JSON.parse(item);
