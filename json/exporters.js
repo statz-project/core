@@ -325,7 +325,7 @@ ns.exportCombinedAsRows = function (combined) {
  * Render a database payload into a plain HTML table string for quick viewing.
  * Decodes column values, builds row-wise data, and emits HTML (with lightweight styles by default).
  * @param {{ columns?: Array<Record<string, any>> }} db
- * @param {{ maxRows?: number, includeStyles?: boolean }=} options
+ * @param {{ maxRows?: number, includeStyles?: boolean, includeRowIndex?: boolean, showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean, includeTitles?: boolean, titleThreshold?: number }=} options
  * @returns {string}
  */
 ns.exportDatabaseAsHTML = function (db, options = {}) {
@@ -337,6 +337,10 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   const showDeletedColumns = options.showDeletedColumns === true; // default hide deleted
   const showVariants = options.showVariants !== false; // default true
   const shouldApplyProcessing = options.applyProcessing !== false; // default true (also applies replacements)
+  const includeTitles = options.includeTitles !== false; // default true
+  const titleThresholdRaw = Number(options.titleThreshold);
+  // Default 40: derived from monospace 11px × ~6.6px/char fitting in 300px - 16px padding ≈ 43 chars.
+  const titleThreshold = Number.isFinite(titleThresholdRaw) && titleThresholdRaw >= 0 ? Math.floor(titleThresholdRaw) : 40;
   const hasMeta = (m) => (Array.isArray(m?.replacements) && m.replacements.length > 0) || (m?.processing && Object.keys(m.processing).length > 0);
   const escapeHtml = (val) => {
     const str = String(val ?? '');
@@ -345,6 +349,21 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
       .replace(/&/g, '&amp;')
       .split('<').join('&lt;')
       .split('>').join('&gt;');
+  };
+  /** @param {unknown} val */
+  const escapeAttr = (val) => escapeHtml(val).split('"').join('&quot;');
+  /**
+   * @param {unknown} rawVal
+   * @param {'td'|'th'} tag
+   * @param {string=} attrs
+   */
+  const renderCell = (rawVal, tag, attrs = '') => {
+    const str = String(rawVal ?? '');
+    const content = escapeHtml(str);
+    if (includeTitles && str.length > titleThreshold) {
+      return `<${tag}${attrs} title="${escapeAttr(str)}">${content}</${tag}>`;
+    }
+    return `<${tag}${attrs}>${content}</${tag}>`;
   };
 
   const decodedCols = db.columns.flatMap(col => {
@@ -356,8 +375,8 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
       effectiveCol = factors.resolveColumn(col);
     }
     const baseValues = factors.decodeColValues(effectiveCol.col_values, colType, colSep) ?? col.raw_values ?? [];
-    const baseLabel = escapeHtml(col.col_label ?? col.col_name ?? col.col_hash ?? '');
-    entries.push({ hash: col.col_hash, label: baseLabel, values: baseValues, isDeleted: !!col.col_del, isVariant: false });
+    const baseRawLabel = col.col_label ?? col.col_name ?? col.col_hash ?? '';
+    entries.push({ hash: col.col_hash, rawLabel: baseRawLabel, label: escapeHtml(baseRawLabel), values: baseValues, isDeleted: !!col.col_del, isVariant: false });
 
     if (showVariants && Array.isArray(col.col_vars)) {
       col.col_vars.forEach((variant, idx) => {
@@ -370,8 +389,8 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
         // Pointer-style base variants have no col_values — fall back to the parent column.
         const variantValues = effectiveVariant?.col_values ?? col.col_values;
         const vValues = factors.decodeColValues(variantValues, vType, vSep) ?? variant?.raw_values ?? [];
-        const vLabel = escapeHtml(variant?.var_label ?? `${baseLabel} (v${idx + 1})`);
-        entries.push({ hash: `${col.col_hash}__var${idx}`, label: vLabel, values: vValues, isDeleted: !!col.col_del, isVariant: true });
+        const vRawLabel = variant?.var_label ?? `${baseRawLabel} (v${idx + 1})`;
+        entries.push({ hash: `${col.col_hash}__var${idx}`, rawLabel: vRawLabel, label: escapeHtml(vRawLabel), values: vValues, isDeleted: !!col.col_del, isVariant: true });
       });
     }
     return entries;
@@ -382,23 +401,25 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   const rows = [];
   const rowCount = Math.min(nRows, limit);
   for (let i = 0; i < rowCount; i++) {
+    /** @type {Record<string, any>} */
     const row = {};
     if (includeRowIndex) row['#'] = i + 1;
-    decodedCols.forEach(c => { row[c.label] = escapeHtml(c.values[i] ?? ''); });
+    // Store RAW values; renderCell escapes on emit and decides about the title attribute.
+    decodedCols.forEach(c => { row[c.label] = c.values[i] ?? ''; });
     rows.push(row);
   }
 
   const columns = includeRowIndex
-    ? [{ label: '#', isDeleted: false, isVariant: false }, ...decodedCols.map(c => ({ label: c.label, isDeleted: c.isDeleted, isVariant: c.isVariant }))] 
-    : decodedCols.map(c => ({ label: c.label, isDeleted: c.isDeleted, isVariant: c.isVariant }));
+    ? [{ rawLabel: '#', label: '#', isDeleted: false, isVariant: false }, ...decodedCols.map(c => ({ rawLabel: c.rawLabel, label: c.label, isDeleted: c.isDeleted, isVariant: c.isVariant }))]
+    : decodedCols.map(c => ({ rawLabel: c.rawLabel, label: c.label, isDeleted: c.isDeleted, isVariant: c.isVariant }));
   const thead = `<thead><tr>${columns.map(col => {
     let style = '';
     if (col.isDeleted) style = ' style="color:#ca1551;"';
     else if (col.isVariant) style = ' style="color:#198f51; font-style:italic"';
-    return `<th${style}>${col.label}</th>`;
+    return renderCell(col.rawLabel, 'th', style);
   }).join('')}</tr></thead>`;
   const colLabels = columns.map(c => c.label);
-  const tbody = `<tbody>${rows.map((row, i) => `<tr${i == 0 ? ' id="statz-database-row1"' : ""}>${colLabels.map(col => `<td>${row[col] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  const tbody = `<tbody>${rows.map((row, i) => `<tr${i == 0 ? ' id="statz-database-row1"' : ""}>${colLabels.map(col => renderCell(row[col], 'td')).join('')}</tr>`).join('')}</tbody>`;
   const tableHTML = `<table class="statz-viewer">${thead}${tbody}</table>`;
   if (!includeStyles) return tableHTML;
   return `<style>
