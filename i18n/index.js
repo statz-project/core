@@ -22,7 +22,13 @@ const MESSAGES = {
         "pValue": "p-valor",
         "groupA": "Grupo A",
         "groupB": "Grupo B",
-        "significant": "Significativo"
+        "significant": "Significativo",
+        "oddsRatio": "Odds Ratio",
+        "riskRatio": "Risk Ratio",
+        "ci95": "IC 95%"
+      },
+      "effectSizes": {
+        "ref": "Ref"
       },
       "missing": "Não informado",
       "missingValue": "—",
@@ -151,7 +157,13 @@ const MESSAGES = {
         "pValue": "p-value",
         "groupA": "Group A",
         "groupB": "Group B",
-        "significant": "Significant"
+        "significant": "Significant",
+        "oddsRatio": "Odds Ratio",
+        "riskRatio": "Risk Ratio",
+        "ci95": "95% CI"
+      },
+      "effectSizes": {
+        "ref": "Ref"
       },
       "missing": "Not informed",
       "missingValue": "—",
@@ -280,7 +292,13 @@ const MESSAGES = {
         "pValue": "Valor p",
         "groupA": "Grupo A",
         "groupB": "Grupo B",
-        "significant": "Significativo"
+        "significant": "Significativo",
+        "oddsRatio": "Odds Ratio",
+        "riskRatio": "Risk Ratio",
+        "ci95": "IC 95%"
+      },
+      "effectSizes": {
+        "ref": "Ref"
       },
       "missing": "No informado",
       "missingValue": "—",

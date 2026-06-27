@@ -135,7 +135,21 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
   resultArray.forEach(obj => {
     const table = obj?.table;
     if (!table) return;
-    const predLabel = `<b>${obj.predictor}</b>`;
+    const headerLabel = obj.predictor ?? obj.response ?? '—';
+    const predLabel = `<b>${headerLabel}</b>`;
+    // Warning entries (paired rejection cases, l × l without subset, multi-DB missing response)
+    // carry only `table.warning` — no columns/rows. Render as a flagged row spanning all columns.
+    if (/** @type {any} */ (table).warning) {
+      const headerRow = /** @type {Record<string, string>} */ ({});
+      combined.columns.forEach(col => { headerRow[col] = ''; });
+      headerRow[firstColLabel] = predLabel;
+      /** @type {any[]} */ (combined.rows).push(headerRow);
+      const warnRow = /** @type {Record<string, string>} */ ({});
+      combined.columns.forEach(col => { warnRow[col] = ''; });
+      warnRow._warning_text = /** @type {any} */ (table).warning;
+      /** @type {any[]} */ (combined.rows).push(warnRow);
+      return;
+    }
     table.columns.forEach(col => { if (!combined.columns.includes(col)) combined.columns.push(col); });
     const rowIntro = {};
     combined.columns.forEach(col => {
@@ -200,6 +214,11 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = 
   html += `</tr></thead>`;
   html += `<tbody>`;
   combined.rows.forEach(row => {
+    if (ns.isWarningRow(row)) {
+      const warnText = /** @type {any} */ (row)._warning_text;
+      html += `<tr><td colspan="${combined.columns.length}" style="background:#fff8e1;color:#856404;padding:8px;">⚠ ${warnText}</td></tr>`;
+      return;
+    }
     html += `<tr>`;
     let skip = 0;
     for (let i = 0; i < combined.columns.length; i++) {
@@ -274,6 +293,15 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = 
  * @returns {boolean}
  */
 ns.isPredictorHeaderRow = function (val) { if (typeof val !== 'string') return false; return /^<b(?:\s[^>]*)?>.+<\/b>$/.test(val.trim()); };
+
+/**
+ * Detects rows emitted by combineAnalysisAsSingleTable for warning entries (e.g., paired
+ * rejection, l × l without subset, multi-DB missing response). Such rows carry the
+ * warning string in `_warning_text` and otherwise have all columns blank.
+ * @param {Record<string, any>} row
+ * @returns {boolean}
+ */
+ns.isWarningRow = function (row) { return !!(row && typeof row._warning_text === 'string' && row._warning_text.length > 0); };
 
 /**
  * Render combined table as Markdown (with legend).

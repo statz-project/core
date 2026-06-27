@@ -699,6 +699,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.include_missing = normalized.include_missing ?? true;
   normalized.label_list_with_column = normalized.label_list_with_column ?? true;
   normalized.with_residuals = normalized.with_residuals ?? true;
+  normalized.effect_size_type = (/** @type {any} */ (normalized).effect_size_type) === 'risk_ratio' ? 'risk_ratio' : 'odds_ratio';
   normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
 
   const residuals = normalized.residual_symbols ?? {};
@@ -1175,7 +1176,11 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
       }
     }
     if (table?.used_resid_greater || table?.used_resid_lower) flagsUsed.add('has_residuals');
-    return { predictor: pred.col_label, response: response?.col_label || null, predictor_type: predictorType, response_type: responseType, table };
+    // n × n is a pair-wise correlation; the header label needs both axes to be meaningful.
+    const finalPredictorLabel = (predictorType === 'n' && responseType === 'n' && response?.col_label)
+      ? `${pred.col_label} × ${response.col_label}`
+      : pred.col_label;
+    return { predictor: finalPredictorLabel, response: response?.col_label || null, predictor_type: predictorType, response_type: responseType, table };
   }).filter(Boolean).flat();
 };
 

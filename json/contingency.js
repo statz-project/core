@@ -97,7 +97,7 @@ ns.convertContingencyObjectToMatrix = function (contingency) {
  * @param {string[]} predictorVals
  * @param {string[]} responseVals
  * @param {(ctx:{count:number,percent:number,rowTotal:number,colTotal:number})=>string=} formatFn
- * @param {{with_residuals?:boolean,residual_symbols?:{greater:string,lower:string},alpha?:number,percent_by?:'row'|'col',lang?:string}=} options
+ * @param {{with_residuals?:boolean,residual_symbols?:{greater:string,lower:string},alpha?:number,percent_by?:'row'|'col',lang?:string,effect_size_type?:'odds_ratio'|'risk_ratio'}=} options
  * @param {{rowLabels?:string[]|null,colLabels?:string[]|null}=} labels
  */
 ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}, labels = {}) {
@@ -124,7 +124,6 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
   });
   const rowLevels = rowLabels ?? [...new Set(predictorVals.map(v => v?.trim()).filter(Boolean))].sort();
   const colLevels = colLabels ?? [...new Set(responseVals.map(v => v?.trim()).filter(Boolean))].sort();
-  const columns = [groupLabel, ...colLevels, pValueLabel];
   const stats = getStatsLib();
   const observed = rowLevels.map(r => colLevels.map(c => table[r]?.[c] || 0));
   const test = (() => {
@@ -168,6 +167,15 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     return { method, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower, effect_sizes };
   })();
   const annotated = test.residualsAnnotated || [];
+  const showEffectSizes = !!test.effect_sizes && rowLevels.length === 2 && colLevels.length === 2;
+  const effectSizeType = options?.effect_size_type === 'risk_ratio' ? 'risk_ratio' : 'odds_ratio';
+  const effectSizeCol = showEffectSizes
+    ? translate(effectSizeType === 'risk_ratio' ? 'table.columns.riskRatio' : 'table.columns.oddsRatio', lang)
+    : null;
+  const ciCol = showEffectSizes ? translate('table.columns.ci95', lang) : null;
+  const columns = showEffectSizes
+    ? [groupLabel, ...colLevels, effectSizeCol, ciCol, pValueLabel]
+    : [groupLabel, ...colLevels, pValueLabel];
   const rows = rowLevels.map((row, i) => {
     const result = { [groupLabel]: row };
     colLevels.forEach((col, j) => {
@@ -179,6 +187,16 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
       const symbol = annotated[i]?.[j] ?? '';
       result[col] = `${formatted}${symbol}`;
     });
+    if (showEffectSizes && test.effect_sizes) {
+      if (i === 0) {
+        result[effectSizeCol] = translate('table.effectSizes.ref', lang);
+        result[ciCol] = '';
+      } else {
+        const stat = test.effect_sizes[effectSizeType];
+        result[effectSizeCol] = formatNumberLocale(stat.value, 2, lang);
+        result[ciCol] = `${formatNumberLocale(stat.ci_lower, 2, lang)}–${formatNumberLocale(stat.ci_upper, 2, lang)}`;
+      }
+    }
     result[pValueLabel] = '';
     return result;
   });

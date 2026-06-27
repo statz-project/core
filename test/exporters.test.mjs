@@ -75,3 +75,90 @@ test("exportDatabaseAsHTML: long col_label produces title on <th>", () => {
   const html = exporters.exportDatabaseAsHTML(db, baseOpts);
   assert.ok(html.includes(`<th title="${longLabel}"`), "th carries title with raw label");
 });
+
+// ---------------------------------------------------------------------------
+// combineAnalysisAsSingleTable / exportCombinedAsHTML — Phase 2-4 shapes
+// ---------------------------------------------------------------------------
+
+import contingency from "../json/contingency.js";
+
+// Build a minimal "analysis" entry — mirrors the shape driver.js emits.
+const entry = (predictor, response, predictor_type, response_type, table) => ({
+  predictor, response, predictor_type, response_type, table
+});
+
+test("combine: warning entry does not throw and is preserved", () => {
+  const result = { analysis: [
+    entry(null, "T0 × T1", null, "q", { warning: "Paired analysis requires responses of the same type" })
+  ]};
+  const combined = exporters.combineAnalysisAsSingleTable(result);
+  // header row + warning row
+  assert.equal(combined.rows.length, 2);
+  assert.match(combined.rows[0][combined.columns[0]], /<b>T0 × T1<\/b>/);
+  assert.equal(combined.rows[1]._warning_text, "Paired analysis requires responses of the same type");
+});
+
+test("exportCombinedAsHTML: warning row renders with amber + ⚠ + full colspan", () => {
+  const result = { analysis: [
+    entry(null, "Sex", null, "q", { warning: "List × list requires subsets" })
+  ]};
+  const combined = exporters.combineAnalysisAsSingleTable(result);
+  const html = exporters.exportCombinedAsHTML(combined, "Test", false);
+  assert.match(html, /⚠ List × list requires subsets/);
+  assert.match(html, /colspan="\d+"[^>]*background:#fff8e1/);
+});
+
+test("combine: null predictor falls back to response in header label", () => {
+  const result = { analysis: [
+    entry(null, "T0 × T1", null, "n", {
+      columns: ["Statistic", "T0", "T1", "p-value"],
+      rows: [{ Statistic: "Mean", T0: "1.0", T1: "2.0", "p-value": "" }],
+      test_used: "Paired t-test", p_value: 0.05
+    })
+  ]};
+  const combined = exporters.combineAnalysisAsSingleTable(result);
+  const header = combined.rows[0];
+  // First column (Group/Variable) carries the bold label
+  assert.match(header[combined.columns[0]], /<b>T0 × T1<\/b>/);
+});
+
+test("isWarningRow: detects rows with _warning_text", () => {
+  assert.equal(exporters.isWarningRow({ _warning_text: "x" }), true);
+  assert.equal(exporters.isWarningRow({ _warning_text: "" }), false);
+  assert.equal(exporters.isWarningRow({}), false);
+  assert.equal(exporters.isWarningRow(null), false);
+});
+
+test("summarize_q_q 2×2: adds Odds Ratio + 95% CI columns; row 0 = Ref", () => {
+  // Predictor: exposure (yes/no); response: outcome (sick/well). 2×2 setup.
+  const pred = ["yes","yes","yes","yes","no","no","no","no","yes","no"];
+  const resp = ["sick","sick","sick","well","well","well","well","well","sick","sick"];
+  const t = contingency.summarize_q_q(pred, resp, undefined, { lang: "en_us" });
+  // Default options: effect_size_type unset → OR. Columns include Odds Ratio + 95% CI.
+  assert.ok(t.columns.includes("Odds Ratio"), `columns: ${t.columns.join(", ")}`);
+  assert.ok(t.columns.includes("95% CI"));
+  // Row order is alphabetical: "no" first, then "yes"
+  const refRow = t.rows[0];
+  assert.equal(refRow["Odds Ratio"], "Ref");
+  assert.equal(refRow["95% CI"], "");
+  const valRow = t.rows[1];
+  assert.match(valRow["Odds Ratio"], /^\d+\.\d{2}$/, `OR value: ${valRow["Odds Ratio"]}`);
+  assert.match(valRow["95% CI"], /^\d+\.\d{2}–\d+\.\d{2}$/);
+});
+
+test("summarize_q_q 2×2: effect_size_type='risk_ratio' switches column name", () => {
+  const pred = ["yes","yes","yes","no","no","no","yes","no","yes","no"];
+  const resp = ["sick","sick","well","well","well","sick","well","sick","sick","well"];
+  const t = contingency.summarize_q_q(pred, resp, undefined, { lang: "en_us", effect_size_type: "risk_ratio" });
+  assert.ok(t.columns.includes("Risk Ratio"), `columns: ${t.columns.join(", ")}`);
+  assert.ok(!t.columns.includes("Odds Ratio"));
+  assert.equal(t.rows[0]["Risk Ratio"], "Ref");
+});
+
+test("summarize_q_q 3×2: no effect_size columns added", () => {
+  const pred = ["a","a","b","b","c","c","a","b","c","a"];
+  const resp = ["yes","no","yes","yes","no","no","yes","no","yes","no"];
+  const t = contingency.summarize_q_q(pred, resp, undefined, { lang: "en_us" });
+  assert.equal(t.columns.includes("Odds Ratio"), false);
+  assert.equal(t.columns.includes("95% CI"), false);
+});
