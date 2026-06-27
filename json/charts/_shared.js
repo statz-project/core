@@ -15,6 +15,32 @@ export const THEME_COLORS = {
 };
 
 /**
+ * Qualitative palettes per theme — used by multi-series charts (e.g., grouped bar in q × q
+ * where each response level is a distinct color). Each palette is cycled if `n` exceeds
+ * its length.
+ */
+const THEME_PALETTES = {
+  gray:  ['#525252', '#969696', '#bdbdbd', '#d9d9d9'],
+  blue:  ['#1f77b4', '#5b9bd5', '#9ec5e8', '#cce0f4'],
+  red:   ['#d62728', '#e57c7d', '#ee9ea0', '#f4c2c3'],
+  green: ['#2ca02c', '#5ab85a', '#8ccf8c', '#bce0bc']
+};
+
+/**
+ * Resolve a theme name to an n-length palette (cycles if n > palette length).
+ * @param {string|undefined} name
+ * @param {number} n
+ * @returns {string[]}
+ */
+export function getThemePalette(name, n) {
+  const palette = THEME_PALETTES[/** @type {keyof typeof THEME_PALETTES} */ (name)] ?? THEME_PALETTES.gray;
+  if (!Number.isFinite(n) || n <= 0) return [];
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(palette[i % palette.length]);
+  return out;
+}
+
+/**
  * Resolve a theme name to its color palette; falls back to gray for unknown names.
  * @param {string|undefined} name
  * @returns {{point:string,line:string}}

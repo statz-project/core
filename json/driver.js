@@ -1111,11 +1111,30 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
       }
     } else {
       if (predictorType === 'q' && responseType === 'q') {
-        const labelOptions = { rowLabels: predictorCol.col_values?.labels ?? null, colLabels: responseCol.col_values?.labels ?? null };
-        table = contingency.summarize_q_q(predictorVals, responseVals, formatFn, options, labelOptions); flagsUsed.add('has_qq');
+        flagsUsed.add('has_qq');
+        if (options?.mode === 'chart') {
+          chart = charts.chart_q_q(predictorVals ?? [], responseVals ?? [], options, {
+            predictorLabel: pred.col_label,
+            responseLabel: response?.col_label || '',
+            predictorLabels: predictorCol.col_values?.labels ?? null,
+            responseLabels: responseCol.col_values?.labels ?? null
+          });
+        } else {
+          const labelOptions = { rowLabels: predictorCol.col_values?.labels ?? null, colLabels: responseCol.col_values?.labels ?? null };
+          table = contingency.summarize_q_q(predictorVals, responseVals, formatFn, options, labelOptions);
+        }
       } else if (predictorType === 'n' && responseType === 'q') {
-        const nqOptions = { ...options, responseLabels: responseCol?.col_values?.labels ?? null };
-        table = numeric.summarize_n_q(predictorVals, responseVals, formatFn, flagsUsed, nqOptions); flagsUsed.add('has_nq');
+        flagsUsed.add('has_nq');
+        if (options?.mode === 'chart') {
+          chart = charts.chart_n_q(predictorVals ?? [], responseVals ?? [], options, {
+            numericLabel: pred.col_label,
+            groupLabel: response?.col_label || '',
+            groupLabels: responseCol?.col_values?.labels ?? null
+          });
+        } else {
+          const nqOptions = { ...options, responseLabels: responseCol?.col_values?.labels ?? null };
+          table = numeric.summarize_n_q(predictorVals, responseVals, formatFn, flagsUsed, nqOptions);
+        }
       } else if (predictorType === 'l' && responseType === 'q') {
         const includePrefix = options?.label_list_with_column ?? true;
         const summaries = ns.summarize_l_q(predictorVals, responseVals, formatFn, options, {
@@ -1167,8 +1186,16 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         // groups (from the qualitative) as rows and numeric stats as columns — the
         // layout we want when q is the predictor.
         flagsUsed.add('has_qn');
-        const qnOptions = { ...options, responseLabels: predictorCol.col_values?.labels ?? null };
-        table = numeric.summarize_n_q(responseVals ?? [], predictorVals ?? [], formatFn, flagsUsed, qnOptions);
+        if (options?.mode === 'chart') {
+          chart = charts.chart_q_n(predictorVals ?? [], responseVals ?? [], options, {
+            predictorLabel: pred.col_label,
+            responseLabel: response?.col_label || '',
+            predictorLabels: predictorCol.col_values?.labels ?? null
+          });
+        } else {
+          const qnOptions = { ...options, responseLabels: predictorCol.col_values?.labels ?? null };
+          table = numeric.summarize_n_q(responseVals ?? [], predictorVals ?? [], formatFn, flagsUsed, qnOptions);
+        }
       } else if (predictorType === 'l' && responseType === 'l') {
         /** @type {string[]} */
         const predSubset = Array.isArray(/** @type {any} */ (pred).subset_items)

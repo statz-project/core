@@ -274,3 +274,154 @@ test("runAnalysis mode='chart' Profile A: l predictor → chart_l bar", () => {
   // l input is split into items, so bar count > 1 expected for non-trivial fixture
   assert.ok(entry.chart.spec.data[0].x.length >= 1);
 });
+
+// ---------------------------------------------------------------------------
+// Profile C direct cells — chart_q_q, chart_n_q, chart_q_n
+// ---------------------------------------------------------------------------
+
+import { chart_q_q } from "../json/charts/q_q.js";
+import { chart_n_q, chart_q_n } from "../json/charts/n_q.js";
+
+test("chart_q_q: grouped bar with one trace per response level", () => {
+  const pred = ["a","a","a","b","b","b","b"];
+  const resp = ["x","x","y","x","y","y","y"];
+  const out = chart_q_q(pred, resp, {}, { predictorLabel: "Group", responseLabel: "Outcome" });
+  assert.ok(out);
+  assert.equal(out.type, "grouped_bar");
+  assert.equal(out.spec.layout.barmode, "group");
+  assert.equal(out.spec.data.length, 2);
+  assert.equal(out.spec.data[0].name, "x");
+  assert.equal(out.spec.data[1].name, "y");
+  assert.deepEqual(out.spec.data[0].x, ["a", "b"]);
+  assert.deepEqual(out.spec.data[0].y, [2, 1]);
+  assert.deepEqual(out.spec.data[1].y, [1, 3]);
+});
+
+test("chart_q_q: preset labels preserve factor order", () => {
+  const pred = ["male","female","female","male"];
+  const resp = ["yes","no","yes","no"];
+  const out = chart_q_q(pred, resp, {}, { predictorLabels: ["female","male"], responseLabels: ["yes","no"] });
+  assert.deepEqual(out.spec.data[0].x, ["female", "male"]);
+  assert.equal(out.spec.data[0].name, "yes");
+  assert.equal(out.spec.data[1].name, "no");
+});
+
+test("chart_q_q: label format p computes row percentages per predictor level", () => {
+  const pred = ["a","a","a","a","b","b"];
+  const resp = ["x","x","y","y","x","y"];
+  const out = chart_q_q(pred, resp, { chart_label_format: "p" }, {});
+  assert.deepEqual(out.spec.data[0].text, ["50.0%", "50.0%"]);
+});
+
+test("chart_q_q: distinct colors per response trace", () => {
+  const pred = ["a","b","a","b"];
+  const resp = ["x","y","y","x"];
+  const out = chart_q_q(pred, resp, { chart_theme: "blue" }, {});
+  assert.notEqual(out.spec.data[0].marker.color, out.spec.data[1].marker.color);
+});
+
+test("chart_q_q: empty input returns null", () => {
+  assert.equal(chart_q_q([], [], {}, {}), null);
+  assert.equal(chart_q_q([null, ""], ["", null], {}, {}), null);
+});
+
+test("chart_n_q: produces 2 traces per group (points + mean) by default", () => {
+  const nums = [1, 2, 3, 10, 20, 30];
+  const groups = ["a","a","a","b","b","b"];
+  const out = chart_n_q(nums, groups, {}, { numericLabel: "Value", groupLabel: "Group" });
+  assert.ok(out);
+  assert.equal(out.type, "individual_values_grouped");
+  assert.equal(out.spec.data.length, 4);
+  const meanA = out.spec.data[1];
+  const meanB = out.spec.data[3];
+  assert.equal(meanA.y[0], 2);
+  assert.equal(meanB.y[0], 20);
+});
+
+test("chart_n_q: chart_show_boxplot=true adds box trace per group", () => {
+  const out = chart_n_q([1,2,3,10,20,30], ["a","a","a","b","b","b"], { chart_show_boxplot: true }, {});
+  assert.equal(out.spec.data.length, 6);
+  assert.equal(out.spec.data[0].type, "box");
+  assert.equal(out.spec.data[3].type, "box");
+});
+
+test("chart_n_q: x-axis tickvals/ticktext match group positions", () => {
+  const out = chart_n_q([1,2,3], ["g1","g2","g3"], {}, { groupLabel: "Cohort" });
+  assert.deepEqual(out.spec.layout.xaxis.tickvals, [1, 2, 3]);
+  assert.deepEqual(out.spec.layout.xaxis.ticktext, ["g1", "g2", "g3"]);
+});
+
+test("chart_n_q: drops non-numeric and empty-group rows", () => {
+  const out = chart_n_q([1, "abc", 3, null, 5], ["a", "a", "b", "b", ""], {}, {});
+  assert.ok(out);
+  assert.deepEqual(out.spec.data[0].y, [1]);
+  assert.deepEqual(out.spec.data[2].y, [3]);
+});
+
+test("chart_n_q: returns null when no valid pairs", () => {
+  assert.equal(chart_n_q([null, "abc"], ["a", "b"], {}, {}), null);
+  assert.equal(chart_n_q([1, 2], ["", null], {}, {}), null);
+});
+
+test("chart_q_n: wrapper places q on x-axis and n on y-axis", () => {
+  const pred = ["a","a","b","b"];
+  const resp = [1, 2, 10, 20];
+  const out = chart_q_n(pred, resp, {}, { predictorLabel: "Group", responseLabel: "Value" });
+  assert.ok(out);
+  assert.equal(out.type, "individual_values_grouped");
+  assert.equal(out.spec.layout.xaxis.title.text, "Group");
+  assert.equal(out.spec.layout.yaxis.title.text, "Value");
+});
+
+test("runAnalysis mode=chart Profile C: q x q grouped_bar", () => {
+  const sex = Statz.getColumnValues(parsed, "col_sex_hash");
+  const outcome = Statz.getColumnValues(parsed, "col_outcome_hash");
+  const dbs = { test_db: { columns: [sex.column, outcome.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: sex.column.col_hash, col_var_index: null, col_label: "Sex", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: outcome.column.col_hash, col_var_index: null, col_label: "Outcome", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_qq"));
+  const entry = result.analysis[0];
+  assert.equal(entry.chart.type, "grouped_bar");
+  assert.equal(entry.chart.spec.layout.barmode, "group");
+});
+
+test("runAnalysis mode=chart Profile C: n x q individual_values_grouped", () => {
+  const biomarker = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const sex = Statz.getColumnValues(parsed, "col_sex_hash");
+  const dbs = { test_db: { columns: [biomarker.column, sex.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: biomarker.column.col_hash, col_var_index: null, col_label: "Biomarker", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: sex.column.col_hash, col_var_index: null, col_label: "Sex", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_nq"));
+  const entry = result.analysis[0];
+  assert.equal(entry.chart.type, "individual_values_grouped");
+  assert.equal(entry.chart.spec.layout.yaxis.title.text, "Biomarker");
+  assert.equal(entry.chart.spec.layout.xaxis.title.text, "Sex");
+});
+
+test("runAnalysis mode=chart Profile C: q x n placed q on x and n on y", () => {
+  const sex = Statz.getColumnValues(parsed, "col_sex_hash");
+  const biomarker = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const dbs = { test_db: { columns: [sex.column, biomarker.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: sex.column.col_hash, col_var_index: null, col_label: "Sex", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: biomarker.column.col_hash, col_var_index: null, col_label: "Biomarker", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_qn"));
+  const entry = result.analysis[0];
+  assert.equal(entry.chart.type, "individual_values_grouped");
+  assert.equal(entry.chart.spec.layout.xaxis.title.text, "Sex");
+  assert.equal(entry.chart.spec.layout.yaxis.title.text, "Biomarker");
+});
