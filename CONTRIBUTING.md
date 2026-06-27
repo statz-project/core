@@ -50,7 +50,8 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 - jStat and simple-statistics are loaded from CDN with fallbacks.
 - We intentionally keep these deps out of the generated bundle so `bubble-html/statz-bundle.html` stays small for Bubble; they continue to load on demand via CDN, and we still list them in package.json so GitHub/Dependabot can index the dependencies.
 - `@stdlib/stats@0.3.2` is dynamically imported through jsDelivr’s `+esm` endpoint so its dependencies stay pinned.
-- Before running statistical routines, call `window.Statz.health()` (`Statz.health()` in Node) to confirm the adapters are loaded.
+- `plotly.js-cartesian-dist-min@2.35.2` (~500 KB) is loaded eagerly by `initDeps` for chart rendering (`runAnalysis` with `options.mode = 'chart'`). It attaches `window.Plotly`; `loadPlotly` mirrors it to `ns.plotly`. The cartesian dist covers scatter, bar, box, violin, and heatmap — all chart types in the analysis matrix; switch to `plotly.js-dist-min` only if 3D/maps/polar are ever needed.
+- Before running statistical routines, call `window.Statz.health()` (`Statz.health()` in Node) to confirm the adapters are loaded. `health()` now reports `plotly` alongside `jStat`, `simpleStatistics`, and `stdlib`.
 - Do not set esbuild `globalName` to `Statz` (we already assign `window.Statz` in `core/index.js`).
 
 ## Build Output Rules

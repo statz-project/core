@@ -5,8 +5,10 @@ import { loadScript } from './utils.js';
 const CDN = {
   jstat: "https://cdn.jsdelivr.net/npm/jstat@1.9.6/dist/jstat.min.js",
   simplestats: "https://cdn.jsdelivr.net/npm/simple-statistics@7.8.3/dist/simple-statistics.min.js",
+  plotly: "https://cdn.jsdelivr.net/npm/plotly.js-cartesian-dist-min@2.35.2/plotly-cartesian.min.js",
   jstat_alt: "https://unpkg.com/jstat@1.9.6/dist/jstat.min.js",
   simplestats_alt: "https://unpkg.com/simple-statistics@7.8.3/dist/simple-statistics.min.js",
+  plotly_alt: "https://unpkg.com/plotly.js-cartesian-dist-min@2.35.2/plotly-cartesian.min.js",
 };
 
 /**
@@ -29,14 +31,16 @@ export function loadScriptP(src) {
 
 /**
  * Quick readiness/health snapshot for loaded adapters.
- * @returns {{jStat:boolean,simpleStatistics:boolean,stdlib:boolean}}
+ * @returns {{jStat:boolean,simpleStatistics:boolean,stdlib:boolean,plotly:boolean}}
  */
 export function health() {
   const ns = (typeof window !== 'undefined' ? (window.Statz || window.Utils) : undefined) || {};
+  const plotlyRef = ns.plotly || (typeof window !== 'undefined' ? /** @type {any} */ (window).Plotly : null);
   return {
     jStat: !!ns.jStat,
     simpleStatistics: !!(ns.simpleStatistics || (typeof window !== 'undefined' && (window.ss || window.simpleStatistics))),
-    stdlib: !!(ns.stdlibStats && typeof ns.stdlibStats.chi2test === 'function')
+    stdlib: !!(ns.stdlibStats && typeof ns.stdlibStats.chi2test === 'function'),
+    plotly: !!(plotlyRef && typeof plotlyRef.newPlot === 'function')
   };
 }
 
@@ -80,12 +84,34 @@ export async function loadDeps(nsArg) {
 }
 
 /**
- * Convenience initializer: loadDeps then loadStdlibStats, return health.
+ * Load Plotly (cartesian-dist-min) from CDN with fallback. Plotly attaches itself to
+ * window.Plotly; we mirror it to `ns.plotly` for parity with other adapters and so that
+ * health() can detect it without touching the global directly.
+ * @param {any=} nsArg Optional namespace to attach to
+ * @returns {Promise<string|void>}
+ */
+export function loadPlotly(nsArg) {
+  const ns = nsArg || (typeof window !== 'undefined' ? (window.Statz || window.Utils) : undefined) || {};
+  if (ns.plotly) return Promise.resolve('ok');
+  return loadScriptP(CDN.plotly)
+    .catch(() => loadScriptP(CDN.plotly_alt))
+    .then(() => {
+      if (typeof window !== 'undefined') {
+        ns.plotly = /** @type {any} */ (window).Plotly || null;
+      }
+      return 'ok';
+    })
+    .catch(e => { console.warn('Plotly failed; chart rendering will be unavailable:', e); });
+}
+
+/**
+ * Convenience initializer: loadDeps then loadStdlibStats then loadPlotly, return health.
  * @param {any=} nsArg Optional namespace to attach adapters to
  */
 export async function initDeps(nsArg) {
   const ns = nsArg || (typeof window !== 'undefined' ? (window.Statz || window.Utils) : undefined) || {};
   await loadDeps(ns);
   await loadStdlibStats(ns);
+  await loadPlotly(ns);
   return health();
 }
