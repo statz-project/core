@@ -4,6 +4,7 @@ import factors from './factors.js';
 import contingency from './contingency.js';
 import numeric from './numeric.js';
 import variants from './variants.js';
+import charts from './charts/index.js';
 import { getBinaryLabels, getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 
 /**
@@ -700,6 +701,20 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.label_list_with_column = normalized.label_list_with_column ?? true;
   normalized.with_residuals = normalized.with_residuals ?? true;
   normalized.effect_size_type = (/** @type {any} */ (normalized).effect_size_type) === 'risk_ratio' ? 'risk_ratio' : 'odds_ratio';
+  // Chart mode: defaults to 'table' for backward compatibility. When 'chart', the dispatcher
+  // emits Plotly figure specs in `entry.chart` instead of cross-tab data in `entry.table`.
+  normalized.mode = (/** @type {any} */ (normalized).mode) === 'chart' ? 'chart' : 'table';
+  normalized.chart_theme = (/** @type {any} */ (normalized).chart_theme) ?? 'gray';
+  normalized.chart_point_size = Number.isFinite(Number((/** @type {any} */ (normalized).chart_point_size)))
+    ? Number((/** @type {any} */ (normalized).chart_point_size)) : 8;
+  normalized.chart_show_boxplot = (/** @type {any} */ (normalized).chart_show_boxplot) === true;
+  normalized.chart_label_format = ['n', 'p', 'np'].includes((/** @type {any} */ (normalized).chart_label_format))
+    ? (/** @type {any} */ (normalized).chart_label_format) : 'n';
+  normalized.chart_paired_show_lines = (/** @type {any} */ (normalized).chart_paired_show_lines) !== false;
+  normalized.chart_likert_enabled = (/** @type {any} */ (normalized).chart_likert_enabled) === true;
+  normalized.chart_x_label_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_x_label_wrap)))
+    ? Number((/** @type {any} */ (normalized).chart_x_label_wrap)) : 3;
+  normalized.chart_include_zero = (/** @type {any} */ (normalized).chart_include_zero) !== false;
   normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
 
   const residuals = normalized.residual_symbols ?? {};
@@ -1069,10 +1084,31 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
     if (!predictorCol) return null;
     const predictorVals = predictorCol.raw_values; const predictorType = predictorCol.col_type; const predictorSep = predictorCol.col_sep || ';'; const formatFn = formatFns[pred.col_label] || null;
     let table;
+    /** @type {{type:string, spec:any}|null|undefined} */
+    let chart;
     if (!response) {
-      if (predictorType === 'q') { table = ns.summarize_q(predictorVals, formatFn, options, { labels: predictorCol.col_values?.labels ?? null }); flagsUsed.add('has_q'); }
-      else if (predictorType === 'l') { table = ns.summarize_l(predictorVals, predictorSep, formatFn, options); flagsUsed.add('has_l'); }
-      else if (predictorType === 'n') { table = numeric.summarize_n(predictorVals, formatFn, options); flagsUsed.add('has_n'); }
+      if (predictorType === 'q') {
+        flagsUsed.add('has_q');
+        if (options?.mode === 'chart') {
+          chart = charts.chart_q(predictorVals ?? [], options, { varLabel: pred.col_label, labels: predictorCol.col_values?.labels ?? null });
+        } else {
+          table = ns.summarize_q(predictorVals, formatFn, options, { labels: predictorCol.col_values?.labels ?? null });
+        }
+      } else if (predictorType === 'l') {
+        flagsUsed.add('has_l');
+        if (options?.mode === 'chart') {
+          chart = charts.chart_l(predictorVals ?? [], predictorSep, options, { varLabel: pred.col_label });
+        } else {
+          table = ns.summarize_l(predictorVals, predictorSep, formatFn, options);
+        }
+      } else if (predictorType === 'n') {
+        flagsUsed.add('has_n');
+        if (options?.mode === 'chart') {
+          chart = charts.chart_n(predictorVals ?? [], options, { varLabel: pred.col_label });
+        } else {
+          table = numeric.summarize_n(predictorVals, formatFn, options);
+        }
+      }
     } else {
       if (predictorType === 'q' && responseType === 'q') {
         const labelOptions = { rowLabels: predictorCol.col_values?.labels ?? null, colLabels: responseCol.col_values?.labels ?? null };
@@ -1117,7 +1153,14 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         return summaries;
       } else if (predictorType === 'n' && responseType === 'n') {
         flagsUsed.add('has_nn');
-        table = numeric.summarize_n_n(predictorVals ?? [], responseVals ?? [], formatFn, options);
+        if (options?.mode === 'chart') {
+          chart = charts.chart_n_n(predictorVals ?? [], responseVals ?? [], options, {
+            predictorLabel: pred.col_label,
+            responseLabel: response?.col_label || ''
+          });
+        } else {
+          table = numeric.summarize_n_n(predictorVals ?? [], responseVals ?? [], formatFn, options);
+        }
       } else if (predictorType === 'q' && responseType === 'n') {
         // Axis inversion: pass numeric response as the "predictor" arg and qualitative
         // predictor as the "response" arg. summarize_n_q's output naturally lays out
@@ -1180,6 +1223,10 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
     const finalPredictorLabel = (predictorType === 'n' && responseType === 'n' && response?.col_label)
       ? `${pred.col_label} × ${response.col_label}`
       : pred.col_label;
+    // Chart mode: emit `chart` instead of `table` when present.
+    if (chart) {
+      return /** @type {any} */ ({ predictor: finalPredictorLabel, response: response?.col_label || null, predictor_type: predictorType, response_type: responseType, chart });
+    }
     return { predictor: finalPredictorLabel, response: response?.col_label || null, predictor_type: predictorType, response_type: responseType, table };
   }).filter(Boolean).flat();
 };
