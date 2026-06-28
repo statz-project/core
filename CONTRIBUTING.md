@@ -52,6 +52,15 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 - `@stdlib/stats@0.3.2` is dynamically imported through jsDelivr’s `+esm` endpoint so its dependencies stay pinned.
 - `plotly.js-cartesian-dist-min@2.35.2` (~500 KB) is loaded eagerly by `initDeps` for chart rendering (`runAnalysis` with `options.mode = 'chart'`). It attaches `window.Plotly`; `loadPlotly` mirrors it to `ns.plotly`. The cartesian dist covers scatter, bar, box, violin, and heatmap — all chart types in the analysis matrix; switch to `plotly.js-dist-min` only if 3D/maps/polar are ever needed.
 - Before running statistical routines, call `window.Statz.health()` (`Statz.health()` in Node) to confirm the adapters are loaded. `health()` now reports `plotly` alongside `jStat`, `simpleStatistics`, and `stdlib`.
+
+## Chart rendering & export
+
+- The chart pipeline is **spec-only in the core**: `runAnalysis({mode:'chart'})` emits Plotly figure specs in `entry.chart.spec`; no rendering happens inside the core.
+- For on-screen display, `exportCombinedAsChartHTML` produces a `<div class="statz-chart-grid">` fragment with one `<div class="statz-chart" data-spec="...">` per entry. `window.Statz.renderCharts(rootEl)` sweeps those placeholders and invokes `Plotly.newPlot` per cell (idempotent via `data-rendered="1"`).
+- For DOCX/PDF export, three helpers convert specs to base64 images via off-screen rendering + `Plotly.toImage`:
+  - `chartSpecToImage(spec, {width?, height?, format?})` — single spec → data URL (Promise).
+  - `chartSpecsToImages(specs, options)` — batch (serial).
+  - `analysisResultToImages(resultObj, options)` — walks `result.analysis`, returns `[{predictor, response, image, warning}]`; warning entries pass through with `image: null`. The DOCX layer (e.g., `docx` npm) then assembles the document from these primitives.
 - Do not set esbuild `globalName` to `Statz` (we already assign `window.Statz` in `core/index.js`).
 
 ## Build Output Rules

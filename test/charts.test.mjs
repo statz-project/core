@@ -1033,3 +1033,180 @@ test("runAnalysis mode=chart Profile A: chart_likert_enabled but mixed types fal
   assert.equal(result.analysis[0].chart.type, "bar");
   assert.equal(result.analysis[1].chart.type, "individual_values");
 });
+
+// ---------------------------------------------------------------------------
+// Phase 7 — DOCX export primitives (chartSpecToImage and friends)
+// ---------------------------------------------------------------------------
+
+import * as loader from "../loader.js";
+
+// Existence + signature ------------------------------------------------------
+
+test("loader: exports chartSpecToImage / chartSpecsToImages / analysisResultToImages", () => {
+  assert.equal(typeof loader.chartSpecToImage, "function");
+  assert.equal(typeof loader.chartSpecsToImages, "function");
+  assert.equal(typeof loader.analysisResultToImages, "function");
+});
+
+// Browser-environment guard --------------------------------------------------
+
+test("chartSpecToImage: rejects in Node (no document) with a clear message", async () => {
+  const prevDoc = globalThis.document;
+  delete globalThis.document;
+  try {
+    await assert.rejects(
+      () => loader.chartSpecToImage({ data: [], layout: {} }),
+      /requires a browser environment/
+    );
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc;
+  }
+});
+
+test("chartSpecToImage: rejects when Plotly absent (with browser shim, no window.Plotly)", async () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  // Minimal shim: document exists, window exists, but no Plotly.
+  globalThis.document = /** @type {any} */ ({ createElement: () => ({}), body: { appendChild: () => {} } });
+  globalThis.window = /** @type {any} */ ({});
+  try {
+    await assert.rejects(
+      () => loader.chartSpecToImage({ data: [], layout: {} }),
+      /window\.Plotly not available/
+    );
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+test("chartSpecToImage: rejects with clear message on invalid spec", async () => {
+  // Need browser shim WITH Plotly mock so we get past the env/lib checks
+  // and reach the spec validation.
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  globalThis.document = /** @type {any} */ ({ createElement: () => ({}), body: { appendChild: () => {} } });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: { newPlot: () => Promise.resolve(), toImage: () => Promise.resolve('data:'), purge: () => {} }
+  });
+  try {
+    await assert.rejects(
+      () => loader.chartSpecToImage(null),
+      /invalid spec/
+    );
+    await assert.rejects(
+      () => loader.chartSpecToImage({ notData: true }),
+      /invalid spec/
+    );
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+// chartSpecsToImages -------------------------------------------------------
+
+test("chartSpecsToImages: empty input returns empty array", async () => {
+  assert.deepEqual(await loader.chartSpecsToImages([]), []);
+  assert.deepEqual(await loader.chartSpecsToImages(null), []);
+});
+
+test("chartSpecsToImages: with shim renders specs serially and returns data URLs in order", async () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const renderOrder = [];
+  const removed = [];
+  let plotCalls = 0;
+  globalThis.document = /** @type {any} */ ({
+    createElement: () => {
+      const el = { style: {}, remove: () => removed.push(el) };
+      return el;
+    },
+    body: { appendChild: () => {} }
+  });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: {
+      newPlot: (host, data) => { plotCalls++; renderOrder.push(data[0]?.id); return Promise.resolve(); },
+      toImage: () => Promise.resolve(`data:image/png;base64,X${plotCalls}`),
+      purge: () => {}
+    }
+  });
+  try {
+    const specs = [
+      { data: [{ id: "a" }], layout: {} },
+      { data: [{ id: "b" }], layout: {} },
+      { data: [{ id: "c" }], layout: {} }
+    ];
+    const images = await loader.chartSpecsToImages(specs);
+    assert.deepEqual(renderOrder, ["a", "b", "c"], "rendered serially in input order");
+    assert.equal(images.length, 3);
+    assert.equal(removed.length, 3, "host divs cleaned up after each render");
+    images.forEach((url) => assert.match(url, /^data:image\/png;base64,/));
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+// analysisResultToImages ---------------------------------------------------
+
+test("analysisResultToImages: empty / invalid input → []", async () => {
+  assert.deepEqual(await loader.analysisResultToImages(null), []);
+  assert.deepEqual(await loader.analysisResultToImages({}), []);
+  assert.deepEqual(await loader.analysisResultToImages({ analysis: [] }), []);
+});
+
+test("analysisResultToImages: passes through warning entries with image=null", async () => {
+  // No Plotly needed because the only entries are warnings (image branch not reached).
+  const result = {
+    analysis: [
+      { predictor: null, response: "T0 × T1", table: { warning: "mixed types" } },
+      { predictor: "L1", response: "L2", table: { warning: "list × list requires subsets" } }
+    ]
+  };
+  const out = await loader.analysisResultToImages(result);
+  assert.equal(out.length, 2);
+  out.forEach((entry) => {
+    assert.equal(entry.image, null);
+    assert.ok(entry.warning);
+  });
+  assert.equal(out[0].response, "T0 × T1");
+});
+
+test("analysisResultToImages: mixes warning + chart entries; preserves order", async () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  globalThis.document = /** @type {any} */ ({
+    createElement: () => ({ style: {}, remove: () => {} }),
+    body: { appendChild: () => {} }
+  });
+  let counter = 0;
+  globalThis.window = /** @type {any} */ ({
+    Plotly: {
+      newPlot: () => Promise.resolve(),
+      toImage: () => Promise.resolve(`data:image/png;base64,IMG${++counter}`),
+      purge: () => {}
+    }
+  });
+  try {
+    const result = {
+      analysis: [
+        { predictor: "A", chart: { type: "scatter", spec: { data: [{}], layout: {} } } },
+        { predictor: null, response: "rejected", table: { warning: "nope" } },
+        { predictor: "B", chart: { type: "bar", spec: { data: [{}], layout: {} } } }
+      ]
+    };
+    const out = await loader.analysisResultToImages(result);
+    assert.equal(out.length, 3);
+    assert.equal(out[0].image, "data:image/png;base64,IMG1");
+    assert.equal(out[0].predictor, "A");
+    assert.equal(out[0].warning, null);
+    assert.equal(out[1].image, null);
+    assert.equal(out[1].warning, "nope");
+    assert.equal(out[2].image, "data:image/png;base64,IMG2");
+    assert.equal(out[2].predictor, "B");
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});

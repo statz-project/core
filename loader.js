@@ -142,6 +142,89 @@ export function renderCharts(rootEl) {
 }
 
 /**
+ * Convert a single Plotly chart spec to a base64 image data URL via off-screen rendering.
+ * Used by DOCX export pipelines (the natural client-side path: render → `Plotly.toImage` →
+ * embed in document). Each call is self-contained — host div is created, plotted, captured,
+ * and removed before resolving.
+ *
+ * @param {{ data: any[], layout?: any }} spec Plotly figure spec ({data, layout}).
+ * @param {{ width?: number, height?: number, format?: 'png'|'svg'|'jpeg'|'webp' }=} options Render dimensions and output format. Defaults: 800×500 px PNG.
+ * @returns {Promise<string>} Data URL (e.g., `data:image/png;base64,…`).
+ */
+export function chartSpecToImage(spec, options = {}) {
+  if (typeof document === 'undefined') {
+    return Promise.reject(new Error('chartSpecToImage requires a browser environment'));
+  }
+  const Plotly = /** @type {any} */ (typeof window !== 'undefined' ? /** @type {any} */ (window).Plotly : null);
+  if (!Plotly || typeof Plotly.newPlot !== 'function' || typeof Plotly.toImage !== 'function') {
+    return Promise.reject(new Error('window.Plotly not available; ensure loadPlotly() resolved before exporting.'));
+  }
+  if (!spec || !Array.isArray(spec.data)) {
+    return Promise.reject(new Error('chartSpecToImage: invalid spec — expected {data: any[], layout?: any}.'));
+  }
+  const width = Number.isFinite(Number(options.width)) ? Number(options.width) : 800;
+  const height = Number.isFinite(Number(options.height)) ? Number(options.height) : 500;
+  const format = options.format || 'png';
+  const host = document.createElement('div');
+  host.style.cssText = `position:absolute;left:-9999px;top:-9999px;width:${width}px;height:${height}px;`;
+  document.body.appendChild(host);
+  return Plotly.newPlot(host, spec.data, spec.layout || {}, { displayModeBar: false, staticPlot: true })
+    .then(() => Plotly.toImage(host, { format, width, height }))
+    .finally(() => {
+      try { Plotly.purge(host); } catch (_e) { /* ignore */ }
+      host.remove();
+    });
+}
+
+/**
+ * Batch variant of `chartSpecToImage`. Renders serially (DOM manipulation is single-threaded
+ * and parallel `newPlot` calls on hidden hosts have shown flakiness in practice).
+ *
+ * @param {Array<{ data:any[], layout?:any }>} specs
+ * @param {{ width?:number, height?:number, format?:'png'|'svg'|'jpeg'|'webp' }=} options
+ * @returns {Promise<string[]>} Array of data URLs in input order.
+ */
+export async function chartSpecsToImages(specs, options) {
+  /** @type {string[]} */
+  const out = [];
+  if (!Array.isArray(specs)) return out;
+  for (const spec of specs) {
+    // eslint-disable-next-line no-await-in-loop
+    out.push(await chartSpecToImage(spec, options));
+  }
+  return out;
+}
+
+/**
+ * Walk a `runAnalysis(mode='chart')` result and produce an image-ready entry per chart cell.
+ * Warning entries pass through with `image: null` and the translated `warning` string —
+ * UI/DOCX assembly should render them as flagged blocks (same UX as the HTML grid).
+ *
+ * @param {{ analysis: Array<any> }} resultObj
+ * @param {{ width?:number, height?:number, format?:'png'|'svg'|'jpeg'|'webp' }=} options
+ * @returns {Promise<Array<{ predictor:string|null, response:string|null, image:string|null, warning:string|null }>>}
+ */
+export async function analysisResultToImages(resultObj, options) {
+  /** @type {Array<{ predictor:string|null, response:string|null, image:string|null, warning:string|null }>} */
+  const out = [];
+  if (!resultObj || !Array.isArray(resultObj.analysis)) return out;
+  for (const entry of resultObj.analysis) {
+    const predictor = entry?.predictor ?? null;
+    const response = entry?.response ?? null;
+    if (entry?.table?.warning) {
+      out.push({ predictor, response, image: null, warning: entry.table.warning });
+      continue;
+    }
+    if (entry?.chart?.spec) {
+      // eslint-disable-next-line no-await-in-loop
+      const image = await chartSpecToImage(entry.chart.spec, options);
+      out.push({ predictor, response, image, warning: null });
+    }
+  }
+  return out;
+}
+
+/**
  * Convenience initializer: loadDeps then loadStdlibStats then loadPlotly, return health.
  * @param {any=} nsArg Optional namespace to attach adapters to
  */
