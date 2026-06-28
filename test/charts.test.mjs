@@ -1210,3 +1210,44 @@ test("analysisResultToImages: mixes warning + chart entries; preserves order", a
     if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
   }
 });
+
+// ---------------------------------------------------------------------------
+// exportCombinedAsChartHTML — self-rendering inline <script>
+// ---------------------------------------------------------------------------
+
+test("exportCombinedAsChartHTML: appends self-rendering <script> after the grid", () => {
+  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  // Script lives at the end of the body and references renderCharts.
+  assert.match(html, /<script>\(function\(\)\{[\s\S]*renderCharts[\s\S]*\}\)\(\);<\/script>/);
+  // Order: grid div first, then footer (none here), then inline script.
+  const gridIdx = html.indexOf('<div class="statz-chart-grid">');
+  const scriptIdx = html.indexOf('<script>');
+  assert.ok(gridIdx >= 0 && scriptIdx > gridIdx, "script comes after the grid div");
+});
+
+test("exportCombinedAsChartHTML: inline script locates own grid via currentScript (no global selector)", () => {
+  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  // The script must not contain `document.querySelector('.statz-chart-grid')` (would target
+  // the FIRST grid in the page); it should use document.currentScript + previousElementSibling
+  // (with a parentElement.querySelector fallback that's scoped to the local parent only).
+  assert.match(html, /document\.currentScript/);
+  assert.equal(html.includes("document.querySelector('.statz-chart-grid')"), false);
+  assert.equal(html.includes('document.querySelector(".statz-chart-grid")'), false);
+});
+
+test("exportCombinedAsChartHTML: inline script polls for Plotly readiness with a bounded retry", () => {
+  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  // Polling: setTimeout + a counter cap so it doesn't loop forever when Plotly never loads.
+  assert.match(html, /setTimeout\(/);
+  assert.match(html, /timed out waiting for Plotly/);
+});
+
+test("exportCombinedAsChartHTML: empty analysis still emits the inline script (no-op when no grid cells)", () => {
+  // Even for an empty result we keep the script so Bubble doesn't need conditional wiring.
+  // The script's grid lookup returns the (empty) grid div; renderCharts iterates 0 cells.
+  const html = exporters.exportCombinedAsChartHTML({ analysis: [] });
+  assert.match(html, /<script>/);
+});

@@ -364,7 +364,13 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
     }
   }
 
-  const grid = `<div class="statz-chart-grid">${cells.join('')}</div>${footerHtml}`;
+  // Self-rendering inline script: locates its own grid via document.currentScript and
+  // calls Statz.renderCharts(grid) scoped to it. This makes the HTML self-contained — no
+  // Bubble workflow setup needed per Element, and multiple Element instances on the same
+  // page each render only their own charts. Polls for Plotly readiness (initDeps loads it
+  // asynchronously from CDN); idempotent via renderCharts' data-rendered guard.
+  const inlineScript = `<script>(function(){var s=document.currentScript;if(!s)return;var g=null;for(var el=s.previousElementSibling;el;el=el.previousElementSibling){if(el.classList&&el.classList.contains('statz-chart-grid')){g=el;break;}}if(!g&&s.parentElement)g=s.parentElement.querySelector('.statz-chart-grid');if(!g)return;var t=0,M=100;(function r(){if(window.Statz&&window.Statz.renderCharts&&window.Plotly){window.Statz.renderCharts(g);return;}if(++t>=M){console.warn('Statz: renderCharts timed out waiting for Plotly');return;}setTimeout(r,100);})();})();</script>`;
+  const grid = `<div class="statz-chart-grid">${cells.join('')}</div>${footerHtml}${inlineScript}`;
   const html = `${styles}${grid}`;
   if (!wrap) return html;
   return `<!DOCTYPE html>
