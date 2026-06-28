@@ -425,3 +425,181 @@ test("runAnalysis mode=chart Profile C: q x n placed q on x and n on y", () => {
   assert.equal(entry.chart.spec.layout.xaxis.title.text, "Sex");
   assert.equal(entry.chart.spec.layout.yaxis.title.text, "Biomarker");
 });
+
+// ---------------------------------------------------------------------------
+// Profile C list-expand — chart_l_q, chart_q_l, chart_l_n, chart_l_l
+// ---------------------------------------------------------------------------
+
+import { chart_l_q } from "../json/charts/l_q.js";
+import { chart_q_l } from "../json/charts/q_l.js";
+import { chart_l_n } from "../json/charts/l_n.js";
+import { chart_l_l } from "../json/charts/l_l.js";
+
+test("chart_l_q: returns one entry per list item", () => {
+  const list = ["fever;cough", "fever", "cough;headache", "fever;cough;headache"];
+  const resp = ["yes", "no", "yes", "no"];
+  const out = chart_l_q(list, resp, {}, { separator: ";", predictorLabel: "Symptoms", responseLabel: "Outcome" });
+  assert.ok(Array.isArray(out));
+  assert.equal(out.length, 3);
+  out.forEach((entry) => {
+    assert.equal(entry.chart.type, "grouped_bar");
+    assert.ok(entry.display_label.startsWith("Symptoms:"));
+  });
+});
+
+test("chart_l_q: includePrefix=false drops the variable prefix from display_label", () => {
+  const out = chart_l_q(["a;b", "a"], ["yes", "no"], {}, { separator: ";", predictorLabel: "Sym", includePrefix: false });
+  out.forEach((entry) => assert.ok(!entry.display_label.startsWith("Sym:")));
+});
+
+test("chart_q_l: returns one entry per response item (axis inverted)", () => {
+  const pred = ["male", "female", "male", "female"];
+  const resp = ["fever;cough", "fever", "cough", "fever;headache"];
+  const out = chart_q_l(pred, resp, {}, { separator: ";", predictorLabel: "Sex", responseLabel: "Symptoms" });
+  assert.ok(Array.isArray(out));
+  assert.equal(out.length, 3);
+  out.forEach((entry) => {
+    assert.equal(entry.chart.type, "grouped_bar");
+    assert.ok(entry.display_label.startsWith("Symptoms:"));
+  });
+});
+
+test("chart_l_n: returns one entry per list item with individual_values_grouped chart", () => {
+  const list = ["fever;cough", "fever", "cough", "fever;cough"];
+  const nums = [10, 20, 30, 40];
+  const out = chart_l_n(list, nums, {}, { separator: ";", predictorLabel: "Symptoms", responseLabel: "Value" });
+  assert.ok(Array.isArray(out));
+  assert.equal(out.length, 2);
+  out.forEach((entry) => {
+    assert.equal(entry.chart.type, "individual_values_grouped");
+    assert.ok(entry.display_label.startsWith("Symptoms:"));
+  });
+});
+
+test("chart_l_l: returns one entry per (predSubset x respSubset) pair", () => {
+  const pred = ["a;b", "a", "b", "a;b"];
+  const resp = ["x;y", "x", "y", "x;y"];
+  const out = chart_l_l(pred, resp, {}, {
+    predictorSep: ";", responseSep: ";",
+    predictorLabel: "Pred", responseLabel: "Resp",
+    predSubset: ["a", "b"], respSubset: ["x", "y"]
+  });
+  assert.ok(Array.isArray(out));
+  assert.equal(out.length, 4);
+  out.forEach((entry) => {
+    assert.equal(entry.chart.type, "grouped_bar");
+    assert.ok(entry.display_predictor.startsWith("Pred:"));
+    assert.ok(entry.display_response.startsWith("Resp:"));
+  });
+});
+
+test("chart_l_l: empty when subset is missing", () => {
+  const pred = ["a;b"];
+  const resp = ["x;y"];
+  assert.deepEqual(chart_l_l(pred, resp, {}, { predSubset: [], respSubset: ["x"] }), []);
+  assert.deepEqual(chart_l_l(pred, resp, {}, { predSubset: ["a"], respSubset: [] }), []);
+});
+
+test("chart_l_l: skips items not present in the data silently", () => {
+  const pred = ["a;b"];
+  const resp = ["x;y"];
+  const out = chart_l_l(pred, resp, {}, {
+    predSubset: ["a", "ghost"], respSubset: ["x", "ghost"]
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].predictor_item, "a");
+  assert.equal(out[0].response_item, "x");
+});
+
+test("runAnalysis mode=chart Profile C: l x q yields array of chart entries", () => {
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const outcome = Statz.getColumnValues(parsed, "col_outcome_hash");
+  const dbs = { test_db: { columns: [clinics.column, outcome.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: clinics.column.col_hash, col_var_index: null, col_label: "Clinics", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: outcome.column.col_hash, col_var_index: null, col_label: "Outcome", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_lq"));
+  assert.ok(result.analysis.length >= 1);
+  result.analysis.forEach((entry) => {
+    assert.equal(entry.table, undefined);
+    assert.equal(entry.chart.type, "grouped_bar");
+    assert.ok(entry.predictor.startsWith("Clinics:"));
+  });
+});
+
+test("runAnalysis mode=chart Profile C: q x l yields array of chart entries", () => {
+  const sex = Statz.getColumnValues(parsed, "col_sex_hash");
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const dbs = { test_db: { columns: [sex.column, clinics.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: sex.column.col_hash, col_var_index: null, col_label: "Sex", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: clinics.column.col_hash, col_var_index: null, col_label: "Clinics", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_ql"));
+  assert.ok(result.analysis.length >= 1);
+  result.analysis.forEach((entry) => {
+    assert.equal(entry.chart.type, "grouped_bar");
+    assert.ok(entry.response.startsWith("Clinics:"));
+  });
+});
+
+test("runAnalysis mode=chart Profile C: l x n yields array of individual_values_grouped", () => {
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const biomarker = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const dbs = { test_db: { columns: [clinics.column, biomarker.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: clinics.column.col_hash, col_var_index: null, col_label: "Clinics", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: biomarker.column.col_hash, col_var_index: null, col_label: "Biomarker", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_ln"));
+  assert.ok(result.analysis.length >= 1);
+  result.analysis.forEach((entry) => {
+    assert.equal(entry.chart.type, "individual_values_grouped");
+  });
+});
+
+test("runAnalysis mode=chart Profile C: l x l with subsets yields chart grid", () => {
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const clinicsCopy = { ...clinics.column, col_hash: "clinics_copy" };
+  const dbs = { test_db: { columns: [clinics.column, clinicsCopy] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: clinics.column.col_hash, col_var_index: null, col_label: "Clinics A", role: "predictor",
+    subset_items: ["fever", "cough"]
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: "clinics_copy", col_var_index: null, col_label: "Clinics B", role: "response",
+    subset_items: ["fever", "cough"]
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_ll"));
+  assert.ok(result.analysis.length >= 1);
+  result.analysis.forEach((entry) => {
+    assert.equal(entry.chart.type, "grouped_bar");
+  });
+});
+
+test("runAnalysis mode=chart Profile C: l x l without subsets emits warning (table-shaped)", () => {
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const clinicsCopy = { ...clinics.column, col_hash: "clinics_copy" };
+  const dbs = { test_db: { columns: [clinics.column, clinicsCopy] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: clinics.column.col_hash, col_var_index: null, col_label: "Clinics A", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: "clinics_copy", col_var_index: null, col_label: "Clinics B", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_ll"));
+  assert.equal(result.analysis.length, 1);
+  assert.ok(result.analysis[0].table?.warning);
+});

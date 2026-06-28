@@ -11,6 +11,10 @@ import { chart_n } from './n.js';
 import { chart_l } from './l.js';
 import { chart_q_q } from './q_q.js';
 import { chart_n_q, chart_q_n } from './n_q.js';
+import { chart_l_q } from './l_q.js';
+import { chart_q_l } from './q_l.js';
+import { chart_l_n } from './l_n.js';
+import { chart_l_l } from './l_l.js';
 
 const ns = {
   chart_q,
@@ -20,6 +24,10 @@ const ns = {
   chart_n_q,
   chart_q_n,
   chart_n_n,
+  chart_l_q,
+  chart_q_l,
+  chart_l_n,
+  chart_l_l,
 };
 
 export default ns;

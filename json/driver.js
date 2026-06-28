@@ -1137,6 +1137,23 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         }
       } else if (predictorType === 'l' && responseType === 'q') {
         const includePrefix = options?.label_list_with_column ?? true;
+        flagsUsed.add('has_lq');
+        if (options?.mode === 'chart') {
+          const chartSummaries = charts.chart_l_q(predictorVals ?? [], responseVals ?? [], options, {
+            separator: predictorSep,
+            predictorLabel: pred.col_label,
+            responseLabel: response?.col_label || null,
+            responseLabels: responseCol?.col_values?.labels ?? null,
+            includePrefix
+          }).map((/** @type {any} */ entry) => /** @type {any} */ ({
+            predictor: entry.display_label,
+            response: entry.response_label,
+            predictor_type: 'q',
+            response_type: responseType,
+            chart: entry.chart
+          }));
+          return chartSummaries;
+        }
         const summaries = ns.summarize_l_q(predictorVals, responseVals, formatFn, options, {
           separator: predictorSep,
           predictorLabel: pred.col_label,
@@ -1150,25 +1167,40 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
           response_type: responseType,
           table: entry.table
         }));
-        flagsUsed.add('has_lq');
         return summaries;
       } else if (predictorType === 'q' && responseType === 'l') {
         const includePrefix = options?.label_list_with_column ?? true;
         const responseSep = responseCol?.col_sep || ';';
+        flagsUsed.add('has_ql');
+        if (options?.mode === 'chart') {
+          const chartSummaries = charts.chart_q_l(predictorVals ?? [], responseVals ?? [], options, {
+            separator: responseSep,
+            predictorLabel: pred.col_label,
+            predictorLabels: predictorCol.col_values?.labels ?? null,
+            responseLabel: response?.col_label || null,
+            includePrefix
+          }).map((/** @type {any} */ entry) => /** @type {any} */ ({
+            predictor: pred.col_label,
+            response: entry.display_label,
+            predictor_type: 'q',
+            response_type: 'q',
+            chart: entry.chart
+          }));
+          return chartSummaries;
+        }
         const summaries = ns.summarize_q_l(predictorVals, responseVals, formatFn, options, {
           separator: responseSep,
           predictorLabel: pred.col_label,
           responseLabel: response?.col_label || null,
           lang,
           includePrefix
-        }).map(entry => ({
+        }).map((/** @type {any} */ entry) => ({
           predictor: pred.col_label,
           response: entry.display_label,
           predictor_type: 'q',
           response_type: 'q',
           table: entry.table
         }));
-        flagsUsed.add('has_ql');
         return summaries;
       } else if (predictorType === 'n' && responseType === 'n') {
         flagsUsed.add('has_nn');
@@ -1205,9 +1237,29 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
           ? /** @type {any} */ (response).subset_items.filter(Boolean) : [];
         flagsUsed.add('has_ll');
         if (!predSubset.length || !respSubset.length) {
+          // Warning case (subset missing) is identical in both modes — the renderer's
+          // warning branch handles it. Stored as a table-shaped entry for backward parity.
           table = { warning: translate('warnings.llSubsetRequired', lang) };
         } else {
           const includePrefix = options?.label_list_with_column ?? true;
+          if (options?.mode === 'chart') {
+            const chartSummaries = charts.chart_l_l(predictorVals ?? [], responseVals ?? [], options, {
+              predictorSep,
+              responseSep: responseCol?.col_sep || ';',
+              predictorLabel: pred.col_label,
+              responseLabel: response?.col_label || null,
+              predSubset,
+              respSubset,
+              includePrefix
+            }).map((/** @type {any} */ entry) => /** @type {any} */ ({
+              predictor: entry.display_predictor,
+              response: entry.display_response,
+              predictor_type: 'q',
+              response_type: 'q',
+              chart: entry.chart
+            }));
+            return chartSummaries;
+          }
           const summaries = ns.summarize_l_l(predictorVals, responseVals, formatFn, options, {
             predictorSep,
             responseSep: responseCol?.col_sep || ';',
@@ -1228,20 +1280,35 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         }
       } else if (predictorType === 'l' && responseType === 'n') {
         const includePrefix = options?.label_list_with_column ?? true;
+        flagsUsed.add('has_ln');
+        if (options?.mode === 'chart') {
+          const chartSummaries = charts.chart_l_n(predictorVals ?? [], responseVals ?? [], options, {
+            separator: predictorSep,
+            predictorLabel: pred.col_label,
+            responseLabel: response?.col_label || null,
+            includePrefix
+          }).map((/** @type {any} */ entry) => /** @type {any} */ ({
+            predictor: entry.display_label,
+            response: entry.response_label,
+            predictor_type: 'q',
+            response_type: 'n',
+            chart: entry.chart
+          }));
+          return chartSummaries;
+        }
         const summaries = ns.summarize_l_n(predictorVals, responseVals, formatFn, flagsUsed, options, {
           separator: predictorSep,
           predictorLabel: pred.col_label,
           responseLabel: response?.col_label || null,
           lang,
           includePrefix
-        }).map(entry => ({
+        }).map((/** @type {any} */ entry) => ({
           predictor: entry.display_label,
           response: entry.response_label,
           predictor_type: 'q',
           response_type: 'n',
           table: entry.table
         }));
-        flagsUsed.add('has_ln');
         return summaries;
       }
     }
