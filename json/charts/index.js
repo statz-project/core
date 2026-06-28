@@ -15,6 +15,8 @@ import { chart_l_q } from './l_q.js';
 import { chart_q_l } from './q_l.js';
 import { chart_l_n } from './l_n.js';
 import { chart_l_l } from './l_l.js';
+import { chart_paired_n } from './paired_n.js';
+import { chart_paired_q } from './paired_q.js';
 
 const ns = {
   chart_q,
@@ -28,6 +30,8 @@ const ns = {
   chart_q_l,
   chart_l_n,
   chart_l_l,
+  chart_paired_n,
+  chart_paired_q,
 };
 
 export default ns;

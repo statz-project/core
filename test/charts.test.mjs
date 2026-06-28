@@ -603,3 +603,194 @@ test("runAnalysis mode=chart Profile C: l x l without subsets emits warning (tab
   assert.equal(result.analysis.length, 1);
   assert.ok(result.analysis[0].table?.warning);
 });
+
+// ---------------------------------------------------------------------------
+// Profile B paired — chart_paired_n, chart_paired_q
+// ---------------------------------------------------------------------------
+
+import { chart_paired_n } from "../json/charts/paired_n.js";
+import { chart_paired_q } from "../json/charts/paired_q.js";
+
+// chart_paired_n ------------------------------------------------------------
+
+test("chart_paired_n: K=2 produces subject lines + per-moment points + per-moment means", () => {
+  const t0 = [10, 12, 14, 16, 18];
+  const t1 = [11, 13, 14, 17, 20];
+  const out = chart_paired_n([t0, t1], ["T0", "T1"], {}, { numericLabel: "Creatinine" });
+  assert.ok(out);
+  assert.equal(out.type, "paired_individual_values");
+  // 5 subject lines + 2 moments * (points + mean) = 5 + 4 = 9
+  assert.equal(out.spec.data.length, 9);
+  // First 5 traces are subject lines
+  for (let i = 0; i < 5; i++) {
+    assert.equal(out.spec.data[i].mode, "lines");
+    assert.equal(out.spec.data[i].x.length, 2);
+    assert.equal(out.spec.data[i].y.length, 2);
+  }
+  // Mean trace for T0: y = mean(t0) = 14
+  const meanT0 = out.spec.data[6];
+  assert.equal(meanT0.y[0], 14);
+  // Mean for T1: y = mean(t1) = 15
+  const meanT1 = out.spec.data[8];
+  assert.equal(meanT1.y[0], 15);
+});
+
+test("chart_paired_n: chart_paired_show_lines=false drops subject lines", () => {
+  const out = chart_paired_n([[1,2,3],[2,3,4]], ["A","B"], { chart_paired_show_lines: false }, {});
+  // Only 2 moments * (points + mean) = 4 traces
+  assert.equal(out.spec.data.length, 4);
+  out.spec.data.forEach((trace) => {
+    if (trace.mode === "lines") assert.equal(trace.x.length, 2, "only mean crossbars, not subject lines");
+  });
+});
+
+test("chart_paired_n: chart_show_boxplot=true prepends box per moment", () => {
+  const out = chart_paired_n([[1,2,3],[4,5,6]], ["A","B"], { chart_show_boxplot: true, chart_paired_show_lines: false }, {});
+  // 2 boxes + 2 moments * (points + mean) = 6
+  assert.equal(out.spec.data.length, 6);
+  assert.equal(out.spec.data[0].type, "box");
+  assert.equal(out.spec.data[1].type, "box");
+});
+
+test("chart_paired_n: complete-case row alignment drops incomplete subjects", () => {
+  const t0 = [1, 2, 3, 4];
+  const t1 = [10, "abc", 30, null];
+  const out = chart_paired_n([t0, t1], ["A","B"], { chart_paired_show_lines: false }, {});
+  // Only subjects 1 and 3 survive (values 1,3 in t0; 10,30 in t1)
+  // Find the points trace for T0 (after no subject lines, no boxes)
+  const t0Points = out.spec.data[0];
+  assert.deepEqual(t0Points.y, [1, 3]);
+});
+
+test("chart_paired_n: deterministic jitter; same subject offset across moments", () => {
+  const out = chart_paired_n([[1,2,3],[10,20,30]], ["A","B"], {}, {});
+  // Subject 0's line is the first trace; its x should match between moments at the same offset
+  const subject0 = out.spec.data[0];
+  // Offset for subject 0
+  const offset0 = subject0.x[0] - 1;
+  assert.ok(Math.abs((subject0.x[1] - 2) - offset0) < 1e-9, "subject 0 offset constant across moments");
+});
+
+test("chart_paired_n: returns null for K < 2 or empty input", () => {
+  assert.equal(chart_paired_n([[1,2,3]], ["A"], {}, {}), null);
+  assert.equal(chart_paired_n([[], []], ["A","B"], {}, {}), null);
+});
+
+// chart_paired_q ------------------------------------------------------------
+
+test("chart_paired_q: K=2 binary yields 2 grouped bar traces", () => {
+  const t0 = ["no","no","no","no","yes"];
+  const t1 = ["no","yes","yes","yes","yes"];
+  const out = chart_paired_q([t0, t1], ["T0","T1"], {}, { qualitativeLabel: "Outcome" });
+  assert.ok(out);
+  assert.equal(out.type, "paired_grouped_bar");
+  assert.equal(out.spec.layout.barmode, "group");
+  // 2 traces (no, yes — alphabetical inferred)
+  assert.equal(out.spec.data.length, 2);
+  assert.equal(out.spec.data[0].name, "no");
+  assert.equal(out.spec.data[1].name, "yes");
+  // T0: 4 no, 1 yes; T1: 1 no, 4 yes
+  assert.deepEqual(out.spec.data[0].y, [4, 1]);
+  assert.deepEqual(out.spec.data[1].y, [1, 4]);
+});
+
+test("chart_paired_q: meta.levels preserves order even if first response is monovariate", () => {
+  const t0 = ["no","no","no","no","no"]; // all no
+  const t1 = ["no","yes","yes","yes","yes"];
+  const out = chart_paired_q([t0, t1], ["T0","T1"], {}, { levels: ["no","yes"] });
+  assert.equal(out.spec.data[0].name, "no");
+  assert.equal(out.spec.data[1].name, "yes");
+  assert.deepEqual(out.spec.data[0].y, [5, 1]);
+  assert.deepEqual(out.spec.data[1].y, [0, 4]);
+});
+
+test("chart_paired_q: returns null when fewer than 2 unique binary levels", () => {
+  const t0 = ["no","no","no"];
+  const t1 = ["no","no","no"];
+  assert.equal(chart_paired_q([t0, t1], ["T0","T1"], {}, {}), null);
+});
+
+test("chart_paired_q: label format p computes within-moment percentages", () => {
+  const t0 = ["no","no","yes","yes"]; // 50/50
+  const t1 = ["yes","yes","yes","no"]; // 25/75
+  const out = chart_paired_q([t0, t1], ["T0","T1"], { chart_label_format: "p" }, {});
+  // no trace: T0 50%, T1 25%
+  assert.deepEqual(out.spec.data[0].text, ["50.0%", "25.0%"]);
+  // yes trace: T0 50%, T1 75%
+  assert.deepEqual(out.spec.data[1].text, ["50.0%", "75.0%"]);
+});
+
+// ---------------------------------------------------------------------------
+// runAnalysis mode='chart' Profile B integration
+// ---------------------------------------------------------------------------
+
+test("runAnalysis mode=chart Profile B: paired n yields paired_individual_values", () => {
+  const t0Vals = [10, 12, 14, 16, 18, 20];
+  const t1Vals = [11, 13, 14, 17, 20, 22];
+  const t0Col = {
+    col_hash: "col_t0", col_label: "Creatinine pre", col_type: "n", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: t0Vals },
+    col_vars: []
+  };
+  const t1Col = { ...t0Col, col_hash: "col_t1", col_label: "Creatinine post",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: t1Vals } };
+  const dbs = { db: { columns: [t0Col, t1Col] } };
+  const responses = [
+    JSON.stringify({ database_id: "db", col_hash: "col_t0", col_var_index: null, col_label: "Creatinine pre" }),
+    JSON.stringify({ database_id: "db", col_hash: "col_t1", col_var_index: null, col_label: "Creatinine post" })
+  ];
+  const { result, flags } = driver.runAnalysis([], responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_paired_n"));
+  const entry = result.analysis[0];
+  assert.equal(entry.predictor, null);
+  assert.equal(entry.table, undefined);
+  assert.equal(entry.chart.type, "paired_individual_values");
+});
+
+test("runAnalysis mode=chart Profile B: paired q binary yields paired_grouped_bar", () => {
+  const t0Vals = ["no","no","no","no","yes","no","no","yes"];
+  const t1Vals = ["no","yes","yes","yes","yes","yes","no","yes"];
+  const t0Col = {
+    col_hash: "col_t0", col_label: "Symptom T0", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: ["no","yes"], codes: null, raw_values: t0Vals },
+    col_vars: []
+  };
+  const t1Col = { ...t0Col, col_hash: "col_t1", col_label: "Symptom T1",
+    col_values: { col_compact: false, labels: ["no","yes"], codes: null, raw_values: t1Vals } };
+  const dbs = { db: { columns: [t0Col, t1Col] } };
+  const responses = [
+    JSON.stringify({ database_id: "db", col_hash: "col_t0", col_var_index: null, col_label: "Symptom T0" }),
+    JSON.stringify({ database_id: "db", col_hash: "col_t1", col_var_index: null, col_label: "Symptom T1" })
+  ];
+  const { result, flags } = driver.runAnalysis([], responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_paired_q"));
+  const entry = result.analysis[0];
+  assert.equal(entry.predictor, null);
+  assert.equal(entry.table, undefined);
+  assert.equal(entry.chart.type, "paired_grouped_bar");
+  assert.equal(entry.chart.spec.layout.barmode, "group");
+});
+
+test("runAnalysis mode=chart Profile B: paired rejection (mixed types) still emits warning", () => {
+  const numCol = {
+    col_hash: "h_num", col_label: "X", col_type: "n", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["1","2","3","4","5"] },
+    col_vars: []
+  };
+  const qCol = {
+    col_hash: "h_q", col_label: "Y", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [numCol, qCol] } };
+  const responses = [
+    JSON.stringify({ database_id: "db", col_hash: "h_num", col_var_index: null, col_label: "X" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_q",   col_var_index: null, col_label: "Y" })
+  ];
+  const { result, flags } = driver.runAnalysis([], responses, dbs, { mode: "chart" });
+  // Warning is emitted in table form (renderer handles via isWarningRow); chart not produced.
+  assert.ok(flags.includes("has_paired"));
+  const entry = result.analysis[0];
+  assert.ok(entry.table?.warning);
+  assert.equal(entry.chart, undefined);
+});
