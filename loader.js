@@ -105,6 +105,43 @@ export function loadPlotly(nsArg) {
 }
 
 /**
+ * Browser-side helper to render Plotly chart specs emitted by `runAnalysis(mode='chart')`
+ * after the `exportCombinedAsChartHTML` output has been mounted to the DOM. Sweeps
+ * `.statz-chart` placeholders inside `rootEl` (defaults to `document`), parses each
+ * `data-spec` attribute as JSON, and invokes `Plotly.newPlot`. Idempotent — already
+ * rendered cells (marked via `data-rendered="1"`) are skipped on subsequent calls.
+ *
+ * @param {ParentNode=} rootEl Optional container; defaults to `document`.
+ * @returns {{ rendered:number, skipped:number, failed:number }}
+ */
+export function renderCharts(rootEl) {
+  const summary = { rendered: 0, skipped: 0, failed: 0 };
+  if (typeof document === 'undefined') return summary;
+  const Plotly = /** @type {any} */ (typeof window !== 'undefined' ? /** @type {any} */ (window).Plotly : null);
+  if (!Plotly || typeof Plotly.newPlot !== 'function') {
+    console.warn('renderCharts: window.Plotly not available; ensure loadPlotly() resolved.');
+    return summary;
+  }
+  const root = rootEl || document;
+  const cells = root.querySelectorAll('.statz-chart');
+  cells.forEach((/** @type {any} */ div) => {
+    if (div.dataset && div.dataset.rendered === '1') { summary.skipped += 1; return; }
+    try {
+      const specRaw = div.getAttribute('data-spec');
+      if (!specRaw) { summary.failed += 1; return; }
+      const spec = JSON.parse(specRaw);
+      Plotly.newPlot(div, spec.data, spec.layout, { responsive: true, displayModeBar: false });
+      if (div.dataset) div.dataset.rendered = '1';
+      summary.rendered += 1;
+    } catch (e) {
+      summary.failed += 1;
+      console.error('renderCharts: failed to render chart cell', e);
+    }
+  });
+  return summary;
+}
+
+/**
  * Convenience initializer: loadDeps then loadStdlibStats then loadPlotly, return health.
  * @param {any=} nsArg Optional namespace to attach adapters to
  */

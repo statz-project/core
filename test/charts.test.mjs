@@ -794,3 +794,242 @@ test("runAnalysis mode=chart Profile B: paired rejection (mixed types) still emi
   assert.ok(entry.table?.warning);
   assert.equal(entry.chart, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 6 — exportCombinedAsChartHTML + chart_likert
+// ---------------------------------------------------------------------------
+
+import exporters from "../json/exporters.js";
+import { chart_likert } from "../json/charts/likert.js";
+
+// exportCombinedAsChartHTML -------------------------------------------------
+
+test("exportCombinedAsChartHTML: emits grid container + one cell per chart entry", () => {
+  const result = {
+    analysis: [
+      { predictor: "A", response: "B", chart: { type: "scatter", spec: { data: [{x:[1,2],y:[3,4]}], layout: {} } } },
+      { predictor: "C", response: "D", chart: { type: "bar", spec: { data: [{x:["a"],y:[1]}], layout: {} } } }
+    ]
+  };
+  const html = exporters.exportCombinedAsChartHTML(result, "Test", false);
+  assert.match(html, /<div class="statz-chart-grid">/);
+  // 2 cells, both with data-spec attribute
+  const cellMatches = html.match(/<div class="statz-chart"/g) || [];
+  assert.equal(cellMatches.length, 2);
+  assert.match(html, /data-spec="[^"]+"/);
+  // CSS responsive media query present
+  assert.match(html, /@media \(max-width:768px\)/);
+});
+
+test("exportCombinedAsChartHTML: title from predictor; falls back to response when null", () => {
+  const result = {
+    analysis: [
+      { predictor: null, response: "T0 × T1", chart: { type: "x", spec: { data: [], layout: {} } } }
+    ]
+  };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  assert.match(html, /<div class="statz-chart-title">T0 × T1<\/div>/);
+});
+
+test("exportCombinedAsChartHTML: warning entries render as amber banner instead of chart cell", () => {
+  const result = {
+    analysis: [
+      { predictor: null, response: "Foo", table: { warning: "List × list requires subsets" } }
+    ]
+  };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  assert.match(html, /class="statz-warning">⚠ List × list requires subsets/);
+  assert.equal((html.match(/<div class="statz-chart"/g) || []).length, 0);
+});
+
+test("exportCombinedAsChartHTML: escapes HTML in titles and warnings", () => {
+  const result = {
+    analysis: [
+      { predictor: "<script>x</script>", chart: { type: "x", spec: { data: [], layout: {} } } },
+      { response: "evil", table: { warning: "Some <b>warning</b> & stuff" } }
+    ]
+  };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  // Title escaped — no raw <script>
+  assert.equal(html.includes("<script>x</script>"), false);
+  assert.match(html, /&lt;script&gt;x&lt;\/script&gt;/);
+  // Warning text escaped
+  assert.match(html, /Some &lt;b&gt;warning&lt;\/b&gt; &amp; stuff/);
+});
+
+test("exportCombinedAsChartHTML: spec attribute round-trips back to original spec via JSON.parse", () => {
+  const originalSpec = { data: [{ name: 'has "quotes" inside', x: [1, 2], y: [3, 4] }], layout: { title: "T & X" } };
+  const result = { analysis: [{ predictor: "P", chart: { type: "x", spec: originalSpec } }] };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  // Browser runtime: JSON.parse(div.getAttribute('data-spec')). Simulate by extracting and decoding.
+  const m = html.match(/data-spec="([^"]*)"/);
+  assert.ok(m, "data-spec attribute present");
+  const decoded = m[1]
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+  assert.deepEqual(JSON.parse(decoded), originalSpec);
+});
+
+test("exportCombinedAsChartHTML: footerFree appended with terminal period", () => {
+  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
+  const html = exporters.exportCombinedAsChartHTML(result, "Title", false, "User footer text");
+  assert.match(html, /<div class="statz-chart-footer">User footer text\.<\/div>/);
+});
+
+test("exportCombinedAsChartHTML: footerFree empty/whitespace produces no footer div", () => {
+  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
+  const html = exporters.exportCombinedAsChartHTML(result, "Title", false, "   ");
+  // The CSS rule .statz-chart-footer always appears in <style>; check the actual <div>.
+  assert.equal(html.includes('<div class="statz-chart-footer">'), false);
+});
+
+test("exportCombinedAsChartHTML: wrap=true emits full HTML document", () => {
+  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
+  const html = exporters.exportCombinedAsChartHTML(result, "My Title", true);
+  assert.match(html, /<!DOCTYPE html>/);
+  assert.match(html, /<h4>My Title<\/h4>/);
+});
+
+test("exportCombinedAsChartHTML: empty analysis returns empty grid + styles", () => {
+  const html = exporters.exportCombinedAsChartHTML({ analysis: [] });
+  assert.match(html, /<div class="statz-chart-grid"><\/div>/);
+});
+
+test("exportCombinedAsChartHTML: invalid input returns empty string", () => {
+  assert.equal(exporters.exportCombinedAsChartHTML(null), "");
+  assert.equal(exporters.exportCombinedAsChartHTML({}), "");
+});
+
+// chart_likert --------------------------------------------------------------
+
+test("chart_likert: stacked-horizontal bar with one trace per shared level", () => {
+  const vars = [
+    { label: "Q1", values: ["agree","neutral","agree","disagree","neutral","agree"] },
+    { label: "Q2", values: ["neutral","neutral","disagree","disagree","agree","agree"] },
+    { label: "Q3", values: ["agree","agree","agree","neutral","neutral","disagree"] }
+  ];
+  const out = chart_likert(vars, {}, {});
+  assert.ok(out);
+  assert.equal(out.type, "likert");
+  assert.equal(out.spec.layout.barmode, "stack");
+  // 3 levels (agree, disagree, neutral — alphabetical)
+  assert.equal(out.spec.data.length, 3);
+  out.spec.data.forEach((trace) => {
+    assert.equal(trace.orientation, "h");
+    assert.equal(trace.y.length, 3, "one y entry per variable");
+    assert.equal(trace.x.length, 3, "one x entry per variable");
+  });
+});
+
+test("chart_likert: percentages sum to ~100 per variable across traces", () => {
+  const vars = [
+    { label: "Q1", values: ["a","a","b","c","c"] },
+    { label: "Q2", values: ["a","b","b","c","c"] }
+  ];
+  const out = chart_likert(vars, {}, {});
+  for (let v = 0; v < vars.length; v++) {
+    let sum = 0;
+    out.spec.data.forEach((trace) => { sum += trace.x[v]; });
+    assert.ok(Math.abs(sum - 100) < 1e-9, `variable ${v} sum=${sum}`);
+  }
+});
+
+test("chart_likert: meta.levels preserves custom order", () => {
+  const vars = [
+    { label: "Q1", values: ["agree","disagree","neutral"] },
+    { label: "Q2", values: ["neutral","agree","disagree"] }
+  ];
+  const out = chart_likert(vars, {}, { levels: ["disagree","neutral","agree"] });
+  assert.equal(out.spec.data[0].name, "disagree");
+  assert.equal(out.spec.data[1].name, "neutral");
+  assert.equal(out.spec.data[2].name, "agree");
+});
+
+test("chart_likert: returns null when levels don't intersect across all vars", () => {
+  const vars = [
+    { label: "Q1", values: ["a","b","c"] },
+    { label: "Q2", values: ["x","y","z"] }
+  ];
+  assert.equal(chart_likert(vars, {}, {}), null);
+});
+
+test("chart_likert: returns null for fewer than 2 vars", () => {
+  assert.equal(chart_likert([{ label: "Q1", values: ["a","b"] }], {}, {}), null);
+  assert.equal(chart_likert([], {}, {}), null);
+});
+
+// ---------------------------------------------------------------------------
+// runAnalysis mode='chart' Likert short-circuit integration
+// ---------------------------------------------------------------------------
+
+test("runAnalysis mode=chart Profile A: chart_likert_enabled produces a single likert entry", () => {
+  // Two q variables with shared levels (agree/neutral/disagree)
+  const q1 = {
+    col_hash: "h_q1", col_label: "Statement 1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: ["agree","neutral","disagree"], codes: null,
+      raw_values: ["agree","neutral","agree","disagree","neutral","agree"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "Statement 2", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: ["agree","neutral","disagree"], codes: null,
+      raw_values: ["neutral","neutral","disagree","disagree","agree","agree"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Statement 1", role: "predictor" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Statement 2", role: "predictor" })
+  ];
+  const { result, flags } = driver.runAnalysis(predictors, [], dbs, { mode: "chart", chart_likert_enabled: true });
+  assert.ok(flags.includes("has_q"));
+  // Single combined entry (not one per predictor)
+  assert.equal(result.analysis.length, 1);
+  const entry = result.analysis[0];
+  assert.equal(entry.chart.type, "likert");
+  assert.match(entry.predictor, /Statement 1.*Statement 2/);
+});
+
+test("runAnalysis mode=chart Profile A: chart_likert_enabled=false falls back to per-predictor bars", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b"] },
+    col_vars: []
+  };
+  const q2 = { ...q1, col_hash: "h_q2", col_label: "S2",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","a","b","b"] } };
+  const dbs = { db: { columns: [q1, q2] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "S2", role: "predictor" })
+  ];
+  // No chart_likert_enabled → per-predictor chart_q
+  const { result } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  assert.equal(result.analysis.length, 2);
+  result.analysis.forEach((entry) => assert.equal(entry.chart.type, "bar"));
+});
+
+test("runAnalysis mode=chart Profile A: chart_likert_enabled but mixed types falls back", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b"] },
+    col_vars: []
+  };
+  const n1 = {
+    col_hash: "h_n1", col_label: "N1", col_type: "n", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["1","2"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, n1] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_n1", col_var_index: null, col_label: "N1", role: "predictor" })
+  ];
+  const { result } = driver.runAnalysis(predictors, [], dbs, { mode: "chart", chart_likert_enabled: true });
+  // Falls back: 2 per-predictor entries (chart_q + chart_n)
+  assert.equal(result.analysis.length, 2);
+  assert.equal(result.analysis[0].chart.type, "bar");
+  assert.equal(result.analysis[1].chart.type, "individual_values");
+});

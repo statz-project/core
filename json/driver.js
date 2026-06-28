@@ -1103,6 +1103,36 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
     return pairedEntry ? [pairedEntry] : [];
   }
 
+  // Likert short-circuit (Profile A, chart mode, opt-in): when all predictors are
+  // qualitative AND share level sets AND the user explicitly enables it, render a single
+  // stacked-bar Likert chart instead of per-predictor bars.
+  if (predictors.length >= 2 && responses.length === 0 && options?.mode === 'chart' && options?.chart_likert_enabled) {
+    const likertCols = predictors.map((/** @type {any} */ p) => {
+      const col = columns.find(c => c.col_hash === p.col_hash && c.col_var_index === (p.col_var_index ?? null))
+        || columns.find(c => c.col_hash === p.col_hash);
+      return col ? { pred: p, col } : null;
+    }).filter(Boolean);
+    const allQ = likertCols.length === predictors.length
+      && likertCols.every((/** @type {any} */ c) => c.col?.col_type === 'q');
+    if (allQ) {
+      const chart = charts.chart_likert(
+        likertCols.map((/** @type {any} */ c) => ({ label: c.pred.col_label, values: c.col.raw_values || [] })),
+        options
+      );
+      if (chart) {
+        flagsUsed.add('has_q');
+        return [/** @type {any} */ ({
+          predictor: predictors.map((/** @type {any} */ p) => p.col_label).join(' / '),
+          response: null,
+          predictor_type: 'q',
+          response_type: null,
+          chart
+        })];
+      }
+      // chart_likert returned null (e.g., levels don't intersect) — fall through to per-predictor.
+    }
+  }
+
   return predictors.map(pred => {
     const predictorCol = columns.find(c => c.col_hash === pred.col_hash && c.col_var_index === (pred.col_var_index ?? null))
       || columns.find(c => c.col_hash === pred.col_hash);

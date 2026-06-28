@@ -304,6 +304,82 @@ ns.isPredictorHeaderRow = function (val) { if (typeof val !== 'string') return f
 ns.isWarningRow = function (row) { return !!(row && typeof row._warning_text === 'string' && row._warning_text.length > 0); };
 
 /**
+ * Render chart-mode analysis results as a responsive HTML grid. Each entry with a `chart`
+ * field becomes a `<div class="statz-chart" data-spec="…">` placeholder; entries with
+ * `table.warning` are rendered as a flagged amber banner. The browser-side `Statz.renderCharts`
+ * helper (see core/loader.js) sweeps the grid and invokes `Plotly.newPlot` per cell.
+ *
+ * @param {{ analysis: Array<{ predictor?: string|null, response?: string|null, chart?: { type:string, spec:any }, table?: { warning?: string } }>, lang?: string }} resultObj
+ * @param {string=} title Optional document title (used only when `wrap=true`).
+ * @param {boolean=} wrap When true, emit a full HTML document; otherwise emit the grid fragment.
+ * @param {string=} footerFree Optional user-provided footer suffix (parity with exportCombinedAsHTML).
+ * @returns {string}
+ */
+ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerFree = '') {
+  if (!resultObj || !Array.isArray(resultObj.analysis)) return '';
+  const lang = normalizeLanguage(resultObj?.lang);
+  const resolvedTitle = title ?? translate('table.title', lang);
+  /** @param {unknown} v */
+  const escapeAttr = (v) => String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+    .split('"').join('&quot;');
+  /** @param {unknown} v */
+  const escapeText = (v) => String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;');
+
+  const cells = [];
+  for (const entry of resultObj.analysis) {
+    const heading = entry?.predictor ?? entry?.response ?? '—';
+    if (entry?.table?.warning) {
+      cells.push(`<div class="statz-chart-cell statz-chart-cell--warning"><div class="statz-chart-title">${escapeText(heading)}</div><div class="statz-warning">⚠ ${escapeText(entry.table.warning)}</div></div>`);
+      continue;
+    }
+    if (entry?.chart?.spec) {
+      const specAttr = escapeAttr(JSON.stringify(entry.chart.spec));
+      cells.push(`<div class="statz-chart-cell"><div class="statz-chart-title">${escapeText(heading)}</div><div class="statz-chart" data-spec="${specAttr}"></div></div>`);
+    }
+  }
+
+  const styles = `<style>
+.statz-chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;font-family:Arial,sans-serif;}
+@media (max-width:768px){.statz-chart-grid{grid-template-columns:1fr;}}
+.statz-chart-cell{background:#ffffff;border:1px solid rgba(48,50,61,0.10);border-radius:6px;padding:12px;display:flex;flex-direction:column;}
+.statz-chart-cell--warning{background:transparent;border-color:rgba(133,100,4,0.25);}
+.statz-chart-title{font-weight:600;font-size:13px;color:#30323d;margin:0 0 8px;text-align:center;}
+.statz-chart{flex:1;min-height:320px;width:100%;}
+.statz-warning{background:#fff8e1;color:#856404;padding:10px 14px;border-radius:4px;font-size:13px;}
+.statz-chart-footer{margin-top:12px;font-size:12px;color:#666;text-align:left;}
+</style>`;
+
+  let footerHtml = '';
+  if (typeof footerFree === 'string') {
+    const trimmed = footerFree.trim();
+    if (trimmed) {
+      const punctuated = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+      footerHtml = `<div class="statz-chart-footer">${escapeText(punctuated)}</div>`;
+    }
+  }
+
+  const grid = `<div class="statz-chart-grid">${cells.join('')}</div>${footerHtml}`;
+  const html = `${styles}${grid}`;
+  if (!wrap) return html;
+  return `<!DOCTYPE html>
+  <html>
+  <head><meta charset='utf-8'><title>${escapeText(resolvedTitle)}</title></head>
+  <body>
+  <div class='styled-chart'>
+  <h4>${escapeText(resolvedTitle)}</h4>
+  ${html}
+  </div>
+  </body>
+  </html>`;
+};
+
+/**
  * Render combined table as Markdown (with legend).
  * @param {{ columns: string[], rows: Array<Record<string, string>>, test_legend?: Array<{ method: string, symbol: string }>, posthoc_legend?: string[], resid_symbol_greater_used?: boolean, resid_symbol_lower_used?: boolean, lang?: string, percent_by?: string, percent_total_full?: boolean }} combined
  * @param {string=} title
