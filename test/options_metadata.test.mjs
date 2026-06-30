@@ -155,6 +155,45 @@ test("getAvailableOptions(flags, mode) returned entries carry name + all metadat
 // i18n keys exist for every option.
 // ---------------------------------------------------------------------------
 
+test("getOptionDefault: static defaults returned directly", () => {
+  assert.equal(optionsMetadata.getOptionDefault('alpha', 'en_us'), 0.05);
+  assert.equal(optionsMetadata.getOptionDefault('with_residuals', 'en_us'), true);
+  assert.equal(optionsMetadata.getOptionDefault('effect_size_type', 'en_us'), 'odds_ratio');
+  assert.equal(optionsMetadata.getOptionDefault('mode', 'en_us'), 'table');
+  assert.deepEqual(optionsMetadata.getOptionDefault('stat_options_numeric', 'en_us'),
+    ['min', 'max', 'mean_sd', 'n_missing']);
+});
+
+test("getOptionDefault: i18n-resolved defaults return the translated runtime value", () => {
+  // missing_label: 'Not informed' (en) / 'Não informado' (pt) / 'No informado' (es)
+  assert.equal(optionsMetadata.getOptionDefault('missing_label', 'en_us'), 'Not informed');
+  assert.equal(optionsMetadata.getOptionDefault('missing_label', 'pt_br'), 'Não informado');
+  assert.equal(optionsMetadata.getOptionDefault('missing_label', 'es_es'), 'No informado');
+  // yes/no labels follow binary translation
+  assert.equal(optionsMetadata.getOptionDefault('yes_label', 'en_us'), 'Yes');
+  assert.equal(optionsMetadata.getOptionDefault('yes_label', 'pt_br'), 'Sim');
+  assert.equal(optionsMetadata.getOptionDefault('no_label', 'pt_br'), 'Não');
+  // residual_symbols is an object with greater/lower keys
+  const sym = optionsMetadata.getOptionDefault('residual_symbols', 'en_us');
+  assert.equal(typeof sym, 'object');
+  assert.ok(sym.greater);
+  assert.ok(sym.lower);
+});
+
+test("getOptionDefault: unknown option returns undefined", () => {
+  assert.equal(optionsMetadata.getOptionDefault('not_a_real_option', 'en_us'), undefined);
+});
+
+test("getOptionDefault output matches getDefaultAnalysisOptions for every option", () => {
+  // The whole point of the helper: a per-option call should produce the same value as
+  // reading from the normalized defaults bag.
+  const bag = driver.getDefaultAnalysisOptions({ lang: 'en_us' });
+  for (const name of Object.keys(OPTION_METADATA)) {
+    assert.deepEqual(optionsMetadata.getOptionDefault(name, 'en_us'), bag[name],
+      `getOptionDefault('${name}', 'en_us') drift vs getDefaultAnalysisOptions`);
+  }
+});
+
 test("getOptionLabel / getOptionDescription resolve all options in en_us, pt_br, es_es", () => {
   const langs = ['en_us', 'pt_br', 'es_es'];
   for (const name of Object.keys(OPTION_METADATA)) {

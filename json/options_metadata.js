@@ -13,6 +13,9 @@
 // Options whose runtime default is i18n-resolved (missing_label, yes_label, no_label,
 // residual_symbols, lang) declare `default: null` + a `defaultI18nKey` (or `'__binary__'`,
 // `'__lang__'`) sentinel — the drift test asserts existence rather than literal equality.
+// Use `getOptionDefault(name, lang)` to get the resolved value uniformly (handles both
+// static and i18n-resolved cases).
+import driver from './driver.js';
 import { translate } from '../i18n/index.js';
 
 const ns = {};
@@ -242,6 +245,31 @@ ns.getOptionDescription = function (optionName, lang) {
   const meta = ns.OPTION_METADATA[optionName];
   if (!meta) return '';
   return translate(meta.descriptionKey, lang);
+};
+
+/**
+ * Resolved default value for an option, handling i18n-translated defaults uniformly.
+ *
+ * Options with `default !== null` return the static metadata default directly. Options
+ * with `default === null` (i18n-resolved: `lang`, `missing_label`, `yes_label`,
+ * `no_label`, `residual_symbols`) delegate to `getDefaultAnalysisOptions({lang})` so the
+ * resolution logic stays in a single place — never reinterpret the `defaultI18nKey`
+ * sentinels outside of `driver.js`.
+ *
+ * Intended for UI widget initialization: `working_options[name] ?? getOptionDefault(name, lang)`
+ * produces the value the user expects to see whether or not the Element has saved options.
+ *
+ * @param {string} optionName
+ * @param {string=} lang
+ * @returns {any} The resolved default; `undefined` for unknown option names.
+ */
+ns.getOptionDefault = function (optionName, lang) {
+  const meta = ns.OPTION_METADATA[optionName];
+  if (!meta) return undefined;
+  if (meta.default !== null) return meta.default;
+  // i18n-resolved: delegate to driver's normalizer so the resolution logic is DRY.
+  const resolved = /** @type {any} */ (driver).getDefaultAnalysisOptions({ lang });
+  return resolved[optionName];
 };
 
 export default ns;
