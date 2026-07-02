@@ -380,7 +380,10 @@ test("replaceVariantAt: variant without recipe is kept with a stale warning", ()
 
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /no stored recipe/);
-  assert.deepEqual(col.col_vars[2], oldV2Snapshot);
+  // Auto-injected var_content_hash is expected post-refactor; compare everything else.
+  const { var_content_hash: _hash, ...rest } = col.col_vars[2];
+  assert.deepEqual(rest, oldV2Snapshot);
+  assert.equal(typeof _hash, 'string', 'var_content_hash was populated by the auto-refresh');
 });
 
 test("replaceVariantAt: chain v1 -> v2 -> v3 all rebuilt in order", () => {
@@ -440,7 +443,7 @@ test("replaceVariantAt: unknown colHash throws", () => {
   );
 });
 
-test("replaceVariantAt: does not mutate the provided newVariant", () => {
+test("replaceVariantAt: does not mutate the provided newVariant (aside from auto-injected content hash)", () => {
   const { database, col } = buildScenarioDb();
   const newV1 = variants.createVariant(col, {
     var_label: 'V1 retuned',
@@ -450,7 +453,11 @@ test("replaceVariantAt: does not mutate the provided newVariant", () => {
   const snapshot = JSON.parse(JSON.stringify(newV1));
 
   driver.replaceVariantAt(database, 'h_score', 1, newV1);
-  assert.deepEqual(newV1, snapshot);
+  // The variant is transferred to the database and receives var_content_hash as a
+  // side-effect of the auto-refresh (documented contract). Everything else stays intact.
+  const { var_content_hash: _h, ...rest } = newV1;
+  assert.deepEqual(rest, snapshot);
+  assert.equal(typeof _h, 'string');
 });
 
 // ---------------------------------------------------------------------------

@@ -53,6 +53,14 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 - `plotly.js-cartesian-dist-min@2.35.2` (~500 KB) is loaded eagerly by `initDeps` for chart rendering (`runAnalysis` with `options.mode = 'chart'`). It attaches `window.Plotly`; `loadPlotly` mirrors it to `ns.plotly`. The cartesian dist covers scatter, bar, box, violin, and heatmap — all chart types in the analysis matrix; switch to `plotly.js-dist-min` only if 3D/maps/polar are ever needed.
 - Before running statistical routines, call `window.Statz.health()` (`Statz.health()` in Node) to confirm the adapters are loaded. `health()` now reports `plotly` alongside `jStat`, `simpleStatistics`, and `stdlib`.
 
+## Content hashes (`refreshDatabaseHashes`)
+
+- Every mutating helper that touches column values, variants, or their metadata **must end with `snapshots.refreshDatabaseHashes(database)`** — otherwise the reactive UI can't detect the change and Elements go stale.
+- Auto-hooked entry points today: `parseColumns` ([factors.js](json/factors.js)), `applyColumnMappings`, `addVariant`, `replaceVariantAt`, `removeVariantAt` ([driver.js](json/driver.js)).
+- Standalone helpers that return a new column (e.g., `recodeColumn`, `applyReplacements`, `applyProcessing`) don't auto-refresh — the caller reassembles the database and is responsible for a final `refreshDatabaseHashes` call.
+- The `snapshots` module is intentionally **decoupled from `driver.js`** (imports only `hashing.js` + `variants.js`) so it stays safe against circular-import TDZ. New code in `snapshots.js` should preserve that: don't add imports pointing back to `driver.js` or `contingency.js`/`numeric.js`.
+- Adding a new field to `col_values` / `meta.processing` / `meta.recipe`? Verify it's covered by `hashColumn` / `hashVariant` in [snapshots.js](json/snapshots.js). If it should NOT affect the hash (purely cosmetic), leave it out; if it should, add it to the canonical shape.
+
 ## Chart rendering & export
 
 - The chart pipeline is **spec-only in the core**: `runAnalysis({mode:'chart'})` emits Plotly figure specs in `entry.chart.spec`; no rendering happens inside the core.

@@ -5,6 +5,7 @@ import contingency from './contingency.js';
 import numeric from './numeric.js';
 import variants from './variants.js';
 import charts from './charts/index.js';
+import snapshots from './snapshots.js';
 import { getBinaryLabels, getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 
 /**
@@ -93,6 +94,7 @@ ns.addVariant = function (database, colHash, newVariant) {
     }];
   }
   column.col_vars.push(newVariant);
+  snapshots.refreshDatabaseHashes(database);
   return newVariant;
 };
 
@@ -161,6 +163,7 @@ ns.replaceVariantAt = function (database, colHash, editIndex, newVariant) {
     }
   });
 
+  snapshots.refreshDatabaseHashes(database);
   return { warnings };
 };
 
@@ -266,6 +269,7 @@ ns.removeVariantAt = function (database, colHash, removeIndex, options = {}) {
       warnings.push(translate('variants.warnings.cascadeDeleted', lang, { label }));
     });
 
+  snapshots.refreshDatabaseHashes(database);
   return { warnings };
 };
 
@@ -968,7 +972,9 @@ ns.applyColumnMappings = function (oldDb, newDb, mappingEntries) {
   // meta.replacements is preserved through the merge above (oldCol.meta spread)
   // and re-applied lazily at read-time via factors.resolveColumn — no destructive replay needed.
   const resultMeta = { ...(oldDb?.meta || {}), ...(newDb?.meta || {}) };
-  return { ...newDb, columns: result, meta: resultMeta };
+  const merged = { ...newDb, columns: result, meta: resultMeta };
+  snapshots.refreshDatabaseHashes(merged);
+  return merged;
 };
 
 /**

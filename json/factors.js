@@ -2,6 +2,7 @@
 import { trimPunctuation } from './_env.js';
 import { changeCase } from '../string_utils.js';
 import { translate } from '../i18n/index.js';
+import snapshots from './snapshots.js';
 
 /**
  * @typedef {{col_compact:boolean, labels:string[]|null, codes:(number[]|string[])|null, raw_values:string[]|null}} ColValues
@@ -615,11 +616,13 @@ ns.parseColumns = function (data, hashes, filename, currTime, options = {}) {
     if (!Array.isArray(column.col_vars)) column.col_vars = [];
     return column;
   });
-  return {
+  const database = {
     columns: result,
     history: [{ file: filename, import_time: currTime }],
     meta: { capitalizeLabels: options.capitalizeLabels || false }
   };
+  snapshots.refreshDatabaseHashes(database);
+  return database;
 };
 
 export default ns;
