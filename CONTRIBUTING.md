@@ -53,11 +53,17 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 - `plotly.js-cartesian-dist-min@2.35.2` (~500 KB) is loaded eagerly by `initDeps` for chart rendering (`runAnalysis` with `options.mode = 'chart'`). It attaches `window.Plotly`; `loadPlotly` mirrors it to `ns.plotly`. The cartesian dist covers scatter, bar, box, violin, and heatmap — all chart types in the analysis matrix; switch to `plotly.js-dist-min` only if 3D/maps/polar are ever needed.
 - Before running statistical routines, call `window.Statz.health()` (`Statz.health()` in Node) to confirm the adapters are loaded. `health()` now reports `plotly` alongside `jStat`, `simpleStatistics`, and `stdlib`.
 
-## Content hashes (`refreshDatabaseHashes`)
+## Content hashes (`refreshDatabaseHashes` / `refreshColumnHashes`)
 
-- Every mutating helper that touches column values, variants, or their metadata **must end with `snapshots.refreshDatabaseHashes(database)`** — otherwise the reactive UI can't detect the change and Elements go stale.
-- Auto-hooked entry points today: `parseColumns` ([factors.js](json/factors.js)), `applyColumnMappings`, `addVariant`, `replaceVariantAt`, `removeVariantAt` ([driver.js](json/driver.js)).
-- Standalone helpers that return a new column (e.g., `recodeColumn`, `applyReplacements`, `applyProcessing`) don't auto-refresh — the caller reassembles the database and is responsible for a final `refreshDatabaseHashes` call.
+- Every mutating helper that touches column values, variants, or their metadata **must end with a hash refresh** — otherwise the reactive UI can't detect the change and Elements go stale.
+- Two helpers, pick based on scope of the mutation:
+  - **1 specific column changed?** Use `snapshots.refreshColumnHashes(database, colHash)` — O(1) column lookup + O(variants) hashing. Fast path.
+  - **Many columns changed?** Use `snapshots.refreshDatabaseHashes(database)` — full sweep.
+- Auto-hooked entry points today:
+  - `parseColumns` ([factors.js](json/factors.js)) — full DB, `refreshDatabaseHashes`.
+  - `applyColumnMappings` ([driver.js](json/driver.js)) — full DB, `refreshDatabaseHashes`.
+  - `addVariant`, `replaceVariantAt`, `removeVariantAt` ([driver.js](json/driver.js)) — single column, `refreshColumnHashes(database, colHash)`.
+- Standalone helpers that return a new column (e.g., `recodeColumn`, `applyReplacements`, `applyProcessing`) don't auto-refresh — the caller reassembles the database and is responsible for calling `refreshColumnHashes` (if only that column was touched) or `refreshDatabaseHashes` (if multiple).
 - The `snapshots` module is intentionally **decoupled from `driver.js`** (imports only `hashing.js` + `variants.js`) so it stays safe against circular-import TDZ. New code in `snapshots.js` should preserve that: don't add imports pointing back to `driver.js` or `contingency.js`/`numeric.js`.
 - Adding a new field to `col_values` / `meta.processing` / `meta.recipe`? Verify it's covered by `hashColumn` / `hashVariant` in [snapshots.js](json/snapshots.js). If it should NOT affect the hash (purely cosmetic), leave it out; if it should, add it to the canonical shape.
 

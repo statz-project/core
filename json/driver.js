@@ -94,7 +94,7 @@ ns.addVariant = function (database, colHash, newVariant) {
     }];
   }
   column.col_vars.push(newVariant);
-  snapshots.refreshDatabaseHashes(database);
+  snapshots.refreshColumnHashes(database, colHash);
   return newVariant;
 };
 
@@ -163,7 +163,7 @@ ns.replaceVariantAt = function (database, colHash, editIndex, newVariant) {
     }
   });
 
-  snapshots.refreshDatabaseHashes(database);
+  snapshots.refreshColumnHashes(database, colHash);
   return { warnings };
 };
 
@@ -269,7 +269,7 @@ ns.removeVariantAt = function (database, colHash, removeIndex, options = {}) {
       warnings.push(translate('variants.warnings.cascadeDeleted', lang, { label }));
     });
 
-  snapshots.refreshDatabaseHashes(database);
+  snapshots.refreshColumnHashes(database, colHash);
   return { warnings };
 };
 

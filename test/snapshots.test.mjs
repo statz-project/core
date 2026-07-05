@@ -238,6 +238,55 @@ test("computeElementSnapshot: keys sorted alphabetically for string-comparable o
 });
 
 // ---------------------------------------------------------------------------
+// refreshColumnHashes — per-column fast path
+// ---------------------------------------------------------------------------
+
+test("refreshColumnHashes: produces hashes identical to refreshDatabaseHashes for the target column", () => {
+  const dbA = makeFixtureDb();
+  const dbB = makeFixtureDb();
+  snapshots.refreshDatabaseHashes(dbA);
+  snapshots.refreshColumnHashes(dbB, "h_sex");
+  // The h_sex column and its variants should have the same hashes under either path.
+  assert.equal(dbA.columns[1].col_content_hash, dbB.columns[1].col_content_hash);
+  assert.deepEqual(
+    dbA.columns[1].col_vars.map(v => v.var_content_hash),
+    dbB.columns[1].col_vars.map(v => v.var_content_hash)
+  );
+});
+
+test("refreshColumnHashes: isolates its work — other columns' hashes stay untouched", () => {
+  const db = makeFixtureDb();
+  snapshots.refreshDatabaseHashes(db);
+  const biomarkerBefore = db.columns[0].col_content_hash;
+  // Now mutate the sex column and refresh ONLY it.
+  db.columns[1].col_label = "Sex (renamed)";
+  const returned = snapshots.refreshColumnHashes(db, "h_sex");
+  assert.equal(returned, db.columns[1], "returns the mutated column reference");
+  assert.equal(db.columns[0].col_content_hash, biomarkerBefore, "biomarker hash untouched");
+});
+
+test("refreshColumnHashes: chain propagation within the target column still works", () => {
+  const db = makeFixtureDb();
+  snapshots.refreshDatabaseHashes(db);
+  const varBefore = db.columns[1].col_vars.map(v => v.var_content_hash);
+  // Edit the base column's values; per-column refresh must flip both the base hash
+  // AND every derived variant's hash (chain propagation intra-column).
+  db.columns[1].col_values.codes = [2, 2, 2, 2, 2];
+  snapshots.refreshColumnHashes(db, "h_sex");
+  assert.notEqual(db.columns[1].col_vars[0].var_content_hash, varBefore[0]);
+  assert.notEqual(db.columns[1].col_vars[1].var_content_hash, varBefore[1]);
+});
+
+test("refreshColumnHashes: unknown col_hash → returns null, database untouched", () => {
+  const db = makeFixtureDb();
+  snapshots.refreshDatabaseHashes(db);
+  const before = db.columns.map(c => c.col_content_hash);
+  const result = snapshots.refreshColumnHashes(db, "not_a_real_hash");
+  assert.equal(result, null);
+  assert.deepEqual(db.columns.map(c => c.col_content_hash), before, "no columns touched");
+});
+
+// ---------------------------------------------------------------------------
 // Self-guard: empty predictors + responses → empty snapshot
 // ---------------------------------------------------------------------------
 

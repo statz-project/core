@@ -102,39 +102,72 @@ function needsHashBackfill(database) {
 }
 
 /**
+ * Refresh hashes on a single column + its variants in place. Preserves the chain
+ * propagation semantics: variant N's upstream is either the base column's
+ * `col_content_hash` (when `source_var_index ∈ {null, 0}`) or the previous variant's
+ * `var_content_hash`. Variants are processed in ascending index order so upstream
+ * references always see fresh hashes.
+ *
+ * Private helper — shared by `refreshDatabaseHashes` (full sweep) and
+ * `refreshColumnHashes` (pointed refresh).
+ *
+ * @param {any} column
+ */
+function hashColumnInPlace(column) {
+  if (!column || typeof column !== 'object') return;
+  column.col_content_hash = hashColumn(column);
+  if (!Array.isArray(column.col_vars)) return;
+  for (let i = 0; i < column.col_vars.length; i++) {
+    const variant = column.col_vars[i];
+    if (!variant || typeof variant !== 'object') continue;
+    const srcIdx = variant.meta?.source_var_index;
+    let upstream;
+    if (srcIdx == null || srcIdx === 0) {
+      upstream = column.col_content_hash;
+    } else if (srcIdx >= 1 && srcIdx < column.col_vars.length) {
+      upstream = column.col_vars[srcIdx]?.var_content_hash ?? column.col_content_hash;
+    } else {
+      upstream = column.col_content_hash;
+    }
+    variant.var_content_hash = hashVariant(variant, upstream);
+  }
+}
+
+/**
  * Refresh (or populate for the first time) the content hashes on every column and
  * variant of a database. Mutates the database in place and returns it for chaining.
  * Idempotent — the same input always produces the same hashes.
  *
- * Variants are hashed in ascending index order so that a variant referencing a
- * previous one via `meta.source_var_index` sees the up-to-date upstream hash.
+ * Use this after mutations that touch multiple columns (parseColumns, applyColumnMappings),
+ * or when unsure which columns changed. For pointed mutations (rename column, edit
+ * meta.replacements), prefer `refreshColumnHashes(database, colHash)` — same result, O(1)
+ * column lookup + O(variants) hashing instead of a full-database sweep.
  *
  * @param {any} database
  * @returns {any} the same database, with `col_content_hash` and `var_content_hash` populated.
  */
 ns.refreshDatabaseHashes = function (database) {
   if (!database || !Array.isArray(database.columns)) return database;
-  for (const col of database.columns) {
-    if (!col || typeof col !== 'object') continue;
-    col.col_content_hash = hashColumn(col);
-    if (Array.isArray(col.col_vars)) {
-      for (let i = 0; i < col.col_vars.length; i++) {
-        const variant = col.col_vars[i];
-        if (!variant || typeof variant !== 'object') continue;
-        const srcIdx = variant.meta?.source_var_index;
-        let upstream;
-        if (srcIdx == null || srcIdx === 0) {
-          upstream = col.col_content_hash;
-        } else if (srcIdx >= 1 && srcIdx < col.col_vars.length) {
-          upstream = col.col_vars[srcIdx]?.var_content_hash ?? col.col_content_hash;
-        } else {
-          upstream = col.col_content_hash;
-        }
-        variant.var_content_hash = hashVariant(variant, upstream);
-      }
-    }
-  }
+  for (const col of database.columns) hashColumnInPlace(col);
   return database;
+};
+
+/**
+ * Refresh hashes on a single column (by col_hash) and its variants in place. Fast path
+ * for pointed mutations where the caller knows only one column was touched — semantically
+ * identical to `refreshDatabaseHashes` in that case because variants source only within
+ * their own column (`meta.source_var_index` indexes local `col_vars`), never cross-column.
+ *
+ * @param {any} database
+ * @param {string} colHash
+ * @returns {any} the mutated column, or `null` when col_hash is not found.
+ */
+ns.refreshColumnHashes = function (database, colHash) {
+  if (!database || !Array.isArray(database.columns)) return null;
+  const column = database.columns.find((/** @type {any} */ c) => c?.col_hash === colHash);
+  if (!column) return null;
+  hashColumnInPlace(column);
+  return column;
 };
 
 /**
