@@ -1011,6 +1011,124 @@ test("runAnalysis mode=chart Profile A: chart_likert_enabled=false falls back to
   result.analysis.forEach((entry) => assert.equal(entry.chart.type, "bar"));
 });
 
+// ---------------------------------------------------------------------------
+// has_likert_eligible flag — gates the chart_likert_enabled UI toggle. Emitted
+// on data eligibility only (≥2 q predictors, no response, ≥2 shared levels);
+// independent of options.mode and options.chart_likert_enabled so the toggle
+// is visible / hidden precisely.
+// ---------------------------------------------------------------------------
+
+test("has_likert_eligible: emitted when ≥2 q predictors share ≥2 levels (regardless of mode/opt-in)", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: ["a","b","c"], codes: null,
+      raw_values: ["a","b","c","a","b"] },
+    col_vars: []
+  };
+  const q2 = { ...q1, col_hash: "h_q2", col_label: "S2",
+    col_values: { col_compact: false, labels: ["a","b","c"], codes: null,
+      raw_values: ["b","a","c","b","a"] } };
+  const dbs = { db: { columns: [q1, q2] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "S2", role: "predictor" })
+  ];
+  // table mode, no opt-in → flag still fires (data-side only).
+  const { flags: fTable } = driver.runAnalysis(predictors, [], dbs, { mode: "table" });
+  assert.ok(fTable.includes("has_likert_eligible"), "flag emitted in table mode");
+  // chart mode, no opt-in → flag still fires.
+  const { flags: fChartNoOpt } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  assert.ok(fChartNoOpt.includes("has_likert_eligible"), "flag emitted in chart mode without opt-in");
+  // chart mode + opt-in → flag fires AND short-circuit dispatches.
+  const { flags: fChartOpt } = driver.runAnalysis(predictors, [], dbs, { mode: "chart", chart_likert_enabled: true });
+  assert.ok(fChartOpt.includes("has_likert_eligible"), "flag emitted with opt-in");
+});
+
+test("has_likert_eligible: NOT emitted with a single q predictor", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" })
+  ];
+  const { flags } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  assert.ok(!flags.includes("has_likert_eligible"), "single predictor → toggle would be a no-op → flag absent");
+});
+
+test("has_likert_eligible: NOT emitted when predictor types are mixed", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b"] },
+    col_vars: []
+  };
+  const n1 = {
+    col_hash: "h_n1", col_label: "N1", col_type: "n", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["1","2"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, n1] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_n1", col_var_index: null, col_label: "N1", role: "predictor" })
+  ];
+  const { flags } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  assert.ok(!flags.includes("has_likert_eligible"), "mixed types → toggle would be a no-op → flag absent");
+});
+
+test("has_likert_eligible: NOT emitted when q predictors have disjoint levels", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["north","south","north"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "S2", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["cat","dog","cat"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "S2", role: "predictor" })
+  ];
+  const { flags } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  assert.ok(!flags.includes("has_likert_eligible"), "no shared levels → toggle would be a no-op → flag absent");
+});
+
+test("has_likert_eligible: NOT emitted in Profile B or Profile C (responses present)", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const q2 = { ...q1, col_hash: "h_q2", col_label: "S2",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["b","a","b"] } };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" })
+  ];
+  const resps = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "S2", role: "response" })
+  ];
+  // Profile C — 1 pred + 1 resp.
+  const { flags } = driver.runAnalysis(preds, resps, dbs, { mode: "chart" });
+  assert.ok(!flags.includes("has_likert_eligible"), "response present → not Profile A → flag absent");
+});
+
+test("has_likert_eligible options gate: chart_likert_enabled visible only when the flag is present", () => {
+  const meta = Statz.OPTION_METADATA.chart_likert_enabled;
+  assert.deepEqual(meta.appliesTo, ["has_likert_eligible"], "gates on the new precise flag, not the broad has_q");
+  // getAvailableOptions in chart mode: flag missing → toggle hidden.
+  const noFlag = Statz.getAvailableOptions(["has_q"], "chart").map((o) => o.name);
+  assert.ok(!noFlag.includes("chart_likert_enabled"), "has_q alone must not surface the toggle anymore");
+  // Flag present → toggle visible.
+  const withFlag = Statz.getAvailableOptions(["has_q", "has_likert_eligible"], "chart").map((o) => o.name);
+  assert.ok(withFlag.includes("chart_likert_enabled"), "toggle visible when eligibility flag present");
+});
+
 test("runAnalysis mode=chart Profile A: chart_likert_enabled but mixed types falls back", () => {
   const q1 = {
     col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",

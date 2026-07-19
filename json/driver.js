@@ -1109,10 +1109,14 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
     return pairedEntry ? [pairedEntry] : [];
   }
 
-  // Likert short-circuit (Profile A, chart mode, opt-in): when all predictors are
-  // qualitative AND share level sets AND the user explicitly enables it, render a single
-  // stacked-bar Likert chart instead of per-predictor bars.
-  if (predictors.length >= 2 && responses.length === 0 && options?.mode === 'chart' && options?.chart_likert_enabled) {
+  // Likert eligibility (Profile A data shape only — mode + opt-in gated separately below).
+  // Emit `has_likert_eligible` whenever the data supports a Likert chart: ≥2 predictors,
+  // no response, every predictor is `q`, and levels intersect in ≥2 values. Kept
+  // independent of `options.mode` and `options.chart_likert_enabled` so Panel_element_options
+  // can gate the `chart_likert_enabled` toggle visibility precisely.
+  /** @type {{likertCols:any[], shared:string[]}|null} */
+  let likertEligibility = null;
+  if (predictors.length >= 2 && responses.length === 0) {
     const likertCols = predictors.map((/** @type {any} */ p) => {
       const col = columns.find(c => c.col_hash === p.col_hash && c.col_var_index === (p.col_var_index ?? null))
         || columns.find(c => c.col_hash === p.col_hash);
@@ -1121,21 +1125,38 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
     const allQ = likertCols.length === predictors.length
       && likertCols.every((/** @type {any} */ c) => c.col?.col_type === 'q');
     if (allQ) {
-      const chart = charts.chart_likert(
-        likertCols.map((/** @type {any} */ c) => ({ label: c.pred.col_label, values: c.col.raw_values || [] })),
-        options
-      );
-      if (chart) {
-        flagsUsed.add('has_q');
-        return [/** @type {any} */ ({
-          predictor: predictors.map((/** @type {any} */ p) => p.col_label).join(' / '),
-          response: null,
-          predictor_type: 'q',
-          response_type: null,
-          chart
-        })];
+      /** @type {Set<string>[]} */
+      const levelSets = likertCols.map((/** @type {any} */ c) => new Set(
+        (c.col.raw_values || []).map((/** @type {any} */ v) => String(v ?? '').trim()).filter(Boolean)
+      ));
+      const shared = levelSets.length > 0
+        ? [...levelSets[0]].filter((l) => levelSets.every((s) => s.has(l)))
+        : [];
+      if (shared.length >= 2) {
+        flagsUsed.add('has_likert_eligible');
+        likertEligibility = { likertCols, shared };
       }
-      // chart_likert returned null (e.g., levels don't intersect) — fall through to per-predictor.
+    }
+  }
+
+  // Likert short-circuit dispatch (chart mode + explicit opt-in): reuse the eligibility
+  // computed above. If chart_likert returns null defensively, fall through to the
+  // per-predictor path — eligibility already guarantees ≥2 shared levels today, so this
+  // is dead-code insurance rather than a real fallback.
+  if (likertEligibility && options?.mode === 'chart' && options?.chart_likert_enabled) {
+    const chart = charts.chart_likert(
+      likertEligibility.likertCols.map((/** @type {any} */ c) => ({ label: c.pred.col_label, values: c.col.raw_values || [] })),
+      options
+    );
+    if (chart) {
+      flagsUsed.add('has_q');
+      return [/** @type {any} */ ({
+        predictor: predictors.map((/** @type {any} */ p) => p.col_label).join(' / '),
+        response: null,
+        predictor_type: 'q',
+        response_type: null,
+        chart
+      })];
     }
   }
 

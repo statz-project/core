@@ -178,7 +178,7 @@ ns.OPTION_METADATA = {
   },
   chart_likert_enabled: {
     category: 'chart', type: 'boolean', default: false, enum: null,
-    appliesTo: ['has_q'], modeGate: 'chart',
+    appliesTo: ['has_likert_eligible'], modeGate: 'chart',
     labelKey: 'options.chart_likert_enabled.label', descriptionKey: 'options.chart_likert_enabled.description'
   },
   chart_x_label_wrap: {
