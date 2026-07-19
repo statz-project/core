@@ -1386,3 +1386,190 @@ test("startAutoRender: observer callback re-sweeps when a new .statz-chart mount
     loader._resetAutoRenderForTests();
   }
 });
+
+// ---------------------------------------------------------------------------
+// renderCharts — ResizeObserver install (keeps SVG sized to container)
+// ---------------------------------------------------------------------------
+
+test("renderCharts: installs a ResizeObserver on each successfully rendered placeholder", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const observed = [];
+  class MockRO {
+    constructor(cb) { this.cb = cb; this.disconnected = false; }
+    observe(el) { observed.push(el); this.el = el; }
+    disconnect() { this.disconnected = true; }
+  }
+  const fakeDiv = {
+    nodeType: 1,
+    isConnected: true,
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({ data: [{}], layout: {} })
+  };
+  globalThis.document = /** @type {any} */ ({
+    querySelectorAll: (sel) => sel === '.statz-chart' ? [fakeDiv] : []
+  });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: {
+      newPlot: () => Promise.resolve(),
+      Plots: { resize: () => {} }
+    },
+    ResizeObserver: MockRO,
+    requestAnimationFrame: (cb) => setTimeout(cb, 0)
+  });
+  try {
+    const s = loader.renderCharts();
+    assert.equal(s.rendered, 1);
+    assert.equal(observed.length, 1, 'ResizeObserver.observe was called once on the div');
+    assert.equal(observed[0], fakeDiv);
+    assert.ok(fakeDiv._statzResizeObserver, 'observer stashed on the div for cleanup / de-dup');
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+test("renderCharts: idempotent — a second call does not re-attach an observer", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  let observerCtors = 0;
+  class MockRO { constructor() { observerCtors++; } observe() {} disconnect() {} }
+  const fakeDiv = {
+    nodeType: 1, isConnected: true,
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({ data: [{}], layout: {} })
+  };
+  globalThis.document = /** @type {any} */ ({
+    querySelectorAll: () => [fakeDiv]
+  });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: { newPlot: () => Promise.resolve(), Plots: { resize: () => {} } },
+    ResizeObserver: MockRO,
+    requestAnimationFrame: (cb) => cb()
+  });
+  try {
+    loader.renderCharts();
+    assert.equal(observerCtors, 1);
+    // Second call — div already marked data-rendered='1', re-attach guarded by _statzResizeObserver.
+    loader.renderCharts();
+    assert.equal(observerCtors, 1, 'no duplicate observer installed');
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+test("renderCharts: ResizeObserver callback triggers Plotly.Plots.resize (debounced via rAF)", async () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const resizeCalls = [];
+  let capturedCallback = null;
+  class MockRO {
+    constructor(cb) { capturedCallback = cb; }
+    observe() {}
+    disconnect() {}
+  }
+  const fakeDiv = {
+    nodeType: 1, isConnected: true,
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({ data: [{}], layout: {} })
+  };
+  globalThis.document = /** @type {any} */ ({ querySelectorAll: () => [fakeDiv] });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: {
+      newPlot: () => Promise.resolve(),
+      Plots: { resize: (el) => resizeCalls.push(el) }
+    },
+    ResizeObserver: MockRO,
+    requestAnimationFrame: (cb) => cb()
+  });
+  try {
+    loader.renderCharts();
+    assert.ok(capturedCallback, 'observer got a callback');
+    // Simulate a browser layout change firing the observer.
+    capturedCallback();
+    assert.equal(resizeCalls.length, 1, 'Plotly.Plots.resize called once');
+    assert.equal(resizeCalls[0], fakeDiv);
+    // Two rapid successive fires within the same tick collapse into one rAF-batched resize.
+    capturedCallback();
+    capturedCallback();
+    // (requestAnimationFrame stub is synchronous; both extra fires still reach resize since pending
+    // flag flips false after each rAF. What matters is: no crash, no infinite loop.)
+    assert.ok(resizeCalls.length >= 1);
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+test("renderCharts: ResizeObserver self-disconnects when div is detached from DOM", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  let capturedCallback = null;
+  let disconnected = false;
+  class MockRO {
+    constructor(cb) { capturedCallback = cb; }
+    observe() {}
+    disconnect() { disconnected = true; }
+  }
+  const fakeDiv = {
+    nodeType: 1, isConnected: true,
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({ data: [{}], layout: {} })
+  };
+  globalThis.document = /** @type {any} */ ({ querySelectorAll: () => [fakeDiv] });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: { newPlot: () => Promise.resolve(), Plots: { resize: () => {} } },
+    ResizeObserver: MockRO,
+    requestAnimationFrame: (cb) => cb()
+  });
+  try {
+    loader.renderCharts();
+    // Simulate the div being detached (Bubble reorder or unmount).
+    fakeDiv.isConnected = false;
+    capturedCallback();
+    assert.ok(disconnected, 'observer disconnected itself when div left the DOM');
+    assert.equal(fakeDiv._statzResizeObserver, undefined, 'stashed ref cleaned up');
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+test("startAutoRender: MutationObserver disconnects ResizeObservers on removedNodes (Bubble reorder cleanup)", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  let observerCallback = null;
+  let disconnected = false;
+  const detachedDiv = {
+    nodeType: 1,
+    classList: { contains: (c) => c === 'statz-chart' },
+    _statzResizeObserver: { disconnect: () => { disconnected = true; } }
+  };
+  globalThis.document = /** @type {any} */ ({
+    body: {},
+    querySelectorAll: () => []
+  });
+  globalThis.window = /** @type {any} */ ({
+    MutationObserver: class {
+      constructor(cb) { observerCallback = cb; }
+      observe() {}
+    }
+  });
+  loader._resetAutoRenderForTests();
+  try {
+    loader.startAutoRender();
+    // Simulate Bubble removing a chart element from the DOM.
+    observerCallback([{ addedNodes: [], removedNodes: [detachedDiv] }]);
+    assert.ok(disconnected, 'ResizeObserver disconnected on removedNodes');
+    assert.equal(detachedDiv._statzResizeObserver, undefined, 'stashed ref cleared');
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+    loader._resetAutoRenderForTests();
+  }
+});

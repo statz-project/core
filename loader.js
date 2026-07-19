@@ -133,12 +133,57 @@ export function renderCharts(rootEl) {
       Plotly.newPlot(div, spec.data, spec.layout, { responsive: true, displayModeBar: false });
       if (div.dataset) div.dataset.rendered = '1';
       summary.rendered += 1;
+      // Container-resize observer: Plotly's `responsive:true` only reacts to WINDOW
+      // resize, not container resize. On Bubble's initial page load the placeholder
+      // often has clientWidth=0 at newPlot time (layout hasn't settled), and Plotly
+      // falls back to its default 700×450 dimensions — overflowing the HTML element.
+      // Installing a ResizeObserver snaps the chart to the container whenever the
+      // container's size becomes valid (initial layout, reorder, window resize,
+      // popup open/close, sidebar toggle, etc.). Idempotent per div, self-cleans
+      // once the div is detached.
+      installChartResizeObserver(div, Plotly);
     } catch (e) {
       summary.failed += 1;
       console.error('renderCharts: failed to render chart cell', e);
     }
   });
   return summary;
+}
+
+/**
+ * Attach a ResizeObserver to a rendered chart placeholder that keeps the Plotly
+ * figure sized to its container. Guarded to install exactly once per div; the
+ * observer disconnects itself when the div leaves the DOM. Debounced to one
+ * resize per animation frame to avoid layout thrash if multiple size events fire
+ * in the same tick.
+ * @private
+ * @param {any} div The `.statz-chart` element already rendered by Plotly.newPlot.
+ * @param {any} Plotly The global Plotly reference (already validated by caller).
+ */
+function installChartResizeObserver(div, Plotly) {
+  if (!div || div._statzResizeObserver) return;
+  const RO = /** @type {any} */ (typeof window !== 'undefined' ? /** @type {any} */ (window).ResizeObserver : null);
+  if (typeof RO !== 'function') return; // Environment without ResizeObserver — skip silently.
+  let pending = false;
+  const ro = new RO(() => {
+    if (!div.isConnected) {
+      ro.disconnect();
+      delete div._statzResizeObserver;
+      return;
+    }
+    if (pending) return;
+    pending = true;
+    const raf = /** @type {any} */ (typeof window !== 'undefined' ? /** @type {any} */ (window).requestAnimationFrame : null);
+    /** @param {() => void} cb */
+    const schedule = (cb) => (typeof raf === 'function' ? raf(cb) : setTimeout(cb, 16));
+    schedule(() => {
+      pending = false;
+      if (!div.isConnected) { ro.disconnect(); delete div._statzResizeObserver; return; }
+      try { Plotly.Plots.resize(div); } catch (_e) { /* ignore */ }
+    });
+  });
+  ro.observe(div);
+  div._statzResizeObserver = ro;
 }
 
 // Module-scoped guard so multiple invocations of startAutoRender install only one
@@ -171,19 +216,41 @@ export function startAutoRender() {
   const MO = win && win.MutationObserver;
   if (typeof MO !== 'function') return { installed: true };
   const observer = new MO((mutations) => {
+    let needsSweep = false;
     for (const m of mutations) {
-      for (const node of m.addedNodes) {
+      // Cleanup: disconnect ResizeObservers on charts being removed. Bubble reorders
+      // Elements by detach+reattach; without this, each detached div leaks its
+      // observer (ResizeObserver holds a strong ref to its target).
+      const removedNodes = m.removedNodes || [];
+      for (const node of removedNodes) {
         if (!node || node.nodeType !== 1) continue;
         const el = /** @type {any} */ (node);
-        const isChart = (el.classList && el.classList.contains('statz-chart'))
-          || (typeof el.querySelector === 'function' && el.querySelector('.statz-chart'));
-        if (isChart) {
-          // Any new placeholder → sweep the whole document. renderCharts is idempotent
-          // (skips cells already marked data-rendered="1"), so re-fires are cheap.
-          try { renderCharts(); } catch (_e) { /* ignore */ }
-          return;
+        const removed = (el.classList && el.classList.contains('statz-chart'))
+          ? [el]
+          : (typeof el.querySelectorAll === 'function' ? Array.from(el.querySelectorAll('.statz-chart')) : []);
+        removed.forEach((/** @type {any} */ d) => {
+          if (d._statzResizeObserver) {
+            try { d._statzResizeObserver.disconnect(); } catch (_e) { /* ignore */ }
+            delete d._statzResizeObserver;
+          }
+        });
+      }
+      // Added: schedule a sweep if any new chart placeholder appeared.
+      if (!needsSweep) {
+        const addedNodes = m.addedNodes || [];
+        for (const node of addedNodes) {
+          if (!node || node.nodeType !== 1) continue;
+          const el = /** @type {any} */ (node);
+          const isChart = (el.classList && el.classList.contains('statz-chart'))
+            || (typeof el.querySelector === 'function' && el.querySelector('.statz-chart'));
+          if (isChart) { needsSweep = true; break; }
         }
       }
+    }
+    if (needsSweep) {
+      // Sweep the whole document. renderCharts is idempotent (skips cells already
+      // marked data-rendered="1"), so re-fires are cheap.
+      try { renderCharts(); } catch (_e) { /* ignore */ }
     }
   });
   if (document.body) {
