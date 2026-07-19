@@ -1228,6 +1228,20 @@ test("exportCombinedAsChartHTML: emits NO inline <script> — rendering flows vi
   assert.match(html, /<div class="statz-chart"[^>]*data-spec="/);
 });
 
+test("exportCombinedAsChartHTML: emits CSS to center a trailing-odd chart cell at sibling width", () => {
+  // Fixes the visual asymmetry when 1 chart (or an odd count) leaves the trailing row
+  // half-empty. The rule uses :last-child:nth-child(odd) — pure CSS, no JS branching.
+  const html = exporters.exportCombinedAsChartHTML({ analysis: [] });
+  // Selector must be present with grid-column span + justify-self center + max-width
+  // clamp to the sibling-column width. Mobile override resets max-width.
+  assert.match(html, /\.statz-chart-cell:last-child:nth-child\(odd\)/);
+  assert.match(html, /grid-column:1 \/ -1/);
+  assert.match(html, /justify-self:center/);
+  assert.match(html, /max-width:calc\(50% - 8px\)/);
+  // Mobile override — trailing-odd cell should not be clamped in single-column layout.
+  assert.match(html, /@media \(max-width:768px\)\{\.statz-chart-cell:last-child:nth-child\(odd\)\{max-width:none;\}\}/);
+});
+
 // ---------------------------------------------------------------------------
 // startAutoRender — MutationObserver-based auto-render for the Bubble HTML
 // element (which injects our fragment via innerHTML, stripping <script> execution).

@@ -349,6 +349,11 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
 @media (max-width:768px){.statz-chart-grid{grid-template-columns:1fr;}}
 .statz-chart-cell{background:#ffffff;border:1px solid rgba(48,50,61,0.10);border-radius:6px;padding:12px;display:flex;flex-direction:column;}
 .statz-chart-cell--warning{background:transparent;border-color:rgba(133,100,4,0.25);}
+/* Trailing-odd cell (1 chart total, or 3rd/5th/7th trailing an odd count): span both columns
+   and center at the sibling column width — eliminates the empty right cell without making
+   the trailing chart visibly larger than its siblings. Mobile (1-col) resets max-width. */
+.statz-chart-cell:last-child:nth-child(odd){grid-column:1 / -1;justify-self:center;max-width:calc(50% - 8px);width:100%;}
+@media (max-width:768px){.statz-chart-cell:last-child:nth-child(odd){max-width:none;}}
 .statz-chart-title{font-weight:600;font-size:13px;color:#30323d;margin:0 0 8px;text-align:center;}
 .statz-chart{flex:1;min-height:320px;width:100%;}
 .statz-warning{background:#fff8e1;color:#856404;padding:10px 14px;border-radius:4px;font-size:13px;}
