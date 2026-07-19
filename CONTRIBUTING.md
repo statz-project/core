@@ -70,7 +70,8 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 ## Chart rendering & export
 
 - The chart pipeline is **spec-only in the core**: `runAnalysis({mode:'chart'})` emits Plotly figure specs in `entry.chart.spec`; no rendering happens inside the core.
-- For on-screen display, `exportCombinedAsChartHTML` produces a `<div class="statz-chart-grid">` fragment with one `<div class="statz-chart" data-spec="...">` per entry. `window.Statz.renderCharts(rootEl)` sweeps those placeholders and invokes `Plotly.newPlot` per cell (idempotent via `data-rendered="1"`).
+- For on-screen display, `exportCombinedAsChartHTML` produces a **script-free** `<div class="statz-chart-grid">` fragment with one `<div class="statz-chart" data-spec="...">` per entry. Rendering is triggered automatically by a `MutationObserver` installed by `startAutoRender()` (invoked at the end of `initDeps()`). The observer sweeps any new placeholder and invokes `renderCharts()` → `Plotly.newPlot` per cell (idempotent via `data-rendered="1"`). Direct `renderCharts(rootEl)` calls are supported for lifecycle-managed contexts.
+- **Do NOT reintroduce an inline `<script>` in `exportCombinedAsChartHTML` output**: browsers strip inline scripts injected via `Element.innerHTML` (HTML spec security rule), so any consumer using `innerHTML` mount — most notably Bubble's HTML element — would never execute it. The observer path covers every mount pattern uniformly; a regression guard test in `core/test/charts.test.mjs` asserts the fragment stays script-free.
 - For DOCX/PDF export, three helpers convert specs to base64 images via off-screen rendering + `Plotly.toImage`:
   - `chartSpecToImage(spec, {width?, height?, format?})` — single spec → data URL (Promise).
   - `chartSpecsToImages(specs, options)` — batch (serial).

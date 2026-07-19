@@ -1212,42 +1212,163 @@ test("analysisResultToImages: mixes warning + chart entries; preserves order", a
 });
 
 // ---------------------------------------------------------------------------
-// exportCombinedAsChartHTML — self-rendering inline <script>
+// exportCombinedAsChartHTML — no inline scripts (MutationObserver drives rendering)
 // ---------------------------------------------------------------------------
 
-test("exportCombinedAsChartHTML: appends self-rendering <script> after the grid", () => {
+test("exportCombinedAsChartHTML: emits NO inline <script> — rendering flows via startAutoRender's MutationObserver", () => {
+  // Regression guard against reintroducing the self-rendering <script>: browsers strip
+  // scripts injected via innerHTML (Bubble's HTML element mount path), so the observer
+  // path in core/loader.js is the sole driver. Keeping the HTML script-free simplifies
+  // the payload and makes the render lifecycle single-sourced.
   const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
   const html = exporters.exportCombinedAsChartHTML(result);
-  // Script lives at the end of the body and references renderCharts.
-  assert.match(html, /<script>\(function\(\)\{[\s\S]*renderCharts[\s\S]*\}\)\(\);<\/script>/);
-  // Order: grid div first, then footer (none here), then inline script.
-  const gridIdx = html.indexOf('<div class="statz-chart-grid">');
-  const scriptIdx = html.indexOf('<script>');
-  assert.ok(gridIdx >= 0 && scriptIdx > gridIdx, "script comes after the grid div");
+  assert.equal(html.includes('<script'), false, 'no <script> in the fragment output');
+  // Grid + cells still present — the payload the observer consumes.
+  assert.match(html, /<div class="statz-chart-grid">/);
+  assert.match(html, /<div class="statz-chart"[^>]*data-spec="/);
 });
 
-test("exportCombinedAsChartHTML: inline script locates own grid via currentScript (no global selector)", () => {
-  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
-  const html = exporters.exportCombinedAsChartHTML(result);
-  // The script must not contain `document.querySelector('.statz-chart-grid')` (would target
-  // the FIRST grid in the page); it should use document.currentScript + previousElementSibling
-  // (with a parentElement.querySelector fallback that's scoped to the local parent only).
-  assert.match(html, /document\.currentScript/);
-  assert.equal(html.includes("document.querySelector('.statz-chart-grid')"), false);
-  assert.equal(html.includes('document.querySelector(".statz-chart-grid")'), false);
+// ---------------------------------------------------------------------------
+// startAutoRender — MutationObserver-based auto-render for the Bubble HTML
+// element (which injects our fragment via innerHTML, stripping <script> execution).
+// ---------------------------------------------------------------------------
+
+test("loader: exports startAutoRender", () => {
+  assert.equal(typeof loader.startAutoRender, "function");
 });
 
-test("exportCombinedAsChartHTML: inline script polls for Plotly readiness with a bounded retry", () => {
-  const result = { analysis: [{ predictor: "A", chart: { type: "x", spec: { data: [], layout: {} } } }] };
-  const html = exporters.exportCombinedAsChartHTML(result);
-  // Polling: setTimeout + a counter cap so it doesn't loop forever when Plotly never loads.
-  assert.match(html, /setTimeout\(/);
-  assert.match(html, /timed out waiting for Plotly/);
+test("startAutoRender: returns {installed:false} in Node (no document)", () => {
+  const prevDoc = globalThis.document;
+  delete globalThis.document;
+  loader._resetAutoRenderForTests();
+  try {
+    const result = loader.startAutoRender();
+    assert.deepEqual(result, { installed: false });
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc;
+    loader._resetAutoRenderForTests();
+  }
 });
 
-test("exportCombinedAsChartHTML: empty analysis still emits the inline script (no-op when no grid cells)", () => {
-  // Even for an empty result we keep the script so Bubble doesn't need conditional wiring.
-  // The script's grid lookup returns the (empty) grid div; renderCharts iterates 0 cells.
-  const html = exporters.exportCombinedAsChartHTML({ analysis: [] });
-  assert.match(html, /<script>/);
+test("startAutoRender: idempotent — second call is a no-op even with a fresh document", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const calls = [];
+  class MockMO { constructor() { calls.push('ctor'); } observe() { calls.push('observe'); } }
+  globalThis.document = /** @type {any} */ ({
+    body: {},
+    querySelectorAll: () => [],
+    addEventListener: () => {}
+  });
+  globalThis.window = /** @type {any} */ ({ MutationObserver: MockMO });
+  loader._resetAutoRenderForTests();
+  try {
+    const a = loader.startAutoRender();
+    const b = loader.startAutoRender();
+    assert.deepEqual(a, { installed: true }, "first call installs");
+    assert.deepEqual(b, { installed: false }, "second call no-ops");
+    assert.equal(calls.filter(c => c === 'ctor').length, 1, "only one observer created");
+    assert.equal(calls.filter(c => c === 'observe').length, 1);
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+    loader._resetAutoRenderForTests();
+  }
+});
+
+test("startAutoRender: no crash when window.MutationObserver is missing", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  globalThis.document = /** @type {any} */ ({
+    body: {},
+    querySelectorAll: () => []
+  });
+  globalThis.window = /** @type {any} */ ({}); // no MutationObserver
+  loader._resetAutoRenderForTests();
+  try {
+    const result = loader.startAutoRender();
+    // Installed=true because guard flipped, but no observer was attached — safe fallback.
+    assert.deepEqual(result, { installed: true });
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+    loader._resetAutoRenderForTests();
+  }
+});
+
+test("startAutoRender: performs initial sweep on install (renders pre-existing placeholders)", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  let newPlotCalls = 0;
+  const preRendered = { classList: { contains: (c) => c === 'statz-chart' } }; // pretend absent dataset.rendered
+  const fakeDiv = {
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({ data: [{}], layout: {} })
+  };
+  globalThis.document = /** @type {any} */ ({
+    body: {},
+    querySelectorAll: (sel) => sel === '.statz-chart' ? [fakeDiv] : []
+  });
+  globalThis.window = /** @type {any} */ ({
+    MutationObserver: class { observe() {} },
+    Plotly: {
+      newPlot: () => { newPlotCalls++; return Promise.resolve(); }
+    }
+  });
+  loader._resetAutoRenderForTests();
+  try {
+    loader.startAutoRender();
+    assert.equal(newPlotCalls, 1, "initial sweep called Plotly.newPlot on the pre-existing placeholder");
+    assert.equal(fakeDiv.dataset.rendered, '1', "placeholder marked as rendered");
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+    loader._resetAutoRenderForTests();
+  }
+});
+
+test("startAutoRender: observer callback re-sweeps when a new .statz-chart mounts", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  let observerCallback = null;
+  let placeholders = [];
+  let renderCallCount = 0;
+  const makeDiv = () => ({
+    nodeType: 1,   // ELEMENT_NODE — the observer callback filters non-elements out
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({ data: [{}], layout: {} })
+  });
+  globalThis.document = /** @type {any} */ ({
+    body: {},
+    querySelectorAll: () => placeholders
+  });
+  globalThis.window = /** @type {any} */ ({
+    MutationObserver: class {
+      constructor(cb) { observerCallback = cb; }
+      observe() {}
+    },
+    Plotly: {
+      newPlot: () => { renderCallCount++; return Promise.resolve(); }
+    }
+  });
+  loader._resetAutoRenderForTests();
+  try {
+    loader.startAutoRender();
+    assert.equal(renderCallCount, 0, "no placeholders yet → no render");
+    // Simulate Bubble mounting a new placeholder via innerHTML.
+    const newDiv = makeDiv();
+    placeholders = [newDiv];
+    // Fire the observer as the browser would.
+    observerCallback([{ addedNodes: [newDiv] }]);
+    assert.equal(renderCallCount, 1, "new placeholder triggered a sweep");
+    // Firing again on the same rendered placeholder → idempotent skip.
+    observerCallback([{ addedNodes: [newDiv] }]);
+    assert.equal(renderCallCount, 1, "already-rendered placeholder not re-plotted");
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+    loader._resetAutoRenderForTests();
+  }
 });

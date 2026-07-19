@@ -141,6 +141,67 @@ export function renderCharts(rootEl) {
   return summary;
 }
 
+// Module-scoped guard so multiple invocations of startAutoRender install only one
+// observer. Exported implicitly via a getter on the returned object below for tests.
+let _autoRenderInstalled = false;
+
+/**
+ * Install a `MutationObserver` that automatically renders any `.statz-chart` placeholder
+ * as soon as it appears in the DOM. Idempotent — subsequent calls after the first are
+ * no-ops. Safe to invoke in Node (early-returns without `document`).
+ *
+ * **Why this exists.** The self-rendering inline `<script>` embedded by
+ * `exportCombinedAsChartHTML` does not execute when the host page injects HTML via
+ * `Element.innerHTML` — a browser security rule that Bubble's HTML element hits by
+ * design. Installing a MutationObserver at bundle boot lifts that constraint: any
+ * `.statz-chart` reaching the DOM (regardless of how it got there) gets rendered.
+ *
+ * Called at the end of `initDeps()` so every Bubble page picks it up for free. Direct
+ * invocation is also supported for pages/tests that manage `initDeps` themselves.
+ *
+ * @returns {{ installed: boolean }} Whether *this call* installed the observer.
+ */
+export function startAutoRender() {
+  if (typeof document === 'undefined') return { installed: false };
+  if (_autoRenderInstalled) return { installed: false };
+  _autoRenderInstalled = true;
+  // Initial sweep for anything already mounted.
+  try { renderCharts(); } catch (_e) { /* ignore */ }
+  const win = /** @type {any} */ (typeof window !== 'undefined' ? window : null);
+  const MO = win && win.MutationObserver;
+  if (typeof MO !== 'function') return { installed: true };
+  const observer = new MO((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (!node || node.nodeType !== 1) continue;
+        const el = /** @type {any} */ (node);
+        const isChart = (el.classList && el.classList.contains('statz-chart'))
+          || (typeof el.querySelector === 'function' && el.querySelector('.statz-chart'));
+        if (isChart) {
+          // Any new placeholder → sweep the whole document. renderCharts is idempotent
+          // (skips cells already marked data-rendered="1"), so re-fires are cheap.
+          try { renderCharts(); } catch (_e) { /* ignore */ }
+          return;
+        }
+      }
+    }
+  });
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    // Body not yet available (loader running before DOM ready) — wait once.
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    }, { once: true });
+  }
+  return { installed: true };
+}
+
+/** Test-only reset. Not part of the public API. */
+export function _resetAutoRenderForTests() {
+  _autoRenderInstalled = false;
+}
+
 /**
  * Convert a single Plotly chart spec to a base64 image data URL via off-screen rendering.
  * Used by DOCX export pipelines (the natural client-side path: render → `Plotly.toImage` →
@@ -233,5 +294,10 @@ export async function initDeps(nsArg) {
   await loadDeps(ns);
   await loadStdlibStats(ns);
   await loadPlotly(ns);
+  // Install the DOM observer that auto-renders chart placeholders. Idempotent —
+  // safe even when initDeps is invoked more than once. Bubble's HTML element
+  // injects our fragment via innerHTML, which strips <script> execution; the
+  // observer is what actually invokes renderCharts when a new placeholder mounts.
+  startAutoRender();
   return health();
 }
