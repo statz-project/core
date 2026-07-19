@@ -355,7 +355,13 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
 .statz-chart-cell:last-child:nth-child(odd){grid-column:1 / -1;justify-self:center;max-width:calc(50% - 8px);width:100%;}
 @media (max-width:768px){.statz-chart-cell:last-child:nth-child(odd){max-width:none;}}
 .statz-chart-title{font-weight:600;font-size:13px;color:#30323d;margin:0 0 8px;text-align:center;}
-.statz-chart{flex:1;min-height:320px;width:100%;}
+/* Fixed height (not min-height): Plotly's default fallback of 700x450 kicks in when
+   newPlot runs on a container with clientWidth=0 (page-load race before layout settles);
+   without an upper cap the SVG grows the flex parent to 450px and ResizeObserver locks
+   it there forever. A fixed height also gives Plotly enough top margin for X-axis /
+   category labels that get cropped at 320. 400px is a good balance — labels fit, no
+   wasted vertical space. */
+.statz-chart{height:400px;width:100%;}
 .statz-warning{background:#fff8e1;color:#856404;padding:10px 14px;border-radius:4px;font-size:13px;}
 .statz-chart-footer{margin-top:12px;font-size:12px;color:#666;text-align:left;}
 </style>`;

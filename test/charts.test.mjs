@@ -1228,6 +1228,21 @@ test("exportCombinedAsChartHTML: emits NO inline <script> — rendering flows vi
   assert.match(html, /<div class="statz-chart"[^>]*data-spec="/);
 });
 
+test("exportCombinedAsChartHTML: chart container has fixed height (not min-height + flex)", () => {
+  // Rationale: `.statz-chart { min-height: 320px; flex: 1 }` (previous shape) let Plotly's
+  // fallback 700x450 render (when clientWidth=0 at newPlot time) grow the flex parent to
+  // 450px, and ResizeObserver then locked the container at 450 forever. A fixed height
+  // caps the container so any fallback render collapses back to the intended size on the
+  // first resize call. Also gives Plotly enough top margin to render axis / category
+  // labels that were cropped at 320.
+  const html = exporters.exportCombinedAsChartHTML({ analysis: [] });
+  assert.match(html, /\.statz-chart\{height:400px;width:100%;\}/);
+  // Regression guard: the old `flex:1;min-height:320px` shape must not reappear on
+  // `.statz-chart` — either would re-enable the fallback-locks-container bug.
+  assert.equal(html.includes('.statz-chart{flex:1'), false, 'no flex:1 on .statz-chart');
+  assert.equal(html.includes('min-height:320px'), false, 'no min-height on .statz-chart');
+});
+
 test("exportCombinedAsChartHTML: emits CSS to center a trailing-odd chart cell at sibling width", () => {
   // Fixes the visual asymmetry when 1 chart (or an odd count) leaves the trailing row
   // half-empty. The rule uses :last-child:nth-child(odd) — pure CSS, no JS branching.
