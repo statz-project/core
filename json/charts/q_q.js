@@ -54,6 +54,7 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
       y: ys,
       text,
       textposition: 'outside',
+      cliponaxis: false,
       marker: { color: palette[ri] },
       hovertemplate: `${resp}: %{y}<extra></extra>`
     };
@@ -63,7 +64,9 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
     barmode: 'group',
     xaxis: { title: { text: meta.predictorLabel ?? '' }, automargin: true },
     yaxis: { title: { text: '' }, zeroline: false, rangemode: 'tozero' },
-    margin: { t: 30, r: 30, b: 80, l: 60 },
+    // margin.t 60: gives room for `textposition: outside` count/percent labels above
+    // the tallest bar (30px default clips them in ~400px containers).
+    margin: { t: 60, r: 30, b: 80, l: 60 },
     legend: { title: { text: meta.responseLabel ?? '' }, orientation: 'v' },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff'

@@ -58,6 +58,7 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
       y: ys,
       text,
       textposition: 'outside',
+      cliponaxis: false,
       marker: { color: palette[li] },
       hovertemplate: `${level}: %{y}<extra></extra>`
     };
@@ -67,7 +68,8 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
     barmode: 'group',
     xaxis: { title: { text: '' }, automargin: true },
     yaxis: { title: { text: '' }, zeroline: false, rangemode: 'tozero' },
-    margin: { t: 30, r: 30, b: 80, l: 60 },
+    // margin.t 60: room for `textposition: outside` labels above the tallest bar.
+    margin: { t: 60, r: 30, b: 80, l: 60 },
     legend: { title: { text: meta.qualitativeLabel ?? '' }, orientation: 'v' },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff'

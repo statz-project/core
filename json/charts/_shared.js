@@ -117,6 +117,9 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
     y: horizontal ? wrappedLabels : counts,
     text,
     textposition: 'outside',
+    // Let outside-positioned text labels render past the axis edges instead of being
+    // clipped when a bar reaches the top of the plot area.
+    cliponaxis: false,
     marker: { color: theme.point },
     hovertemplate: '%{label}: %{value}<extra></extra>',
     showlegend: false
@@ -125,7 +128,10 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
     ? {
         xaxis: { title: { text: '' }, zeroline: false },
         yaxis: { title: { text: varLabel }, automargin: true },
-        margin: { t: 30, r: 60, b: 50, l: 100 },
+        // margin.t 60 (not the Plotly default ~30): with `textposition: outside` the
+        // count/percent label sits above the tallest bar; a 30px top pad clips it in
+        // ~400px containers. 60px gives it room without shrinking the plot noticeably.
+        margin: { t: 60, r: 60, b: 50, l: 100 },
         showlegend: false,
         plot_bgcolor: '#ffffff',
         paper_bgcolor: '#ffffff'
@@ -133,7 +139,7 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
     : {
         xaxis: { title: { text: varLabel }, automargin: true },
         yaxis: { title: { text: '' }, zeroline: false },
-        margin: { t: 30, r: 30, b: 80, l: 60 },
+        margin: { t: 60, r: 30, b: 80, l: 60 },
         showlegend: false,
         plot_bgcolor: '#ffffff',
         paper_bgcolor: '#ffffff'
