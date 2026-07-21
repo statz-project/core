@@ -141,6 +141,56 @@ test("getAvailableOptions(['has_paired_n'], 'chart') includes chart_paired_show_
   assert.ok(names.includes('chart_paired_show_lines'));
 });
 
+// ---------------------------------------------------------------------------
+// appliesTo alignment with runtime consumption. Guards against the historic
+// drift where options declared appliesTo flags they didn't actually influence
+// (e.g., yes_label on has_l, missing_label on has_n) and vice versa.
+// ---------------------------------------------------------------------------
+
+test("include_missing / missing_label: gated on has_q + has_l only (numeric expresses missing via stat_options_* → n_missing)", () => {
+  // has_n alone → neither option surfaces.
+  const nOnly = getAvailableOptions(['has_n'], 'table').map((o) => o.name);
+  assert.ok(!nOnly.includes('include_missing'), 'include_missing not applicable to has_n');
+  assert.ok(!nOnly.includes('missing_label'), 'missing_label not applicable to has_n');
+  // has_q or has_l → both surface.
+  const qTable = getAvailableOptions(['has_q'], 'table').map((o) => o.name);
+  assert.ok(qTable.includes('include_missing') && qTable.includes('missing_label'));
+  const lTable = getAvailableOptions(['has_l'], 'table').map((o) => o.name);
+  assert.ok(lTable.includes('include_missing') && lTable.includes('missing_label'));
+});
+
+test("missing_label modeGate: null (surfaces in BOTH table and chart) — chart_q consumes it", () => {
+  const qChart = getAvailableOptions(['has_q'], 'chart').map((o) => o.name);
+  assert.ok(qChart.includes('missing_label'),
+    'missing_label must surface in chart mode — chart_q renders the "Not informed" bucket label');
+});
+
+test("yes_label / no_label: gated on the 4 list-expand flags only (never on has_l descriptive)", () => {
+  // has_l alone (Profile A univariate list) → NOT applicable — summarize_l never binarizes.
+  const lOnly = getAvailableOptions(['has_l'], 'table').map((o) => o.name);
+  assert.ok(!lOnly.includes('yes_label'), 'yes_label not applicable to descriptive has_l');
+  assert.ok(!lOnly.includes('no_label'), 'no_label not applicable to descriptive has_l');
+  // Each list-expand flag surfaces both labels.
+  for (const flag of ['has_lq', 'has_ql', 'has_ln', 'has_ll']) {
+    const names = getAvailableOptions([flag], 'table').map((o) => o.name);
+    assert.ok(names.includes('yes_label'), `yes_label must surface for ${flag}`);
+    assert.ok(names.includes('no_label'), `no_label must surface for ${flag}`);
+  }
+});
+
+test("binary_min_count: gated on ALL 4 list-expand flags + modeGate null (chart callers filter items too)", () => {
+  const lOnly = getAvailableOptions(['has_l'], 'table').map((o) => o.name);
+  assert.ok(!lOnly.includes('binary_min_count'), 'binary_min_count not applicable to descriptive has_l');
+  // All 4 list-expand flags surface it — previously has_ql and has_ln were missing.
+  for (const flag of ['has_lq', 'has_ql', 'has_ln', 'has_ll']) {
+    const names = getAvailableOptions([flag], 'table').map((o) => o.name);
+    assert.ok(names.includes('binary_min_count'), `binary_min_count must surface for ${flag}`);
+  }
+  // modeGate: null → surfaces in chart mode too (decomposeListAsBinaryCols is called by chart_l_* helpers).
+  const chartLq = getAvailableOptions(['has_lq'], 'chart').map((o) => o.name);
+  assert.ok(chartLq.includes('binary_min_count'), 'binary_min_count must surface in chart mode too');
+});
+
 test("getAvailableOptions(flags, mode) returned entries carry name + all metadata fields", () => {
   const out = getAvailableOptions(['has_qq'], 'table');
   assert.ok(out.length > 0);

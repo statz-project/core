@@ -39,8 +39,11 @@ const ALL_INFERENTIAL = [
   'has_lq', 'has_ql', 'has_ln', 'has_ll',
   'has_paired_n', 'has_paired_q'
 ];
-const ALL_UNIVARIATE = ['has_q', 'has_n', 'has_l'];
 const ALL_LIST_EXPAND = ['has_lq', 'has_ql', 'has_ln', 'has_ll'];
+// Qualitative-shape flags — cells that render a "Not informed" bucket / missing category.
+// Numeric analyses express missing counts via stat_options_* with `n_missing`, not via
+// include_missing / missing_label, so `has_n` is deliberately excluded.
+const QL_MISSING_BUCKET = ['has_q', 'has_l'];
 
 /** @type {Record<string, OptionMetadata>} */
 ns.OPTION_METADATA = {
@@ -92,7 +95,10 @@ ns.OPTION_METADATA = {
   },
   include_missing: {
     category: 'descriptive', type: 'boolean', default: true, enum: null,
-    appliesTo: ALL_UNIVARIATE, modeGate: null,
+    // `has_q` / `has_l` only: consumed by summarize_q, summarize_l, and chart_q to
+    // toggle the "Not informed" bucket. Numeric summaries use `stat_options_*` with
+    // the `n_missing` enum member instead — the toggle would have no effect there.
+    appliesTo: QL_MISSING_BUCKET, modeGate: null,
     labelKey: 'options.include_missing.label', descriptionKey: 'options.include_missing.description'
   },
 
@@ -130,22 +136,34 @@ ns.OPTION_METADATA = {
   },
   missing_label: {
     category: 'table', type: 'string', default: null, defaultI18nKey: 'table.missing',
-    enum: null, appliesTo: ALL_UNIVARIATE, modeGate: 'table',
+    // `has_q` / `has_l` only + modeGate: null. Consumed by summarize_q, summarize_l,
+    // AND chart_q ([charts/q.js]); previous `modeGate: 'table'` hid the control in
+    // chart mode even though bar charts render the "Not informed" bucket label.
+    // `has_n` excluded for the same reason as `include_missing`.
+    enum: null, appliesTo: QL_MISSING_BUCKET, modeGate: null,
     labelKey: 'options.missing_label.label', descriptionKey: 'options.missing_label.description'
   },
   yes_label: {
     category: 'table', type: 'string', default: null, defaultI18nKey: '__binary__',
-    enum: null, appliesTo: ['has_l', 'has_lq', 'has_ln'], modeGate: 'table',
+    // All list-expand cells only. `decomposeListAsBinaryCols` (the ONLY consumer of
+    // yes/no labels) is called by table AND chart callers for lq/ql/ln/ll. Previous
+    // `['has_l', 'has_lq', 'has_ln']` was wrong on both ends — surfaced under
+    // Profile A `has_l` (which never binarizes) and omitted `has_ql` / `has_ll`.
+    enum: null, appliesTo: ALL_LIST_EXPAND, modeGate: 'table',
     labelKey: 'options.yes_label.label', descriptionKey: 'options.yes_label.description'
   },
   no_label: {
     category: 'table', type: 'string', default: null, defaultI18nKey: '__binary__',
-    enum: null, appliesTo: ['has_l', 'has_lq', 'has_ln'], modeGate: 'table',
+    enum: null, appliesTo: ALL_LIST_EXPAND, modeGate: 'table',
     labelKey: 'options.no_label.label', descriptionKey: 'options.no_label.description'
   },
   binary_min_count: {
     category: 'table', type: 'number', default: 1, enum: null,
-    appliesTo: ['has_l', 'has_lq', 'has_ll'], modeGate: 'table',
+    // Same rationale as yes/no labels: all 4 list-expand cells go through
+    // decomposeListAsBinaryCols. `modeGate: null` because the threshold filters items
+    // identically in table and chart callers; previous `'table'` silently ignored the
+    // setting for chart-mode l×* cells.
+    appliesTo: ALL_LIST_EXPAND, modeGate: null,
     labelKey: 'options.binary_min_count.label', descriptionKey: 'options.binary_min_count.description'
   },
 
