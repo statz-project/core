@@ -1153,6 +1153,137 @@ test("runAnalysis mode=chart Profile A: chart_likert_enabled but mixed types fal
 });
 
 // ---------------------------------------------------------------------------
+// chart_interactive — injects spec.config.staticPlot on every chart entry.
+// Default false → staticPlot: true (no hover / zoom / pan). Opt-in inverts it.
+// ---------------------------------------------------------------------------
+
+test("chart_interactive default false: every chart entry.spec.config.staticPlot is true", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" })
+  ];
+  const { result } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  const spec = result.analysis[0].chart.spec;
+  assert.ok(spec.config, "config bag emitted on every chart spec");
+  assert.equal(spec.config.staticPlot, true, "static-by-default");
+});
+
+test("chart_interactive: true → spec.config.staticPlot is false", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "S1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const predictors = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "S1", role: "predictor" })
+  ];
+  const { result } = driver.runAnalysis(predictors, [], dbs, { mode: "chart", chart_interactive: true });
+  const spec = result.analysis[0].chart.spec;
+  assert.equal(spec.config.staticPlot, false, "interactive opt-in disables staticPlot");
+});
+
+test("chart_interactive: config injected on every entry of a multi-cell result (l × q)", () => {
+  const l1 = {
+    col_hash: "h_l1", col_label: "Symptoms", col_type: "l", col_sep: ";",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["fever;cough","fever","cough","fever;cough"] },
+    col_vars: []
+  };
+  const q1 = {
+    col_hash: "h_q1", col_label: "Outcome", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["yes","no","yes","no"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [l1, q1] } };
+  const predictors = [JSON.stringify({ database_id: "db", col_hash: "h_l1", col_var_index: null, col_label: "Symptoms", role: "predictor" })];
+  const responses = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Outcome", role: "response" })];
+  const { result } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(result.analysis.length >= 2, "l × q emits ≥2 sub-charts");
+  for (const entry of result.analysis) {
+    assert.equal(entry.chart?.spec?.config?.staticPlot, true, "static injected on every sub-chart");
+  }
+});
+
+test("chart_interactive: default normalization is false", () => {
+  const merged = Statz.getDefaultAnalysisOptions({});
+  assert.equal(merged.chart_interactive, false, "default: static (chart_interactive=false)");
+  const explicit = Statz.getDefaultAnalysisOptions({ chart_interactive: true });
+  assert.equal(explicit.chart_interactive, true, "explicit opt-in preserved");
+  // Non-boolean coerced to false (only strict === true enables).
+  const truthyNonBool = Statz.getDefaultAnalysisOptions({ chart_interactive: 1 });
+  assert.equal(truthyNonBool.chart_interactive, false, "non-boolean coerced to false");
+});
+
+test("renderCharts: spec.config.staticPlot forwarded to Plotly.newPlot config arg", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const newPlotCalls = [];
+  const fakeDiv = {
+    nodeType: 1, isConnected: true,
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({
+      data: [{}], layout: {}, config: { staticPlot: true }
+    })
+  };
+  globalThis.document = /** @type {any} */ ({ querySelectorAll: () => [fakeDiv] });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: {
+      newPlot: (_div, data, layout, config) => { newPlotCalls.push({ data, layout, config }); return Promise.resolve(); },
+      Plots: { resize: () => {} }
+    },
+    ResizeObserver: class { observe() {} disconnect() {} },
+    requestAnimationFrame: (cb) => cb()
+  });
+  try {
+    loader.renderCharts();
+    assert.equal(newPlotCalls.length, 1);
+    // Defaults still present + spec.config wins on overlapping keys.
+    assert.equal(newPlotCalls[0].config.responsive, true, "responsive default preserved");
+    assert.equal(newPlotCalls[0].config.displayModeBar, false, "displayModeBar default preserved");
+    assert.equal(newPlotCalls[0].config.staticPlot, true, "spec.config.staticPlot forwarded");
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+test("renderCharts: without spec.config the defaults still apply (no staticPlot)", () => {
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const newPlotCalls = [];
+  const fakeDiv = {
+    nodeType: 1, isConnected: true,
+    classList: { contains: (c) => c === 'statz-chart' },
+    dataset: {},
+    getAttribute: () => JSON.stringify({ data: [{}], layout: {} })
+  };
+  globalThis.document = /** @type {any} */ ({ querySelectorAll: () => [fakeDiv] });
+  globalThis.window = /** @type {any} */ ({
+    Plotly: {
+      newPlot: (_div, data, layout, config) => { newPlotCalls.push({ data, layout, config }); return Promise.resolve(); },
+      Plots: { resize: () => {} }
+    },
+    ResizeObserver: class { observe() {} disconnect() {} },
+    requestAnimationFrame: (cb) => cb()
+  });
+  try {
+    loader.renderCharts();
+    assert.equal(newPlotCalls[0].config.responsive, true);
+    assert.equal(newPlotCalls[0].config.displayModeBar, false);
+    assert.equal(newPlotCalls[0].config.staticPlot, undefined, "no config in spec → no staticPlot forwarded");
+  } finally {
+    if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
+    if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Phase 7 — DOCX export primitives (chartSpecToImage and friends)
 // ---------------------------------------------------------------------------
 

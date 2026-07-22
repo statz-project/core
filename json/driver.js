@@ -744,6 +744,9 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.chart_x_label_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_x_label_wrap)))
     ? Number((/** @type {any} */ (normalized).chart_x_label_wrap)) : 3;
   normalized.chart_include_zero = (/** @type {any} */ (normalized).chart_include_zero) !== false;
+  // Static by default: charts render without hover crosshair / zoom / pan. Opt-in via
+  // `chart_interactive: true` surfaces Plotly's native interactive gestures.
+  /** @type {any} */ (normalized).chart_interactive = (/** @type {any} */ (normalized).chart_interactive) === true;
   normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
 
   const residuals = normalized.residual_symbols ?? {};
@@ -1524,6 +1527,15 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const allMethods = result.map(r => r.table?.test_used).filter(Boolean);
   const symbolMap = ns.generateTestSymbolMap(allMethods, mergedOptions);
   result.forEach(r => { if (r.table?.test_used) { const method = r.table.test_used; r.table.test_symbol = symbolMap[method]; } });
+  // Chart interactivity: attach `spec.config.staticPlot` on every emitted chart spec so
+  // renderCharts can pass it through to Plotly.newPlot without reading options a second
+  // time. Static-by-default; the `chart_interactive` toggle opts into hover / zoom / pan.
+  const staticPlot = (/** @type {any} */ (mergedOptions).chart_interactive) !== true;
+  result.forEach((/** @type {any} */ r) => {
+    if (r.chart?.spec) {
+      r.chart.spec.config = { ...(r.chart.spec.config || {}), staticPlot };
+    }
+  });
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
   const finalResult = { analysis: result, test_legend, lang };
   return { result: finalResult, flags: Array.from(flagsUsed) };

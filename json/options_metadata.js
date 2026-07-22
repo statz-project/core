@@ -208,6 +208,14 @@ ns.OPTION_METADATA = {
     category: 'chart', type: 'boolean', default: true, enum: null,
     appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_nn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_include_zero.label', descriptionKey: 'options.chart_include_zero.description'
+  },
+  chart_interactive: {
+    category: 'chart', type: 'boolean', default: false, enum: null,
+    // Always relevant in chart mode (empty appliesTo). Default false → charts render
+    // static (no hover crosshair, no zoom/pan, no double-click reset). Enabling
+    // surfaces Plotly's native interactive gestures on the rendered figure.
+    appliesTo: [], modeGate: 'chart',
+    labelKey: 'options.chart_interactive.label', descriptionKey: 'options.chart_interactive.description'
   }
 };
 

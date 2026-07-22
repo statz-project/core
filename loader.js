@@ -130,7 +130,10 @@ export function renderCharts(rootEl) {
       const specRaw = div.getAttribute('data-spec');
       if (!specRaw) { summary.failed += 1; return; }
       const spec = JSON.parse(specRaw);
-      Plotly.newPlot(div, spec.data, spec.layout, { responsive: true, displayModeBar: false });
+      // Spec-carried config wins over defaults (per-chart `staticPlot`, etc, injected by
+      // driver.runAnalysis from Analysis_options like `chart_interactive`).
+      const plotConfig = { responsive: true, displayModeBar: false, ...(spec.config || {}) };
+      Plotly.newPlot(div, spec.data, spec.layout, plotConfig);
       if (div.dataset) div.dataset.rendered = '1';
       summary.rendered += 1;
       // Container-resize observer: Plotly's `responsive:true` only reacts to WINDOW

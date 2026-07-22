@@ -93,7 +93,8 @@ const MESSAGES = {
       "chart_paired_show_lines": { "label": "Linhas individuais (pareado)", "description": "Conectar pontos do mesmo indivíduo entre momentos em análise pareada." },
       "chart_likert_enabled": { "label": "Modo Likert", "description": "Quando todas as preditoras são qualitativas com os mesmos níveis, gerar um único gráfico empilhado horizontal." },
       "chart_x_label_wrap": { "label": "Quebra dos rótulos X", "description": "Quebrar rótulos do eixo X a cada N palavras." },
-      "chart_include_zero": { "label": "Eixo Y inclui zero", "description": "Forçar o eixo Y a começar em zero." }
+      "chart_include_zero": { "label": "Eixo Y inclui zero", "description": "Forçar o eixo Y a começar em zero." },
+      "chart_interactive": { "label": "Gráfico interativo", "description": "Habilitar zoom, arrasto de eixos e cursor de dados no gráfico renderizado. Desabilitado por padrão (gráfico estático)." }
     },
     "posthoc": {
       "title": "Comparações múltiplas significativas",
@@ -256,7 +257,8 @@ const MESSAGES = {
       "chart_paired_show_lines": { "label": "Subject lines (paired)", "description": "Connect each subject's points across moments in paired analyses." },
       "chart_likert_enabled": { "label": "Likert mode", "description": "When all predictors are qualitative with the same levels, produce a single horizontal stacked chart." },
       "chart_x_label_wrap": { "label": "X-axis label wrap", "description": "Wrap X-axis labels every N words." },
-      "chart_include_zero": { "label": "Y axis includes zero", "description": "Force the Y axis to start at zero." }
+      "chart_include_zero": { "label": "Y axis includes zero", "description": "Force the Y axis to start at zero." },
+      "chart_interactive": { "label": "Interactive chart", "description": "Enable zoom, axis drag, and data cursor on the rendered chart. Disabled by default (static chart)." }
     },
     "posthoc": {
       "title": "Significant multiple comparisons",
@@ -419,7 +421,8 @@ const MESSAGES = {
       "chart_paired_show_lines": { "label": "Líneas individuales (pareado)", "description": "Conectar puntos del mismo individuo entre momentos en análisis pareado." },
       "chart_likert_enabled": { "label": "Modo Likert", "description": "Cuando todas las predictoras son cualitativas con los mismos niveles, generar un único gráfico apilado horizontal." },
       "chart_x_label_wrap": { "label": "Quiebre de etiquetas X", "description": "Quebrar etiquetas del eje X cada N palabras." },
-      "chart_include_zero": { "label": "Eje Y incluye cero", "description": "Forzar el eje Y a empezar en cero." }
+      "chart_include_zero": { "label": "Eje Y incluye cero", "description": "Forzar el eje Y a empezar en cero." },
+      "chart_interactive": { "label": "Gráfico interactivo", "description": "Habilitar zoom, arrastre de ejes y cursor de datos en el gráfico renderizado. Desactivado por defecto (gráfico estático)." }
     },
     "posthoc": {
       "title": "Comparaciones múltiples significativas",
