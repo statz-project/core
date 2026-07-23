@@ -12,7 +12,7 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 - `scripts/build.mjs` - esbuild bundler that produces:
   - `dist/statz-core.js` (minified IIFE bundle)
   - `dist/statz-core.v<version>.<hash>.js` (cache-busted)
-  - `bubble-html/statz-bundle.html` - single line <script> for Bubble
+  - `bubble-html/statz-bundle.html` - single line script for Bubble
 
 ## Setup
 
