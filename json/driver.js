@@ -747,6 +747,12 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   // Static by default: charts render without hover crosshair / zoom / pan. Opt-in via
   // `chart_interactive: true` surfaces Plotly's native interactive gestures.
   /** @type {any} */ (normalized).chart_interactive = (/** @type {any} */ (normalized).chart_interactive) === true;
+  // Title visibility toggles: main title HIDDEN by default (redundant with axis titles
+  // in most cases), both axis titles VISIBLE by default (they now carry actual info —
+  // "Count" / "Value" / var labels — thanks to the consolidation feature).
+  /** @type {any} */ (normalized).chart_show_title = (/** @type {any} */ (normalized).chart_show_title) === true;
+  /** @type {any} */ (normalized).chart_show_xaxis_title = (/** @type {any} */ (normalized).chart_show_xaxis_title) !== false;
+  /** @type {any} */ (normalized).chart_show_yaxis_title = (/** @type {any} */ (normalized).chart_show_yaxis_title) !== false;
   normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
 
   const residuals = normalized.residual_symbols ?? {};
@@ -1527,17 +1533,30 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const allMethods = result.map(r => r.table?.test_used).filter(Boolean);
   const symbolMap = ns.generateTestSymbolMap(allMethods, mergedOptions);
   result.forEach(r => { if (r.table?.test_used) { const method = r.table.test_used; r.table.test_symbol = symbolMap[method]; } });
-  // Chart interactivity: attach `spec.config.staticPlot` on every emitted chart spec so
-  // renderCharts can pass it through to Plotly.newPlot without reading options a second
-  // time. Static-by-default; the `chart_interactive` toggle opts into hover / zoom / pan.
+  // Chart post-processing: axis-title visibility toggles + spec.config.staticPlot.
+  // Chart builders always emit meaningful axis titles (Count/%/n(%) for bar-family,
+  // "Value" for chart_n numeric axis, variable labels for scatter/individual-values).
+  // Hiding a title just blanks its .text so Plotly reserves no space for it.
   const staticPlot = (/** @type {any} */ (mergedOptions).chart_interactive) !== true;
+  const showXTitle = (/** @type {any} */ (mergedOptions).chart_show_xaxis_title) !== false;
+  const showYTitle = (/** @type {any} */ (mergedOptions).chart_show_yaxis_title) !== false;
   result.forEach((/** @type {any} */ r) => {
-    if (r.chart?.spec) {
-      r.chart.spec.config = { ...(r.chart.spec.config || {}), staticPlot };
-    }
+    if (!r.chart?.spec) return;
+    r.chart.spec.config = { ...(r.chart.spec.config || {}), staticPlot };
+    const layout = r.chart.spec.layout || {};
+    if (!showXTitle && layout.xaxis?.title) layout.xaxis.title.text = '';
+    if (!showYTitle && layout.yaxis?.title) layout.yaxis.title.text = '';
   });
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+  // `chart_options` bag on the result carries HTML-level chart display flags for
+  // `exportCombinedAsChartHTML` to consume (currently: `show_title` gates the
+  // <div class="statz-chart-title"> heading above each cell — warning cells always
+  // keep their heading so the user can identify which analysis was rejected).
+  /** @type {any} */
   const finalResult = { analysis: result, test_legend, lang };
+  finalResult.chart_options = {
+    show_title: (/** @type {any} */ (mergedOptions).chart_show_title) === true
+  };
   return { result: finalResult, flags: Array.from(flagsUsed) };
 };
 

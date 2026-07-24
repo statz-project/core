@@ -216,6 +216,26 @@ ns.OPTION_METADATA = {
     // surfaces Plotly's native interactive gestures on the rendered figure.
     appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_interactive.label', descriptionKey: 'options.chart_interactive.description'
+  },
+  // ----- title / axis title visibility (chart mode only) -----
+  // Consolidation-of-title-labels feature. Defaults chosen to preserve information
+  // per axis (both axis titles ON) while starting with the main title hidden — the
+  // combined-cell heading tends to duplicate what the axis titles now carry, so the
+  // opt-in surfaces it only when the user explicitly wants it.
+  chart_show_title: {
+    category: 'chart', type: 'boolean', default: false, enum: null,
+    appliesTo: [], modeGate: 'chart',
+    labelKey: 'options.chart_show_title.label', descriptionKey: 'options.chart_show_title.description'
+  },
+  chart_show_xaxis_title: {
+    category: 'chart', type: 'boolean', default: true, enum: null,
+    appliesTo: [], modeGate: 'chart',
+    labelKey: 'options.chart_show_xaxis_title.label', descriptionKey: 'options.chart_show_xaxis_title.description'
+  },
+  chart_show_yaxis_title: {
+    category: 'chart', type: 'boolean', default: true, enum: null,
+    appliesTo: [], modeGate: 'chart',
+    labelKey: 'options.chart_show_yaxis_title.label', descriptionKey: 'options.chart_show_yaxis_title.description'
   }
 };
 

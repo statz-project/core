@@ -1,6 +1,7 @@
 // @ts-check
 // Shared building blocks for chart_* spec builders.
 // Keep pure: no Plotly imports, no DOM access. Just helpers and palette constants.
+import { translate } from '../../i18n/index.js';
 
 /**
  * Theme palette used by single-series charts (univariate q, l; scatter, individual values).
@@ -83,6 +84,34 @@ export function formatBarLabel(count, percent, format) {
 }
 
 /**
+ * Resolve the numeric-axis title for bar-family charts (chart_q, chart_l, chart_q_q,
+ * chart_paired_q, and their l-expansion variants) from the `chart_label_format` option.
+ * Mirrors the per-bar value-label format the user chose, so the axis title reads as the
+ * same quantity:
+ *   - 'n'  → i18n "Count" (locale-aware)
+ *   - 'p'  → "%"
+ *   - 'np' → "n (%)"
+ * @param {Record<string,any>} options Normalized Analysis_options (must carry `lang`).
+ * @returns {string}
+ */
+export function resolveNumericAxisLabel(options) {
+  const format = ['n', 'p', 'np'].includes(options?.chart_label_format) ? options.chart_label_format : 'n';
+  if (format === 'p') return '%';
+  if (format === 'np') return 'n (%)';
+  return translate('chart.axisLabels.count', options?.lang);
+}
+
+/**
+ * Resolve the generic "Value" label used as the y-axis title in univariate numeric charts
+ * (chart_n), where the categorical position label already lives in the x-axis tick text.
+ * @param {Record<string,any>} options Normalized Analysis_options (must carry `lang`).
+ * @returns {string}
+ */
+export function resolveValueAxisLabel(options) {
+  return translate('chart.axisLabels.value', options?.lang);
+}
+
+/**
  * Build a Plotly bar spec from labels + counts. Used by chart_q (qualitative univariate)
  * and chart_l (list univariate). Auto-switches to horizontal orientation when there are
  * many categories or labels with many words — same heuristic as the R r.plot.barplot.
@@ -109,6 +138,9 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
   });
   const wrappedLabels = labels.map((l) => wrapText(l, labelWrap));
   const varLabel = meta.varLabel ?? '';
+  // Numeric axis title mirrors the per-bar label format (Count/%/n(%)). Previously the
+  // numeric axis was untitled — leaving the reader to infer the quantity from bar-text.
+  const numericAxisLabel = resolveNumericAxisLabel(options);
   /** @type {any[]} */
   const data = [{
     type: 'bar',
@@ -126,7 +158,8 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
   }];
   const layout = horizontal
     ? {
-        xaxis: { title: { text: '' }, zeroline: false },
+        // Horizontal orientation: x-axis is numeric (bar length), y-axis is categorical.
+        xaxis: { title: { text: numericAxisLabel }, zeroline: false },
         yaxis: { title: { text: varLabel }, automargin: true },
         // margin.t 60 (not the Plotly default ~30): with `textposition: outside` the
         // count/percent label sits above the tallest bar; a 30px top pad clips it in
@@ -137,8 +170,9 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
         paper_bgcolor: '#ffffff'
       }
     : {
+        // Vertical orientation: x-axis is categorical, y-axis is numeric (bar height).
         xaxis: { title: { text: varLabel }, automargin: true },
-        yaxis: { title: { text: '' }, zeroline: false },
+        yaxis: { title: { text: numericAxisLabel }, zeroline: false },
         margin: { t: 60, r: 30, b: 80, l: 60 },
         showlegend: false,
         plot_bgcolor: '#ffffff',

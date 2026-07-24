@@ -3,7 +3,7 @@
 // All points are drawn at the same x position (single category) with horizontal jitter,
 // a horizontal crossbar marks the mean, and an optional boxplot can overlay the points.
 import variants from '../variants.js';
-import { resolveTheme } from './_shared.js';
+import { resolveTheme, resolveValueAxisLabel } from './_shared.js';
 
 /**
  * Deterministic pseudo-random in [-0.5, 0.5) keyed by index. Allows tests to assert
@@ -92,7 +92,10 @@ export function chart_n(values, options = {}, meta = {}) {
       showgrid: false
     },
     yaxis: {
-      title: { text: varLabel },
+      // Generic "Value" (i18n) instead of duplicating varLabel — the x-axis tick text
+      // already carries the variable name at position 1. Previous behavior printed the
+      // varLabel on BOTH axes (redundant).
+      title: { text: resolveValueAxisLabel(options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})
     },

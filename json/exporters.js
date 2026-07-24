@@ -309,7 +309,7 @@ ns.isWarningRow = function (row) { return !!(row && typeof row._warning_text ===
  * `table.warning` are rendered as a flagged amber banner. The browser-side `Statz.renderCharts`
  * helper (see core/loader.js) sweeps the grid and invokes `Plotly.newPlot` per cell.
  *
- * @param {{ analysis: Array<{ predictor?: string|null, response?: string|null, chart?: { type:string, spec:any }, table?: { warning?: string } }>, lang?: string }} resultObj
+ * @param {{ analysis: Array<{ predictor?: string|null, response?: string|null, chart?: { type:string, spec:any }, table?: { warning?: string } }>, lang?: string, chart_options?: { show_title?: boolean } }} resultObj
  * @param {string=} title Optional document title (used only when `wrap=true`).
  * @param {boolean=} wrap When true, emit a full HTML document; otherwise emit the grid fragment.
  * @param {string=} footerFree Optional user-provided footer suffix (parity with exportCombinedAsHTML).
@@ -319,6 +319,11 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
   if (!resultObj || !Array.isArray(resultObj.analysis)) return '';
   const lang = normalizeLanguage(resultObj?.lang);
   const resolvedTitle = title ?? translate('table.title', lang);
+  // Main-title visibility for regular chart cells (warning cells ALWAYS keep their
+  // heading — it's the only way for the user to identify which analysis was rejected).
+  // Defaults to true when the flag is absent so legacy result payloads (pre-toggle)
+  // still render titles.
+  const showChartTitle = resultObj?.chart_options?.show_title !== false;
   /** @param {unknown} v */
   const escapeAttr = (v) => String(v ?? '')
     .replace(/&/g, '&amp;')
@@ -340,7 +345,10 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
     }
     if (entry?.chart?.spec) {
       const specAttr = escapeAttr(JSON.stringify(entry.chart.spec));
-      cells.push(`<div class="statz-chart-cell"><div class="statz-chart-title">${escapeText(heading)}</div><div class="statz-chart" data-spec="${specAttr}"></div></div>`);
+      const titleHtml = showChartTitle
+        ? `<div class="statz-chart-title">${escapeText(heading)}</div>`
+        : '';
+      cells.push(`<div class="statz-chart-cell">${titleHtml}<div class="statz-chart" data-spec="${specAttr}"></div></div>`);
     }
   }
 

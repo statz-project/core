@@ -1,7 +1,7 @@
 // @ts-check
 // Grouped bar chart for two qualitative variables (q × q). Mirrors r.plot.grouped_bar.
 // x-axis: predictor levels. One bar per response level inside each group (barmode='group').
-import { getThemePalette, wrapText, formatBarLabel } from './_shared.js';
+import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel } from './_shared.js';
 
 /**
  * @param {Array<string|null|undefined>} predictorVals
@@ -63,7 +63,9 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
   const layout = {
     barmode: 'group',
     xaxis: { title: { text: meta.predictorLabel ?? '' }, automargin: true },
-    yaxis: { title: { text: '' }, zeroline: false, rangemode: 'tozero' },
+    // Numeric axis (bar height) labeled per chart_label_format — matches the per-bar
+    // value labels above each bar. Previously untitled — reader had to infer the quantity.
+    yaxis: { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
     // margin.t 60: gives room for `textposition: outside` count/percent labels above
     // the tallest bar (30px default clips them in ~400px containers).
     margin: { t: 60, r: 30, b: 80, l: 60 },

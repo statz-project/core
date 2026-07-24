@@ -94,7 +94,16 @@ const MESSAGES = {
       "chart_likert_enabled": { "label": "Modo Likert", "description": "Quando todas as preditoras são qualitativas com os mesmos níveis, gerar um único gráfico empilhado horizontal." },
       "chart_x_label_wrap": { "label": "Quebra dos rótulos X", "description": "Quebrar rótulos do eixo X a cada N palavras." },
       "chart_include_zero": { "label": "Eixo Y inclui zero", "description": "Forçar o eixo Y a começar em zero." },
-      "chart_interactive": { "label": "Gráfico interativo", "description": "Habilitar zoom, arrasto de eixos e cursor de dados no gráfico renderizado. Desabilitado por padrão (gráfico estático)." }
+      "chart_interactive": { "label": "Gráfico interativo", "description": "Habilitar zoom, arrasto de eixos e cursor de dados no gráfico renderizado. Desabilitado por padrão (gráfico estático)." },
+      "chart_show_title": { "label": "Exibir título principal", "description": "Mostrar o rótulo da(s) variável(is) acima de cada gráfico. Desabilitado por padrão." },
+      "chart_show_xaxis_title": { "label": "Exibir título do eixo X", "description": "Mostrar o rótulo do eixo X (categorias ou variável numérica) no gráfico." },
+      "chart_show_yaxis_title": { "label": "Exibir título do eixo Y", "description": "Mostrar o rótulo do eixo Y (categorias, variável numérica ou 'Contagem' / '%' / 'n (%)' para gráficos de barras)." }
+    },
+    "chart": {
+      "axisLabels": {
+        "count": "Contagem",
+        "value": "Valor"
+      }
     },
     "posthoc": {
       "title": "Comparações múltiplas significativas",
@@ -258,7 +267,16 @@ const MESSAGES = {
       "chart_likert_enabled": { "label": "Likert mode", "description": "When all predictors are qualitative with the same levels, produce a single horizontal stacked chart." },
       "chart_x_label_wrap": { "label": "X-axis label wrap", "description": "Wrap X-axis labels every N words." },
       "chart_include_zero": { "label": "Y axis includes zero", "description": "Force the Y axis to start at zero." },
-      "chart_interactive": { "label": "Interactive chart", "description": "Enable zoom, axis drag, and data cursor on the rendered chart. Disabled by default (static chart)." }
+      "chart_interactive": { "label": "Interactive chart", "description": "Enable zoom, axis drag, and data cursor on the rendered chart. Disabled by default (static chart)." },
+      "chart_show_title": { "label": "Show main title", "description": "Show the variable label(s) above each chart. Disabled by default." },
+      "chart_show_xaxis_title": { "label": "Show X-axis title", "description": "Show the X-axis title (categories or numeric variable label) on the chart." },
+      "chart_show_yaxis_title": { "label": "Show Y-axis title", "description": "Show the Y-axis title (categories, numeric variable label, or 'Count' / '%' / 'n (%)' for bar charts)." }
+    },
+    "chart": {
+      "axisLabels": {
+        "count": "Count",
+        "value": "Value"
+      }
     },
     "posthoc": {
       "title": "Significant multiple comparisons",
@@ -422,7 +440,16 @@ const MESSAGES = {
       "chart_likert_enabled": { "label": "Modo Likert", "description": "Cuando todas las predictoras son cualitativas con los mismos niveles, generar un único gráfico apilado horizontal." },
       "chart_x_label_wrap": { "label": "Quiebre de etiquetas X", "description": "Quebrar etiquetas del eje X cada N palabras." },
       "chart_include_zero": { "label": "Eje Y incluye cero", "description": "Forzar el eje Y a empezar en cero." },
-      "chart_interactive": { "label": "Gráfico interactivo", "description": "Habilitar zoom, arrastre de ejes y cursor de datos en el gráfico renderizado. Desactivado por defecto (gráfico estático)." }
+      "chart_interactive": { "label": "Gráfico interactivo", "description": "Habilitar zoom, arrastre de ejes y cursor de datos en el gráfico renderizado. Desactivado por defecto (gráfico estático)." },
+      "chart_show_title": { "label": "Mostrar título principal", "description": "Mostrar la etiqueta de la(s) variable(s) sobre cada gráfico. Desactivado por defecto." },
+      "chart_show_xaxis_title": { "label": "Mostrar título del eje X", "description": "Mostrar el título del eje X (categorías o variable numérica) en el gráfico." },
+      "chart_show_yaxis_title": { "label": "Mostrar título del eje Y", "description": "Mostrar el título del eje Y (categorías, variable numérica o 'Conteo' / '%' / 'n (%)' para gráficos de barras)." }
+    },
+    "chart": {
+      "axisLabels": {
+        "count": "Conteo",
+        "value": "Valor"
+      }
     },
     "posthoc": {
       "title": "Comparaciones múltiples significativas",

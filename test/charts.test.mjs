@@ -258,7 +258,11 @@ test("runAnalysis mode='chart' Profile A: n predictor → chart_n individual_val
   assert.ok(flags.includes("has_n"));
   const entry = result.analysis[0];
   assert.equal(entry.chart.type, "individual_values");
-  assert.equal(entry.chart.spec.layout.yaxis.title.text, "Biomarker");
+  // Title consolidation: yaxis title is the generic "Value" (i18n en_us default) instead
+  // of duplicating the var label — the varLabel already lives in the x-axis tick text at x=1.
+  assert.equal(entry.chart.spec.layout.yaxis.title.text, "Value");
+  // x-axis tick still carries the var label at its single position.
+  assert.deepEqual(entry.chart.spec.layout.xaxis.ticktext, ["Biomarker"]);
 });
 
 test("runAnalysis mode='chart' Profile A: l predictor → chart_l bar", () => {
@@ -1281,6 +1285,176 @@ test("renderCharts: without spec.config the defaults still apply (no staticPlot)
     if (prevDoc) globalThis.document = prevDoc; else delete globalThis.document;
     if (prevWin) globalThis.window = prevWin; else delete globalThis.window;
   }
+});
+
+// ---------------------------------------------------------------------------
+// Title consolidation — bar-family numeric-axis titles + chart_n "Value" +
+// 3 title-visibility toggles (chart_show_title / _xaxis_title / _yaxis_title).
+// Consolidates axis titles across all chart types per the ANALYSIS.md matrix.
+// ---------------------------------------------------------------------------
+
+test("chart_q (vertical bar): y-axis title is 'Count' by default (chart_label_format='n')", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const predictors = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const { result } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  const layout = result.analysis[0].chart.spec.layout;
+  // Vertical: x carries varLabel, y carries numeric label. Both non-empty now.
+  assert.equal(layout.xaxis.title.text, "Group");
+  assert.equal(layout.yaxis.title.text, "Count", "y-axis title = i18n Count (default chart_label_format='n')");
+});
+
+test("chart_q: y-axis label follows chart_label_format ('p' → '%', 'np' → 'n (%)')", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const predictors = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const pct = driver.runAnalysis(predictors, [], dbs, { mode: "chart", chart_label_format: "p" });
+  assert.equal(pct.result.analysis[0].chart.spec.layout.yaxis.title.text, "%");
+  const combined = driver.runAnalysis(predictors, [], dbs, { mode: "chart", chart_label_format: "np" });
+  assert.equal(combined.result.analysis[0].chart.spec.layout.yaxis.title.text, "n (%)");
+});
+
+test("chart_q_q: y-axis (bar heights) labeled per chart_label_format — previously empty", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Sex", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["m","f","m","f","m","f"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "Outcome", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["yes","no","yes","yes","no","no"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Sex", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Outcome", role: "response" })];
+  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart" });
+  const layout = result.analysis[0].chart.spec.layout;
+  assert.equal(layout.xaxis.title.text, "Sex");
+  assert.equal(layout.yaxis.title.text, "Count", "grouped_bar y-axis carries numeric label");
+});
+
+test("chart_paired_q: y-axis carries 'Count' label — previously empty", () => {
+  // 2 momentos × binary yes/no.
+  const t0 = {
+    col_hash: "h_t0", col_label: "T0", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["yes","no","yes","yes"] },
+    col_vars: []
+  };
+  const t1 = {
+    col_hash: "h_t1", col_label: "T1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["no","no","yes","no"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [t0, t1] } };
+  const resps = [
+    JSON.stringify({ database_id: "db", col_hash: "h_t0", col_var_index: null, col_label: "T0", role: "response" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_t1", col_var_index: null, col_label: "T1", role: "response" })
+  ];
+  const { result } = driver.runAnalysis([], resps, dbs, { mode: "chart" });
+  const layout = result.analysis[0].chart.spec.layout;
+  assert.equal(layout.yaxis.title.text, "Count");
+});
+
+test("chart_show_xaxis_title=false: blanks xaxis.title.text on every chart entry", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const { result } = driver.runAnalysis(preds, [], dbs, { mode: "chart", chart_show_xaxis_title: false });
+  assert.equal(result.analysis[0].chart.spec.layout.xaxis.title.text, "", "x-axis title blanked");
+  // y-axis unaffected.
+  assert.equal(result.analysis[0].chart.spec.layout.yaxis.title.text, "Count");
+});
+
+test("chart_show_yaxis_title=false: blanks yaxis.title.text on every chart entry", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const { result } = driver.runAnalysis(preds, [], dbs, { mode: "chart", chart_show_yaxis_title: false });
+  assert.equal(result.analysis[0].chart.spec.layout.yaxis.title.text, "");
+  // x-axis unaffected.
+  assert.equal(result.analysis[0].chart.spec.layout.xaxis.title.text, "Group");
+});
+
+test("chart_show_title (default false): result.chart_options.show_title carries the flag", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const off = driver.runAnalysis(preds, [], dbs, { mode: "chart" });
+  assert.equal(off.result.chart_options?.show_title, false, "default false");
+  const on = driver.runAnalysis(preds, [], dbs, { mode: "chart", chart_show_title: true });
+  assert.equal(on.result.chart_options?.show_title, true);
+});
+
+test("exportCombinedAsChartHTML: show_title=false omits .statz-chart-title for chart cells", () => {
+  const result = {
+    analysis: [{ predictor: "MyVar", chart: { type: "bar", spec: { data: [], layout: {} } } }],
+    chart_options: { show_title: false }
+  };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  assert.equal(html.includes('class="statz-chart-title"'), false, "no title div in chart cell");
+  // The data-spec div still emitted.
+  assert.match(html, /<div class="statz-chart" data-spec="/);
+});
+
+test("exportCombinedAsChartHTML: show_title=false still keeps heading on WARNING cells", () => {
+  const result = {
+    analysis: [
+      { predictor: "Rejected", table: { warning: "paired analysis skipped" } },
+      { predictor: "OK", chart: { type: "bar", spec: { data: [], layout: {} } } }
+    ],
+    chart_options: { show_title: false }
+  };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  // Warning cell keeps its heading (statz-chart-title is INSIDE the warning cell).
+  assert.match(html, /statz-chart-cell--warning[\s\S]*statz-chart-title[^>]*>Rejected/);
+  // Regular chart cell has NO title div even though it has a predictor label.
+  assert.equal(/<div class="statz-chart-cell"><div class="statz-chart-title"/.test(html), false);
+});
+
+test("exportCombinedAsChartHTML: show_title defaults to visible when chart_options absent (legacy payload compat)", () => {
+  const result = {
+    analysis: [{ predictor: "MyVar", chart: { type: "bar", spec: { data: [], layout: {} } } }]
+    // no chart_options key at all — represents pre-toggle result payloads
+  };
+  const html = exporters.exportCombinedAsChartHTML(result);
+  assert.match(html, /<div class="statz-chart-title">MyVar<\/div>/, "legacy payloads keep the heading");
+});
+
+test("title-visibility options: default normalization matches spec (title hidden, axes visible)", () => {
+  const merged = Statz.getDefaultAnalysisOptions({});
+  assert.equal(merged.chart_show_title, false, "main title hidden by default");
+  assert.equal(merged.chart_show_xaxis_title, true, "x-axis title visible by default");
+  assert.equal(merged.chart_show_yaxis_title, true, "y-axis title visible by default");
+  // Non-boolean coerced by === true / !== false.
+  const custom = Statz.getDefaultAnalysisOptions({
+    chart_show_title: 1, // truthy but not true → false
+    chart_show_xaxis_title: 0, // falsy but not explicit false → still true (!== false)
+    chart_show_yaxis_title: false // explicit false → false
+  });
+  assert.equal(custom.chart_show_title, false);
+  assert.equal(custom.chart_show_xaxis_title, true, "0 !== false, so still visible");
+  assert.equal(custom.chart_show_yaxis_title, false);
 });
 
 // ---------------------------------------------------------------------------
