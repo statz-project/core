@@ -261,7 +261,11 @@ ns.OPTION_METADATA = {
   chart_legend_position: {
     category: 'chart', type: 'enum', default: 'top',
     enum: ['top', 'right', 'bottom'],
-    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q', 'has_q'], modeGate: 'chart',
+    // Legends only render on multi-trace charts: Profile C (q×q + list-expansion variants),
+    // Profile B paired_q, and Profile A likert. `has_likert_eligible` (not `has_q`) gates
+    // the Profile A case — chart_q single-bar has no legend, so `has_q` was casting too
+    // wide a net and surfacing legend controls on Elements where they had no effect.
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q', 'has_likert_eligible'], modeGate: 'chart',
     labelKey: 'options.chart_legend_position.label', descriptionKey: 'options.chart_legend_position.description'
   },
   chart_show_legend_title: {
@@ -279,7 +283,9 @@ ns.OPTION_METADATA = {
   },
   chart_legend_labels_wrap: {
     category: 'chart', type: 'number', default: 2, enum: null,
-    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q', 'has_q'], modeGate: 'chart',
+    // Same rationale as chart_legend_position: gate the Profile A case on the more
+    // precise `has_likert_eligible` flag rather than the broader `has_q`.
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q', 'has_likert_eligible'], modeGate: 'chart',
     labelKey: 'options.chart_legend_labels_wrap.label', descriptionKey: 'options.chart_legend_labels_wrap.description'
   }
 };

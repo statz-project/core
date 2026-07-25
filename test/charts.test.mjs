@@ -1755,6 +1755,26 @@ test("chart_likert: legend uses shared helper; no title (levels are self-describ
   assert.equal(legend.orientation, "h");
 });
 
+test("legend options: gated on multi-trace flags only — has_q alone must NOT surface them", () => {
+  // has_q alone (Profile A chart_q single-bar) has no legend → controls hidden.
+  const qAlone = Statz.getAvailableOptions(['has_q'], 'chart').map((o) => o.name);
+  assert.ok(!qAlone.includes('chart_legend_position'), 'legend_position hidden for has_q alone');
+  assert.ok(!qAlone.includes('chart_legend_labels_wrap'), 'legend_labels_wrap hidden for has_q alone');
+  assert.ok(!qAlone.includes('chart_show_legend_title'));
+  assert.ok(!qAlone.includes('chart_legend_title_wrap'));
+  // has_likert_eligible → position + labels_wrap visible (likert chart has a legend).
+  const likert = Statz.getAvailableOptions(['has_q', 'has_likert_eligible'], 'chart').map((o) => o.name);
+  assert.ok(likert.includes('chart_legend_position'));
+  assert.ok(likert.includes('chart_legend_labels_wrap'));
+  // title + title_wrap remain hidden even under likert — likert has no meta.title.
+  assert.ok(!likert.includes('chart_show_legend_title'));
+  assert.ok(!likert.includes('chart_legend_title_wrap'));
+  // has_qq (Profile C) → all 4 legend options visible.
+  const qq = Statz.getAvailableOptions(['has_qq'], 'chart').map((o) => o.name);
+  ['chart_legend_position', 'chart_show_legend_title', 'chart_legend_title_wrap', 'chart_legend_labels_wrap']
+    .forEach((name) => assert.ok(qq.includes(name), `${name} must surface for has_qq`));
+});
+
 test("legend options: default normalization", () => {
   const def = Statz.getDefaultAnalysisOptions({});
   assert.equal(def.chart_legend_position, "top");
