@@ -3,7 +3,7 @@
 // All points are drawn at the same x position (single category) with horizontal jitter,
 // a horizontal crossbar marks the mean, and an optional boxplot can overlay the points.
 import variants from '../variants.js';
-import { resolveTheme, resolveValueAxisLabel } from './_shared.js';
+import { resolveTheme, resolveValueAxisLabel, computeCenter } from './_shared.js';
 
 /**
  * Deterministic pseudo-random in [-0.5, 0.5) keyed by index. Allows tests to assert
@@ -37,16 +37,34 @@ export function chart_n(values, options = {}, meta = {}) {
   const theme = resolveTheme(options.chart_theme);
   const pointSize = Number.isFinite(Number(options.chart_point_size)) ? Number(options.chart_point_size) : 8;
   const showBox = options.chart_show_boxplot === true;
+  // Layer toggles: showPoints defaults true (backward compat). Both showBox+showPoints
+  // false leaves the axes empty but keeps the placeholder — signals "user removed
+  // everything" instead of vanishing the chart cell.
+  const showPoints = options.chart_show_points !== false;
+  const centerMode = options.chart_central_tendency === 'median' ? 'median' : 'mean';
   const includeZero = options.chart_include_zero !== false;
   const varLabel = meta.varLabel ?? '';
   const jitterWidth = 0.3; // matches r.plot.numeric default
 
-  const xJitter = nums.map((_, i) => 1 + deterministicJitter(i) * 2 * jitterWidth);
-  const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
-
   /** @type {any[]} */
-  const data = [
-    {
+  const data = [];
+  if (showBox) {
+    // Box trace placed FIRST (drawn under everything else) so markers stay visible on top.
+    data.push({
+      type: 'box',
+      x: nums.map(() => 1),
+      y: nums,
+      boxpoints: false,
+      fillcolor: 'rgba(0,0,0,0)',
+      line: { color: theme.point, width: 1 },
+      showlegend: false,
+      hoverinfo: 'skip'
+    });
+  }
+  if (showPoints) {
+    const xJitter = nums.map((_, i) => 1 + deterministicJitter(i) * 2 * jitterWidth);
+    const center = computeCenter(nums, centerMode);
+    data.push({
       type: 'scatter',
       mode: 'markers',
       x: xJitter,
@@ -55,28 +73,15 @@ export function chart_n(values, options = {}, meta = {}) {
       name: 'points',
       showlegend: false,
       hovertemplate: '%{y}<extra></extra>'
-    },
-    {
-      // Mean crossbar — short horizontal line spanning the jitter band.
+    });
+    data.push({
+      // Central-tendency crossbar — short horizontal line at mean or median.
       type: 'scatter',
       mode: 'lines',
       x: [1 - jitterWidth, 1 + jitterWidth],
-      y: [mean, mean],
+      y: [center, center],
       line: { color: theme.line, width: 3 },
-      name: 'mean',
-      showlegend: false,
-      hoverinfo: 'skip'
-    }
-  ];
-  if (showBox) {
-    data.unshift({
-      // Box trace placed under the points so markers stay visible on top.
-      type: 'box',
-      x: nums.map(() => 1),
-      y: nums,
-      boxpoints: false,
-      fillcolor: 'rgba(0,0,0,0)',
-      line: { color: theme.point, width: 1 },
+      name: centerMode,
       showlegend: false,
       hoverinfo: 'skip'
     });

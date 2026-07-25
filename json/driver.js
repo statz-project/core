@@ -737,6 +737,13 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.chart_point_size = Number.isFinite(Number((/** @type {any} */ (normalized).chart_point_size)))
     ? Number((/** @type {any} */ (normalized).chart_point_size)) : 8;
   normalized.chart_show_boxplot = (/** @type {any} */ (normalized).chart_show_boxplot) === true;
+  // Points+crossbar layer (numeric charts): default true preserves current behavior.
+  // Both this and chart_show_boxplot together control the numeric-chart layer stack;
+  // both off ⇒ empty axes (chart builders emit `data: []` but keep the layout).
+  /** @type {any} */ (normalized).chart_show_points = (/** @type {any} */ (normalized).chart_show_points) !== false;
+  // Crossbar central tendency for the points layer: 'median' avoids outlier pull on
+  // asymmetric distributions; anything other than 'median' falls back to 'mean'.
+  /** @type {any} */ (normalized).chart_central_tendency = (/** @type {any} */ (normalized).chart_central_tendency) === 'median' ? 'median' : 'mean';
   normalized.chart_label_format = ['n', 'p', 'np'].includes((/** @type {any} */ (normalized).chart_label_format))
     ? (/** @type {any} */ (normalized).chart_label_format) : 'n';
   normalized.chart_paired_show_lines = (/** @type {any} */ (normalized).chart_paired_show_lines) !== false;

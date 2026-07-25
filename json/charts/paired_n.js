@@ -6,7 +6,7 @@
 //
 // Mirrors r.plot.individual_values(paired=TRUE).
 import variants from '../variants.js';
-import { resolveTheme, wrapText } from './_shared.js';
+import { resolveTheme, wrapText, computeCenter } from './_shared.js';
 
 /** @param {number} i */
 function deterministicJitter(i) {
@@ -53,6 +53,11 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
   const pointSize = Number.isFinite(Number(options.chart_point_size)) ? Number(options.chart_point_size) : 8;
   const showBox = options.chart_show_boxplot === true;
   const showLines = options.chart_paired_show_lines !== false;
+  // Points+crossbar layer: gates markers AND per-moment central-tendency crossbar.
+  // Subject lines (chart_paired_show_lines) stay independently gated — a valid layout
+  // is "spaghetti lines only" (showLines=true, showPoints=false).
+  const showPoints = options.chart_show_points !== false;
+  const centerMode = options.chart_central_tendency === 'median' ? 'median' : 'mean';
   const includeZero = options.chart_include_zero !== false;
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
   const jitterWidth = 0.2; // R default for paired
@@ -108,32 +113,35 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
     }
   }
 
-  // Points and mean crossbar per moment.
-  for (let k = 0; k < K; k++) {
-    const xCenter = k + 1;
-    const ys = aligned[k];
-    const xs = ys.map((_, s) => xCenter + subjectOffsets[s]);
-    data.push({
-      type: 'scatter',
-      mode: 'markers',
-      x: xs,
-      y: ys,
-      marker: { size: pointSize, color: theme.point },
-      name: labels[k] ?? `T${k}`,
-      showlegend: false,
-      hovertemplate: '%{y}<extra></extra>'
-    });
-    const mean = ys.reduce((a, b) => a + b, 0) / ys.length;
-    data.push({
-      type: 'scatter',
-      mode: 'lines',
-      x: [xCenter - jitterWidth, xCenter + jitterWidth],
-      y: [mean, mean],
-      line: { color: theme.line, width: 3 },
-      showlegend: false,
-      hoverinfo: 'skip',
-      name: `${labels[k] ?? `T${k}`} (mean)`
-    });
+  // Points and central-tendency crossbar per moment. Gated by chart_show_points; when
+  // false, subject lines (spaghetti) may still render alone if chart_paired_show_lines=true.
+  if (showPoints) {
+    for (let k = 0; k < K; k++) {
+      const xCenter = k + 1;
+      const ys = aligned[k];
+      const xs = ys.map((_, s) => xCenter + subjectOffsets[s]);
+      data.push({
+        type: 'scatter',
+        mode: 'markers',
+        x: xs,
+        y: ys,
+        marker: { size: pointSize, color: theme.point },
+        name: labels[k] ?? `T${k}`,
+        showlegend: false,
+        hovertemplate: '%{y}<extra></extra>'
+      });
+      const center = computeCenter(ys, centerMode);
+      data.push({
+        type: 'scatter',
+        mode: 'lines',
+        x: [xCenter - jitterWidth, xCenter + jitterWidth],
+        y: [center, center],
+        line: { color: theme.line, width: 3 },
+        showlegend: false,
+        hoverinfo: 'skip',
+        name: `${labels[k] ?? `T${k}`} (${centerMode})`
+      });
+    }
   }
 
   const ticktext = labels.map((l) => wrapText(l, labelWrap));

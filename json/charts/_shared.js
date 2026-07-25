@@ -112,6 +112,25 @@ export function resolveValueAxisLabel(options) {
 }
 
 /**
+ * Compute the central tendency of a numeric array. Used as the crossbar y-position in
+ * chart_n, chart_n_q, and chart_paired_n (per-group / per-moment). Median avoids
+ * simple-statistics — the sort + midpoint is inline to keep _shared.js dependency-free.
+ * @param {number[]} values Non-empty numeric array (caller guarantees).
+ * @param {'mean'|'median'|string|undefined} mode
+ * @returns {number}
+ */
+export function computeCenter(values, mode) {
+  if (!Array.isArray(values) || values.length === 0) return NaN;
+  if (mode === 'median') {
+    const sorted = [...values].sort((a, b) => a - b);
+    const n = sorted.length;
+    const mid = Math.floor(n / 2);
+    return n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  }
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+/**
  * Build a Plotly bar spec from labels + counts. Used by chart_q (qualitative univariate)
  * and chart_l (list univariate). Auto-switches to horizontal orientation when there are
  * many categories or labels with many words — same heuristic as the R r.plot.barplot.

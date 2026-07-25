@@ -205,6 +205,37 @@ test("chart_n: deterministic jitter (same input → same x positions)", () => {
   assert.deepEqual(a.spec.data[0].x, b.spec.data[0].x);
 });
 
+test("chart_n: chart_show_points=false drops points+crossbar traces", () => {
+  const out = chart_n([1, 2, 3, 4, 5], { chart_show_points: false }, {});
+  assert.equal(out.spec.data.length, 0, "no traces when points AND box are off");
+  // Layout still present (axes visible as placeholder for the user).
+  assert.ok(out.spec.layout.xaxis);
+  assert.ok(out.spec.layout.yaxis);
+});
+
+test("chart_n: chart_show_points=false with boxplot=true → only box trace", () => {
+  const out = chart_n([1, 2, 3, 4, 5], { chart_show_points: false, chart_show_boxplot: true }, {});
+  assert.equal(out.spec.data.length, 1);
+  assert.equal(out.spec.data[0].type, "box");
+});
+
+test("chart_n: chart_central_tendency='median' places crossbar at the median", () => {
+  // Skewed set: mean=6.4 vs median=3. Crossbar y should be the median.
+  const out = chart_n([1, 2, 3, 4, 22], { chart_central_tendency: "median" }, {});
+  const crossbar = out.spec.data[1];
+  assert.equal(crossbar.mode, "lines");
+  assert.equal(crossbar.y[0], 3, "median of [1,2,3,4,22] = 3");
+  assert.equal(crossbar.y[1], 3);
+  assert.equal(crossbar.name, "median", "trace name reflects the chosen tendency");
+});
+
+test("chart_n: chart_central_tendency defaults to 'mean' (crossbar at arithmetic mean)", () => {
+  const out = chart_n([1, 2, 3, 4, 22], {}, {});
+  const crossbar = out.spec.data[1];
+  assert.equal(crossbar.y[0], 6.4);
+  assert.equal(crossbar.name, "mean");
+});
+
 // chart_l -------------------------------------------------------------------
 
 test("chart_l: counts items across rows, sorted by frequency desc", () => {
@@ -365,6 +396,39 @@ test("chart_n_q: drops non-numeric and empty-group rows", () => {
 test("chart_n_q: returns null when no valid pairs", () => {
   assert.equal(chart_n_q([null, "abc"], ["a", "b"], {}, {}), null);
   assert.equal(chart_n_q([1, 2], ["", null], {}, {}), null);
+});
+
+test("chart_n_q: chart_show_points=false drops all point+crossbar traces (both toggles off → data:[])", () => {
+  const out = chart_n_q([1, 2, 3, 10, 20, 30], ["a","a","a","b","b","b"], { chart_show_points: false }, {});
+  assert.equal(out.spec.data.length, 0, "no traces per group when both layer toggles off");
+  // Layout still emitted — axes visible as placeholder.
+  assert.equal(out.spec.layout.xaxis.tickvals.length, 2, "still 2 group ticks");
+});
+
+test("chart_n_q: chart_show_points=false + boxplot=true → only box traces (1 per group)", () => {
+  const out = chart_n_q([1, 2, 3, 10, 20, 30], ["a","a","a","b","b","b"],
+    { chart_show_points: false, chart_show_boxplot: true }, {});
+  assert.equal(out.spec.data.length, 2, "one box trace per group, no points/crossbar");
+  out.spec.data.forEach((tr) => assert.equal(tr.type, "box"));
+});
+
+test("chart_n_q: chart_central_tendency='median' places per-group crossbar at each group's median", () => {
+  // Group a=[1,2,3] median 2; group b=[10,20,30] median 20 (both = means but the test verifies wiring)
+  // Group c=[1,1,1,100] median 1 (asymmetric)
+  const out = chart_n_q(
+    [1,2,3, 10,20,30, 1,1,1,100],
+    ["a","a","a", "b","b","b", "c","c","c","c"],
+    { chart_central_tendency: "median" }, {}
+  );
+  // Data shape per group (no box): [points, crossbar]. 3 groups × 2 traces = 6.
+  assert.equal(out.spec.data.length, 6);
+  // Crossbar trace y-values per group (indices 1, 3, 5) — lines mode.
+  const crossbars = out.spec.data.filter((tr) => tr.mode === "lines");
+  assert.equal(crossbars.length, 3);
+  assert.equal(crossbars[0].y[0], 2, "group a median");
+  assert.equal(crossbars[1].y[0], 20, "group b median");
+  assert.equal(crossbars[2].y[0], 1, "group c median (asymmetric — outlier doesn't pull it)");
+  crossbars.forEach((cb) => assert.ok(cb.name.endsWith("(median)"), `trace name reflects tendency: ${cb.name}`));
 });
 
 test("chart_q_n: wrapper places q on x-axis and n on y-axis", () => {
@@ -678,6 +742,38 @@ test("chart_paired_n: deterministic jitter; same subject offset across moments",
 test("chart_paired_n: returns null for K < 2 or empty input", () => {
   assert.equal(chart_paired_n([[1,2,3]], ["A"], {}, {}), null);
   assert.equal(chart_paired_n([[], []], ["A","B"], {}, {}), null);
+});
+
+test("chart_paired_n: chart_show_points=false drops point markers + crossbars (subject lines independent)", () => {
+  const t0 = [1, 2, 3, 4, 5];
+  const t1 = [2, 4, 6, 8, 10];
+  const out = chart_paired_n([t0, t1], ["A", "B"], { chart_show_points: false }, {});
+  // Only subject lines remain (5 subjects) — no scatter markers, no crossbar lines per moment.
+  const markers = out.spec.data.filter((tr) => tr.mode === "markers");
+  assert.equal(markers.length, 0, "no markers when show_points off");
+  // Subject lines are `mode:'lines'` with name starting "subject_" — 5 of them.
+  const subjectLines = out.spec.data.filter((tr) => tr.mode === "lines" && String(tr.name || '').startsWith("subject_"));
+  assert.equal(subjectLines.length, 5);
+  // Per-moment crossbar lines (mode:'lines', name '(mean)'/'(median)') — 0.
+  const crossbars = out.spec.data.filter((tr) => tr.mode === "lines" && /\((mean|median)\)$/.test(String(tr.name || '')));
+  assert.equal(crossbars.length, 0);
+});
+
+test("chart_paired_n: all 3 layer toggles off → data:[] (empty axes placeholder)", () => {
+  const out = chart_paired_n([[1,2,3],[4,5,6]], ["A","B"],
+    { chart_show_points: false, chart_paired_show_lines: false, chart_show_boxplot: false }, {});
+  assert.equal(out.spec.data.length, 0);
+  // Layout still present.
+  assert.equal(out.spec.layout.xaxis.tickvals.length, 2);
+});
+
+test("chart_paired_n: chart_central_tendency='median' → per-moment crossbar at median", () => {
+  // Moment A: [1,2,3,4,22] median 3 (mean 6.4). Moment B: [10,10,10,10,50] median 10 (mean 18).
+  const out = chart_paired_n([[1,2,3,4,22],[10,10,10,10,50]], ["A","B"], { chart_central_tendency: "median" }, {});
+  const crossbars = out.spec.data.filter((tr) => tr.mode === "lines" && String(tr.name || '').includes("(median)"));
+  assert.equal(crossbars.length, 2, "one crossbar per moment");
+  assert.equal(crossbars[0].y[0], 3, "moment A median");
+  assert.equal(crossbars[1].y[0], 10, "moment B median (asymmetric — outlier doesn't pull it)");
 });
 
 // chart_paired_q ------------------------------------------------------------
@@ -1455,6 +1551,21 @@ test("title-visibility options: default normalization matches spec (title hidden
   assert.equal(custom.chart_show_title, false);
   assert.equal(custom.chart_show_xaxis_title, true, "0 !== false, so still visible");
   assert.equal(custom.chart_show_yaxis_title, false);
+});
+
+test("chart_show_points / chart_central_tendency: default normalization", () => {
+  const def = Statz.getDefaultAnalysisOptions({});
+  assert.equal(def.chart_show_points, true, "points layer visible by default (backward compat)");
+  assert.equal(def.chart_central_tendency, "mean", "mean by default");
+  // Coercion:
+  // - chart_show_points uses `!== false` → any non-false value stays true.
+  // - chart_central_tendency uses strict equality with 'median' → anything else falls back to 'mean'.
+  const off = Statz.getDefaultAnalysisOptions({ chart_show_points: false });
+  assert.equal(off.chart_show_points, false);
+  const median = Statz.getDefaultAnalysisOptions({ chart_central_tendency: "median" });
+  assert.equal(median.chart_central_tendency, "median");
+  const garbage = Statz.getDefaultAnalysisOptions({ chart_central_tendency: "mode" });
+  assert.equal(garbage.chart_central_tendency, "mean", "unknown values fall back to 'mean'");
 });
 
 // ---------------------------------------------------------------------------

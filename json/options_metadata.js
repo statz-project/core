@@ -183,6 +183,23 @@ ns.OPTION_METADATA = {
     appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_show_boxplot.label', descriptionKey: 'options.chart_show_boxplot.description'
   },
+  chart_show_points: {
+    category: 'chart', type: 'boolean', default: true, enum: null,
+    // Same appliesTo as chart_show_boxplot: the two toggles together control the numeric
+    // chart layer stack (box overlay + points/crossbar layer). Both off → empty axes.
+    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
+    labelKey: 'options.chart_show_points.label', descriptionKey: 'options.chart_show_points.description'
+  },
+  chart_central_tendency: {
+    category: 'chart', type: 'enum', default: 'mean',
+    enum: ['mean', 'median'],
+    // Same numeric-chart appliesTo; the enum switches the crossbar position between the
+    // arithmetic mean and the median (useful for asymmetric data). Bubble Panel should
+    // conditionally hide this dropdown when chart_show_points is unchecked — no gating
+    // flag is emitted for that since it's an option-value dependency, not data-driven.
+    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
+    labelKey: 'options.chart_central_tendency.label', descriptionKey: 'options.chart_central_tendency.description'
+  },
   chart_label_format: {
     category: 'chart', type: 'enum', default: 'n',
     enum: ['n', 'p', 'np'],

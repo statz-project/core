@@ -3,7 +3,7 @@
 // (non-paired path): one column of jittered points per group, mean crossbar per group,
 // optional box overlay per group.
 import variants from '../variants.js';
-import { resolveTheme, wrapText } from './_shared.js';
+import { resolveTheme, wrapText, computeCenter } from './_shared.js';
 
 /**
  * Deterministic pseudo-random in [-0.5, 0.5) keyed by index. Allows tests to assert
@@ -45,14 +45,18 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
   const theme = resolveTheme(options.chart_theme);
   const pointSize = Number.isFinite(Number(options.chart_point_size)) ? Number(options.chart_point_size) : 8;
   const showBox = options.chart_show_boxplot === true;
+  // Layer toggles: showPoints defaults true. Both showBox+showPoints false leaves the
+  // axes empty per group but keeps the placeholder (see chart_n rationale).
+  const showPoints = options.chart_show_points !== false;
+  const centerMode = options.chart_central_tendency === 'median' ? 'median' : 'mean';
   const includeZero = options.chart_include_zero !== false;
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
   const jitterWidth = 0.3;
 
   /** @type {any[]} */
   const data = [];
-  // One scatter trace per group for points, one short line trace per group for the mean.
-  // Box overlay (when enabled) prepended per group so markers stay visible on top.
+  // Per group: box overlay (drawn first / under), then points, then the central-tendency
+  // crossbar (mean or median). Each layer independently gated.
   groups.forEach((g, gi) => {
     const ys = valuesByGroup[g];
     const xCenter = gi + 1; // 1-indexed positions
@@ -69,28 +73,30 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
         name: g
       });
     }
-    const xs = ys.map((_, i) => xCenter + deterministicJitter(i) * 2 * jitterWidth);
-    data.push({
-      type: 'scatter',
-      mode: 'markers',
-      x: xs,
-      y: ys,
-      marker: { size: pointSize, color: theme.point },
-      name: g,
-      showlegend: false,
-      hovertemplate: '%{y}<extra></extra>'
-    });
-    const mean = ys.reduce((a, b) => a + b, 0) / ys.length;
-    data.push({
-      type: 'scatter',
-      mode: 'lines',
-      x: [xCenter - jitterWidth, xCenter + jitterWidth],
-      y: [mean, mean],
-      line: { color: theme.line, width: 3 },
-      showlegend: false,
-      hoverinfo: 'skip',
-      name: `${g} (mean)`
-    });
+    if (showPoints) {
+      const xs = ys.map((_, i) => xCenter + deterministicJitter(i) * 2 * jitterWidth);
+      data.push({
+        type: 'scatter',
+        mode: 'markers',
+        x: xs,
+        y: ys,
+        marker: { size: pointSize, color: theme.point },
+        name: g,
+        showlegend: false,
+        hovertemplate: '%{y}<extra></extra>'
+      });
+      const center = computeCenter(ys, centerMode);
+      data.push({
+        type: 'scatter',
+        mode: 'lines',
+        x: [xCenter - jitterWidth, xCenter + jitterWidth],
+        y: [center, center],
+        line: { color: theme.line, width: 3 },
+        showlegend: false,
+        hoverinfo: 'skip',
+        name: `${g} (${centerMode})`
+      });
+    }
   });
 
   const ticktext = groups.map((g) => wrapText(g, labelWrap));
