@@ -9,7 +9,7 @@
 //   - all predictors share the same level set (intersection-based; partial overlap rejected)
 //   - options.chart_likert_enabled === true
 // Falls back to per-predictor chart_q if any condition fails.
-import { getThemePalette, wrapText } from './_shared.js';
+import { getThemePalette, wrapText, buildLegendLayout, getLegendLabelsWrap } from './_shared.js';
 
 /**
  * Diverging-friendly palette for stacked Likert levels. Uses 5 colors that read as a
@@ -64,6 +64,7 @@ export function chart_likert(vars, options = {}, meta = {}) {
   });
 
   const varLabels = vars.map((v) => wrapText(v.label, labelWrap));
+  const legendWrap = getLegendLabelsWrap(options);
 
   // One trace per level (stacked horizontally). y values are variable labels;
   // x values are the percentages for that level across each variable.
@@ -71,7 +72,7 @@ export function chart_likert(vars, options = {}, meta = {}) {
   const data = levels.map((lv, li) => ({
     type: 'bar',
     orientation: 'h',
-    name: lv,
+    name: wrapText(lv, legendWrap),
     y: varLabels,
     x: vars.map((_, vi) => pctMatrix[vi][li]),
     marker: { color: palette[li] },
@@ -83,7 +84,10 @@ export function chart_likert(vars, options = {}, meta = {}) {
     xaxis: { title: { text: '%' }, range: [0, 100], ticksuffix: '%' },
     yaxis: { title: { text: '' }, automargin: true, autorange: 'reversed' },
     margin: { t: 30, r: 30, b: 50, l: 140 },
-    legend: { orientation: 'h', y: -0.2 },
+    // Legend layout: uses the same helper as chart_q_q / chart_paired_q. Likert had no
+    // conceptual "group variable" title (levels ARE the categories), so no meta.title
+    // is passed — the title stays empty even when chart_show_legend_title is true.
+    legend: buildLegendLayout(options, {}),
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff'
   };

@@ -253,6 +253,34 @@ ns.OPTION_METADATA = {
     category: 'chart', type: 'boolean', default: true, enum: null,
     appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_show_yaxis_title.label', descriptionKey: 'options.chart_show_yaxis_title.description'
+  },
+  // ----- legend styling (only relevant for multi-trace charts: q×q, paired-q, likert
+  // and their l-expansion variants). Empty appliesTo would surface these on charts
+  // without any legend at all (chart_q, chart_n, etc.), which would be a no-op UX
+  // annoyance. Gate by the flags whose emitted charts actually render a legend.
+  chart_legend_position: {
+    category: 'chart', type: 'enum', default: 'top',
+    enum: ['top', 'right', 'bottom'],
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q', 'has_q'], modeGate: 'chart',
+    labelKey: 'options.chart_legend_position.label', descriptionKey: 'options.chart_legend_position.description'
+  },
+  chart_show_legend_title: {
+    category: 'chart', type: 'boolean', default: true, enum: null,
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q'], modeGate: 'chart',
+    labelKey: 'options.chart_show_legend_title.label', descriptionKey: 'options.chart_show_legend_title.description'
+  },
+  // Split wraps: legend title (on top of the legend) has more horizontal room than
+  // individual entries stacked vertically → higher default (4). Entries default 2 —
+  // shorter labels stay compact so trace pills don't blow up horizontally.
+  chart_legend_title_wrap: {
+    category: 'chart', type: 'number', default: 4, enum: null,
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q'], modeGate: 'chart',
+    labelKey: 'options.chart_legend_title_wrap.label', descriptionKey: 'options.chart_legend_title_wrap.description'
+  },
+  chart_legend_labels_wrap: {
+    category: 'chart', type: 'number', default: 2, enum: null,
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q', 'has_q'], modeGate: 'chart',
+    labelKey: 'options.chart_legend_labels_wrap.label', descriptionKey: 'options.chart_legend_labels_wrap.description'
   }
 };
 

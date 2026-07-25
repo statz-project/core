@@ -112,6 +112,74 @@ export function resolveValueAxisLabel(options) {
 }
 
 /**
+ * Build a Plotly `legend` layout object from Analysis_options + a meta.title.
+ * Used by charts with multi-trace legends (grouped_bar, paired_grouped_bar, likert).
+ *
+ * Behavior:
+ *   - `chart_legend_position` = 'top' (default) | 'right' | 'bottom' — top/bottom use
+ *     horizontal orientation so the plot area recovers full width. Right keeps Plotly's
+ *     vertical default and consumes horizontal space (previous behavior).
+ *   - `chart_show_legend_title` toggles the legend heading. When false, `title.text=''`
+ *     (Plotly still reserves no vertical space when text is empty).
+ *   - `chart_legend_title_wrap` (default 4) wraps the title only (the title has more
+ *     horizontal room in top/bottom orientations than individual stacked entries).
+ *   - `chart_legend_labels_wrap` (default 2) wraps each entry (trace name) independently.
+ *     Chart builders read this via `getLegendLabelsWrap` and call `wrapText` per trace.
+ *   - Fixed `font.size: 11` (down from Plotly default 12) — subtle readability tweak.
+ *
+ * @param {Record<string,any>} options Normalized Analysis_options.
+ * @param {{ title?: string }=} meta Legend title text (typically the response variable label).
+ * @returns {object} Plotly layout.legend object.
+ */
+export function buildLegendLayout(options, meta = {}) {
+  const position = ['top', 'right', 'bottom'].includes(options.chart_legend_position)
+    ? options.chart_legend_position
+    : 'top';
+  const showTitle = options.chart_show_legend_title !== false;
+  const titleWrap = Number.isFinite(Number(options.chart_legend_title_wrap))
+    ? Number(options.chart_legend_title_wrap)
+    : 4;
+  const rawTitle = String(meta.title ?? '');
+  const titleText = showTitle && rawTitle ? wrapText(rawTitle, titleWrap) : '';
+
+  /** @type {any} */
+  const legend = {
+    font: { size: 11 },
+    title: { text: titleText }
+  };
+  if (position === 'top') {
+    legend.orientation = 'h';
+    legend.x = 0.5;
+    legend.xanchor = 'center';
+    legend.y = 1.15;
+    legend.yanchor = 'bottom';
+  } else if (position === 'bottom') {
+    legend.orientation = 'h';
+    legend.x = 0.5;
+    legend.xanchor = 'center';
+    legend.y = -0.2;
+    legend.yanchor = 'top';
+  } else {
+    // 'right' — Plotly vertical default; no explicit anchors needed.
+    legend.orientation = 'v';
+  }
+  return legend;
+}
+
+/**
+ * Resolve the `chart_legend_labels_wrap` numeric option (default 2). Chart builders call
+ * this to wrap each trace name (legend entry) independently of the title wrap. Kept as a
+ * dedicated helper so the fallback stays in one place.
+ * @param {Record<string,any>} options
+ * @returns {number}
+ */
+export function getLegendLabelsWrap(options) {
+  return Number.isFinite(Number(options?.chart_legend_labels_wrap))
+    ? Number(options.chart_legend_labels_wrap)
+    : 2;
+}
+
+/**
  * Compute the central tendency of a numeric array. Used as the crossbar y-position in
  * chart_n, chart_n_q, and chart_paired_n (per-group / per-moment). Median avoids
  * simple-statistics — the sort + midpoint is inline to keep _shared.js dependency-free.

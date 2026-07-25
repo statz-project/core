@@ -1569,6 +1569,209 @@ test("chart_show_points / chart_central_tendency: default normalization", () => 
 });
 
 // ---------------------------------------------------------------------------
+// Legend layout consolidation — chart_legend_position / chart_show_legend_title /
+// chart_legend_title_wrap / chart_legend_labels_wrap. Applies to chart_q_q,
+// chart_paired_q, chart_likert.
+// ---------------------------------------------------------------------------
+
+test("chart_q_q default legend: top-oriented, small font, title present, wrap applied to trace names + title", () => {
+  // Trigger via runAnalysis so normalized defaults flow through.
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b","a","b"] },
+    col_vars: []
+  };
+  // 5-word title triggers wrapping at the default title_wrap=4.
+  // 3-word trace names ("positive test result") trigger wrapping at default labels_wrap=2.
+  const q2 = {
+    col_hash: "h_q2", col_label: "Final Post Intervention Outcome Result", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null,
+      raw_values: ["positive test result","negative test result","positive test result","negative test result","positive test result","negative test result"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Final Post Intervention Outcome Result", role: "response" })];
+  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart" });
+  const legend = result.analysis[0].chart.spec.layout.legend;
+  // Position default 'top': horizontal orientation + centered above the plot.
+  assert.equal(legend.orientation, "h");
+  assert.equal(legend.xanchor, "center");
+  assert.equal(legend.yanchor, "bottom");
+  assert.ok(legend.y > 1, "legend y anchored above the plot area");
+  // Fixed small font.
+  assert.equal(legend.font.size, 11);
+  // Title wrapped at default 4 words: 5 words → "Final Post Intervention Outcome<br>Result".
+  assert.equal(legend.title.text, "Final Post Intervention Outcome<br>Result");
+  // Trace names wrapped at default 2 words: 3-word entries → "<first two words><br><third>".
+  const traces = result.analysis[0].chart.spec.data;
+  // Both traces (positive/negative) should wrap identically. Order is alpha-sorted.
+  assert.equal(traces.length, 2);
+  traces.forEach((tr) => assert.match(tr.name, /^\S+ \S+<br>\S+$/, `entry "${tr.name}" wrapped at 2 words`));
+});
+
+test("chart_q_q chart_legend_position='right' restores vertical/right (previous default)", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "G", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "R", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["y","n","y"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "G", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "R", role: "response" })];
+  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart", chart_legend_position: "right" });
+  const legend = result.analysis[0].chart.spec.layout.legend;
+  assert.equal(legend.orientation, "v", "right position → vertical orientation");
+  // No horizontal-position anchors when right (Plotly default).
+  assert.equal(legend.xanchor, undefined);
+  assert.equal(legend.yanchor, undefined);
+});
+
+test("chart_q_q chart_legend_position='bottom' → horizontal below plot", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "G", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "R", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["y","n"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "G", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "R", role: "response" })];
+  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart", chart_legend_position: "bottom" });
+  const legend = result.analysis[0].chart.spec.layout.legend;
+  assert.equal(legend.orientation, "h");
+  assert.ok(legend.y < 0, "bottom position → y below the plot area");
+});
+
+test("chart_q_q chart_show_legend_title=false blanks the legend title text", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "G", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "Long Response Name", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["y","n"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "G", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Long Response Name", role: "response" })];
+  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart", chart_show_legend_title: false });
+  assert.equal(result.analysis[0].chart.spec.layout.legend.title.text, "");
+});
+
+test("chart_q_q: chart_legend_title_wrap and chart_legend_labels_wrap gate independently", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "G", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b"] },
+    col_vars: []
+  };
+  // Title "Very Long Response Variable" (4 words), trace level "Extremely Long Response Level" (4 words).
+  const q2 = {
+    col_hash: "h_q2", col_label: "Very Long Response Variable", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null,
+      raw_values: ["Extremely Long Response Level","Short","Extremely Long Response Level","Short"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "G", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Very Long Response Variable", role: "response" })];
+
+  // Case A: title_wrap=3 (wraps 4-word title), labels_wrap=10 (leaves 4-word entries intact).
+  const caseA = driver.runAnalysis(preds, resps, dbs, {
+    mode: "chart", chart_legend_title_wrap: 3, chart_legend_labels_wrap: 10
+  });
+  const legendA = caseA.result.analysis[0].chart.spec.layout.legend;
+  assert.equal(legendA.title.text, "Very Long Response<br>Variable", "title wrapped at 3");
+  const wrappedInA = caseA.result.analysis[0].chart.spec.data.find((tr) => tr.name.includes("<br>"));
+  assert.equal(wrappedInA, undefined, "entries NOT wrapped when labels_wrap=10");
+
+  // Case B: title_wrap=10 (leaves 4-word title intact), labels_wrap=2 (wraps 4-word entries).
+  const caseB = driver.runAnalysis(preds, resps, dbs, {
+    mode: "chart", chart_legend_title_wrap: 10, chart_legend_labels_wrap: 2
+  });
+  const legendB = caseB.result.analysis[0].chart.spec.layout.legend;
+  assert.equal(legendB.title.text, "Very Long Response Variable", "title NOT wrapped when title_wrap=10");
+  const wrappedInB = caseB.result.analysis[0].chart.spec.data.find((tr) => tr.name.includes("<br>"));
+  assert.equal(wrappedInB.name, "Extremely Long<br>Response Level", "entries wrapped at 2");
+});
+
+test("chart_paired_q: legend layout uses the same helper (top by default)", () => {
+  const t0 = {
+    col_hash: "h_t0", col_label: "T0", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["yes","no","yes"] },
+    col_vars: []
+  };
+  const t1 = {
+    col_hash: "h_t1", col_label: "T1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["no","no","yes"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [t0, t1] } };
+  const resps = [
+    JSON.stringify({ database_id: "db", col_hash: "h_t0", col_var_index: null, col_label: "T0", role: "response" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_t1", col_var_index: null, col_label: "T1", role: "response" })
+  ];
+  const { result } = driver.runAnalysis([], resps, dbs, { mode: "chart" });
+  const legend = result.analysis[0].chart.spec.layout.legend;
+  assert.equal(legend.orientation, "h", "paired_q also gets top-horizontal by default");
+  assert.equal(legend.font.size, 11);
+});
+
+test("chart_likert: legend uses shared helper; no title (levels are self-describing)", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Statement 1", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null,
+      raw_values: ["agree","neutral","agree","disagree","neutral","agree"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "Statement 2", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null,
+      raw_values: ["neutral","neutral","disagree","disagree","agree","agree"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [
+    JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Statement 1", role: "predictor" }),
+    JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Statement 2", role: "predictor" })
+  ];
+  const { result } = driver.runAnalysis(preds, [], dbs, { mode: "chart", chart_likert_enabled: true });
+  const legend = result.analysis[0].chart.spec.layout.legend;
+  // Likert passes no meta.title to buildLegendLayout → title stays empty regardless of show_legend_title.
+  assert.equal(legend.title.text, "", "likert legend has no title (levels self-describe)");
+  // Font size and orientation still consistent with the helper.
+  assert.equal(legend.font.size, 11);
+  assert.equal(legend.orientation, "h");
+});
+
+test("legend options: default normalization", () => {
+  const def = Statz.getDefaultAnalysisOptions({});
+  assert.equal(def.chart_legend_position, "top");
+  assert.equal(def.chart_show_legend_title, true);
+  assert.equal(def.chart_legend_title_wrap, 4, "title default higher — title has more room in top/bottom legends");
+  assert.equal(def.chart_legend_labels_wrap, 2, "entries default 2 — trace pills stay compact");
+  // Enum coercion for position: unknown values fall back to 'top'.
+  const bad = Statz.getDefaultAnalysisOptions({ chart_legend_position: "left" });
+  assert.equal(bad.chart_legend_position, "top", "unknown positions fall back to default");
+  // Number coercion for wraps.
+  const titleBad = Statz.getDefaultAnalysisOptions({ chart_legend_title_wrap: "abc" });
+  assert.equal(titleBad.chart_legend_title_wrap, 4);
+  const labelsBad = Statz.getDefaultAnalysisOptions({ chart_legend_labels_wrap: "abc" });
+  assert.equal(labelsBad.chart_legend_labels_wrap, 2);
+});
+
+// ---------------------------------------------------------------------------
 // Phase 7 — DOCX export primitives (chartSpecToImage and friends)
 // ---------------------------------------------------------------------------
 

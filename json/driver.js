@@ -760,6 +760,22 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   /** @type {any} */ (normalized).chart_show_title = (/** @type {any} */ (normalized).chart_show_title) === true;
   /** @type {any} */ (normalized).chart_show_xaxis_title = (/** @type {any} */ (normalized).chart_show_xaxis_title) !== false;
   /** @type {any} */ (normalized).chart_show_yaxis_title = (/** @type {any} */ (normalized).chart_show_yaxis_title) !== false;
+  // Legend styling (multi-trace charts: q×q, paired_q, likert). Defaults chosen to
+  // fix the "legend consumes half the plot width" issue: top-oriented legend recovers
+  // horizontal space; wrap=2 keeps 3+ word labels compact.
+  /** @type {any} */ (normalized).chart_legend_position = ['top', 'right', 'bottom']
+    .includes((/** @type {any} */ (normalized).chart_legend_position))
+    ? (/** @type {any} */ (normalized).chart_legend_position)
+    : 'top';
+  /** @type {any} */ (normalized).chart_show_legend_title = (/** @type {any} */ (normalized).chart_show_legend_title) !== false;
+  // Independent wraps for legend title (default 4 — title has horizontal room in top/
+  // bottom orientation) vs. entries (default 2 — trace pills stack tightly).
+  /** @type {any} */ (normalized).chart_legend_title_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_legend_title_wrap)))
+    ? Number((/** @type {any} */ (normalized).chart_legend_title_wrap))
+    : 4;
+  /** @type {any} */ (normalized).chart_legend_labels_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_legend_labels_wrap)))
+    ? Number((/** @type {any} */ (normalized).chart_legend_labels_wrap))
+    : 2;
   normalized.missing_label = normalized.missing_label ?? getDefaultMissingLabel(lang);
 
   const residuals = normalized.residual_symbols ?? {};

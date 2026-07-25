@@ -1,7 +1,7 @@
 // @ts-check
 // Grouped bar chart for two qualitative variables (q × q). Mirrors r.plot.grouped_bar.
 // x-axis: predictor levels. One bar per response level inside each group (barmode='group').
-import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel } from './_shared.js';
+import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap } from './_shared.js';
 
 /**
  * @param {Array<string|null|undefined>} predictorVals
@@ -36,6 +36,7 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
 
   const labelFormat = ['n', 'p', 'np'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
+  const legendWrap = getLegendLabelsWrap(options);
   const palette = getThemePalette(options.chart_theme, respLevels.length);
   const predTicks = predLevels.map((l) => wrapText(l, labelWrap));
 
@@ -49,7 +50,9 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
     });
     return {
       type: 'bar',
-      name: resp,
+      // Trace name = legend entry — wrap per chart_legend_wrap so long response levels
+      // don't blow up the legend width.
+      name: wrapText(resp, legendWrap),
       x: predTicks,
       y: ys,
       text,
@@ -69,7 +72,10 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
     // margin.t 60: gives room for `textposition: outside` count/percent labels above
     // the tallest bar (30px default clips them in ~400px containers).
     margin: { t: 60, r: 30, b: 80, l: 60 },
-    legend: { title: { text: meta.responseLabel ?? '' }, orientation: 'v' },
+    // Legend layout: position (top/right/bottom), title visibility, and wrapping all
+    // resolved by the shared helper from Analysis_options. Fixes the "legend takes
+    // half the plot width" issue by defaulting to horizontal top orientation.
+    legend: buildLegendLayout(options, { title: meta.responseLabel ?? '' }),
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff'
   };

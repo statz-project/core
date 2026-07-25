@@ -97,9 +97,13 @@ const MESSAGES = {
       "chart_x_label_wrap": { "label": "Quebra dos rótulos X", "description": "Quebrar rótulos do eixo X a cada N palavras." },
       "chart_include_zero": { "label": "Eixo Y inclui zero", "description": "Forçar o eixo Y a começar em zero." },
       "chart_interactive": { "label": "Gráfico interativo", "description": "Habilitar zoom, arrasto de eixos e cursor de dados no gráfico renderizado. Desabilitado por padrão (gráfico estático)." },
-      "chart_show_title": { "label": "Exibir título principal", "description": "Mostrar o rótulo da(s) variável(is) acima de cada gráfico. Desabilitado por padrão." },
-      "chart_show_xaxis_title": { "label": "Exibir título do eixo X", "description": "Mostrar o rótulo do eixo X (categorias ou variável numérica) no gráfico." },
-      "chart_show_yaxis_title": { "label": "Exibir título do eixo Y", "description": "Mostrar o rótulo do eixo Y (categorias, variável numérica ou 'Contagem' / '%' / 'n (%)' para gráficos de barras)." }
+      "chart_show_title": { "label": "Exibir título principal", "description": "Mostrar o rótulo da(s) variável(is) acima de cada gráfico." },
+      "chart_show_xaxis_title": { "label": "Exibir título do eixo X", "description": "Mostrar o rótulo do eixo X no gráfico." },
+      "chart_show_yaxis_title": { "label": "Exibir título do eixo Y", "description": "Mostrar o rótulo do eixo Y." },
+      "chart_legend_position": { "label": "Posição da legenda", "description": "Onde renderizar a legenda em gráficos multi-série: topo, direita ou base." },
+      "chart_show_legend_title": { "label": "Exibir título da legenda", "description": "Mostrar o rótulo da variável de agrupamento acima das entradas da legenda; desabilite quando os níveis já forem auto-explicativos (ex: 'óbito/alta')." },
+      "chart_legend_title_wrap": { "label": "Quebra do título da legenda", "description": "Quebrar o título da legenda a cada N palavras." },
+      "chart_legend_labels_wrap": { "label": "Quebra das entradas da legenda", "description": "Quebrar cada entrada (nome de série) da legenda a cada N palavras." }
     },
     "chart": {
       "axisLabels": {
@@ -272,9 +276,13 @@ const MESSAGES = {
       "chart_x_label_wrap": { "label": "X-axis label wrap", "description": "Wrap X-axis labels every N words." },
       "chart_include_zero": { "label": "Y axis includes zero", "description": "Force the Y axis to start at zero." },
       "chart_interactive": { "label": "Interactive chart", "description": "Enable zoom, axis drag, and data cursor on the rendered chart. Disabled by default (static chart)." },
-      "chart_show_title": { "label": "Show main title", "description": "Show the variable label(s) above each chart. Disabled by default." },
-      "chart_show_xaxis_title": { "label": "Show X-axis title", "description": "Show the X-axis title (categories or numeric variable label) on the chart." },
-      "chart_show_yaxis_title": { "label": "Show Y-axis title", "description": "Show the Y-axis title (categories, numeric variable label, or 'Count' / '%' / 'n (%)' for bar charts)." }
+      "chart_show_title": { "label": "Show main title", "description": "Show the variable label(s) above each chart." },
+      "chart_show_xaxis_title": { "label": "Show X-axis title", "description": "Show the X-axis title on the chart." },
+      "chart_show_yaxis_title": { "label": "Show Y-axis title", "description": "Show the Y-axis title." },
+      "chart_legend_position": { "label": "Legend position", "description": "Where to render the legend on multi-series charts: top, right or bottom." },
+      "chart_show_legend_title": { "label": "Show legend title", "description": "Show the grouping-variable label above the legend entries; disable when levels are self-explanatory (e.g., 'alive/dead')." },
+      "chart_legend_title_wrap": { "label": "Legend title wrap", "description": "Wrap the legend title every N words." },
+      "chart_legend_labels_wrap": { "label": "Legend entries wrap", "description": "Wrap each legend entry (trace name) every N words." }
     },
     "chart": {
       "axisLabels": {
@@ -447,9 +455,13 @@ const MESSAGES = {
       "chart_x_label_wrap": { "label": "Quiebre de etiquetas X", "description": "Quebrar etiquetas del eje X cada N palabras." },
       "chart_include_zero": { "label": "Eje Y incluye cero", "description": "Forzar el eje Y a empezar en cero." },
       "chart_interactive": { "label": "Gráfico interactivo", "description": "Habilitar zoom, arrastre de ejes y cursor de datos en el gráfico renderizado. Desactivado por defecto (gráfico estático)." },
-      "chart_show_title": { "label": "Mostrar título principal", "description": "Mostrar la etiqueta de la(s) variable(s) sobre cada gráfico. Desactivado por defecto." },
-      "chart_show_xaxis_title": { "label": "Mostrar título del eje X", "description": "Mostrar el título del eje X (categorías o variable numérica) en el gráfico." },
-      "chart_show_yaxis_title": { "label": "Mostrar título del eje Y", "description": "Mostrar el título del eje Y (categorías, variable numérica o 'Conteo' / '%' / 'n (%)' para gráficos de barras)." }
+      "chart_show_title": { "label": "Mostrar título principal", "description": "Mostrar la etiqueta de la(s) variable(s) sobre cada gráfico." },
+      "chart_show_xaxis_title": { "label": "Mostrar título del eje X", "description": "Mostrar el título del eje X en el gráfico." },
+      "chart_show_yaxis_title": { "label": "Mostrar título del eje Y", "description": "Mostrar el título del eje Y." },
+      "chart_legend_position": { "label": "Posición de la leyenda", "description": "Dónde renderizar la leyenda en gráficos multi-serie: arriba, derecha o abajo." },
+      "chart_show_legend_title": { "label": "Mostrar título de la leyenda", "description": "Mostrar la etiqueta de la variable de agrupación sobre las entradas de la leyenda; desactive cuando los niveles ya sean auto-explicativos (ej: 'vivo/muerto')." },
+      "chart_legend_title_wrap": { "label": "Quiebre del título de la leyenda", "description": "Quebrar el título de la leyenda cada N palabras." },
+      "chart_legend_labels_wrap": { "label": "Quiebre de las entradas de la leyenda", "description": "Quebrar cada entrada (nombre de serie) de la leyenda cada N palabras." }
     },
     "chart": {
       "axisLabels": {
