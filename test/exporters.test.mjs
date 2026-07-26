@@ -323,6 +323,20 @@ test("exportMissingMapAsHTML: title lands in <caption> and is escaped", () => {
   assert.equal(html.includes("<script"), false, "no script tag survives");
 });
 
+test("exportMissingMapAsHTML: no title → no <caption> and no default", () => {
+  // Same contract as exportDatabaseAsHTML: the helper never invents a title, so the host page
+  // is free to show the database name elsewhere.
+  const db = makeDb([rawCol("x", withMissing(4, [1]))]);
+  [undefined, "", "   "].forEach(title => {
+    const html = exporters.exportMissingMapAsHTML(db, { title, includeStyles: false, lang: "pt_br" });
+    assert.equal(html.includes("<caption"), false, `no caption for ${JSON.stringify(title)}`);
+    assert.equal(html.includes("Tabela"), false, "no fallback to the generic table.title");
+    assert.match(html, /<table class="statz-missmap"><colgroup>/, "table opens straight into colgroup");
+  });
+  assert.equal(exporters.buildMissingMap(db).title, null);
+  assert.equal(exporters.buildMissingMap(db, { title: "Cohort" }).title, "Cohort");
+});
+
 test("exportMissingMapAsHTML: includeStyles gates exactly one <style> block", () => {
   const db = makeDb([rawCol("x", withMissing(4, [1]))]);
   const styled = exporters.exportMissingMapAsHTML(db, {});

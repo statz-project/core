@@ -569,7 +569,7 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   if (!includeStyles) return tableHTML;
   return `<style>
     .statz-viewer-wrap { max-width: 100%; overflow: auto; }
-    .statz-viewer { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; color: #30323d; background: transparent; border: 1px solid rgba(48,50,61,0.15); }
+    .statz-viewer { border-collapse: collapse; width: 100%; font-family: 'SF Mono', 'Consolas', 'Monaco', monospace; color: #30323d; background: transparent; border: 1px solid rgba(48,50,61,0.15); }
     .statz-viewer th, .statz-viewer td { border: 1px solid rgba(48,50,61,0.15); padding: 6px 8px; text-align: left; background: transparent; }
     .statz-viewer tbody tr:hover { background: #d9d9d9; }
     .statz-viewer thead th { position: sticky; top: 0; z-index: 2; font-weight: bold; background: transparent; }
@@ -592,7 +592,7 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
 
 /**
  * @typedef {Object} MissingMap
- * @property {string} title
+ * @property {string|null} title Null when the caller passed no title; the renderer then emits no caption.
  * @property {string} lang
  * @property {number} nRows Longest column; shorter columns are padded (padding counts as missing).
  * @property {number} nBins
@@ -642,12 +642,15 @@ const missmapTicks = (nRows) => {
  *
  * @param {{ columns?: Array<Record<string, any>> }} db
  * @param {{ title?: string, lang?: string, showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean, maxBins?: number }=} options
+ *   `title` has NO default: when absent or blank it stays null and the renderer emits no caption,
+ *   so the host page is free to show the database name wherever it likes (same contract as
+ *   `exportDatabaseAsHTML`, which never invents a table title either).
  * @returns {MissingMap|null} Null for an unusable payload (no columns, or no observations).
  */
 ns.buildMissingMap = function (db, options = {}) {
   if (!db || !Array.isArray(db.columns) || db.columns.length === 0) return null;
   const lang = normalizeLanguage(options.lang);
-  const title = options.title ?? translate('table.title', lang);
+  const title = typeof options.title === 'string' && options.title.trim() !== '' ? options.title : null;
   const maxBinsRaw = Number(options.maxBins);
   const maxBins = Number.isFinite(maxBinsRaw) && maxBinsRaw > 0 ? Math.floor(maxBinsRaw) : 300;
 
@@ -688,6 +691,9 @@ ns.buildMissingMap = function (db, options = {}) {
  * Render a missing-data map as a self-contained, script-free HTML string (safe for `innerHTML`).
  * Rows are variables — name at the left (ellipsized), missing count at the right — and the bottom
  * axis indexes the observations, mirroring R `DescTools::PlotMiss`.
+ *
+ * `options.title` (usually the database name) is rendered as a centred `<caption>`. Omit it and no
+ * caption is emitted at all — there is no default title, matching `exportDatabaseAsHTML`.
  *
  * Each row's raster is ONE table cell holding a flex strip whose `<span>` children are
  * run-length-encoded: consecutive stretches with the same state collapse into a single span
@@ -787,8 +793,10 @@ ns.exportMissingMapAsHTML = function (db, options = {}) {
     return `<span style="left:${tick.pct.toFixed(2)}%">${tick.index}</span>`;
   }).join('');
 
+  // No title → no <caption> at all, so the page can show the database name wherever it likes.
+  const caption = map.title === null ? '' : `<caption>${escapeHtml(map.title)}</caption>`;
   const tableHTML = `<table class="statz-missmap">`
-    + `<caption>${escapeHtml(map.title)}</caption>`
+    + caption
     + `<colgroup><col class="statz-missmap-cname" style="width:${nameWidth}px"><col><col class="statz-missmap-cnum"></colgroup>`
     + `<thead><tr><th class="statz-missmap-hname">${escapeHtml(translate('table.columns.variable', lang))}</th>`
     + `<th class="statz-missmap-grid"></th>`
@@ -801,7 +809,7 @@ ns.exportMissingMapAsHTML = function (db, options = {}) {
   if (!includeStyles) return `<div class="statz-missmap-wrap">${tableHTML}</div>`;
   // No inline <script>: browsers strip scripts injected via innerHTML, and this widget is static.
   return `<style>
-.statz-missmap-wrap{max-width:100%;overflow-x:auto;font-family:Arial,sans-serif;color:#30323d;}
+.statz-missmap-wrap{max-width:100%;overflow-x:auto;font-family:'SF Mono','Consolas','Monaco',monospace;color:#30323d;}
 .statz-missmap{border-collapse:collapse;table-layout:fixed;width:100%;min-width:420px;background:transparent;}
 .statz-missmap caption{caption-side:top;text-align:center;font-weight:bold;font-size:14px;padding:0 0 10px;color:#30323d;}
 .statz-missmap col.statz-missmap-cnum{width:96px;}
@@ -812,10 +820,10 @@ ns.exportMissingMapAsHTML = function (db, options = {}) {
 /* Zero HORIZONTAL padding on the raster column: the strip's flex weights and the axis's
    left:% offsets must resolve against the exact same content box to stay aligned. */
 .statz-missmap td.statz-missmap-grid,.statz-missmap th.statz-missmap-grid{padding:2px 0;}
-.statz-missmap-name{max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:normal;text-align:left;}
+.statz-missmap-name{max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:440;text-align:left;}
 .statz-missmap-name--del{color:${missingColor};text-decoration:line-through;}
 .statz-missmap-name--var{color:#198f51;font-style:italic;}
-.statz-missmap-num{text-align:right;font-size:12px;white-space:nowrap;}
+.statz-missmap-num{text-align:right;font-size:11px;white-space:nowrap;font-weight:440;}
 .statz-missmap-strip{display:flex;width:100%;height:${rowHeight}px;overflow:hidden;background:${presentColor};}
 /* flex-basis 0 makes each span's width proportional to its inline flex-grow, which the renderer
    sets to the number of observations the run covers. No min-width here: with a 0 basis
