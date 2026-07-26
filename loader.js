@@ -44,17 +44,61 @@ export function health() {
   };
 }
 
+const STDLIB_STATS_VERSION = '0.3.2';
+
+// Subpath entry points the library actually calls, reached through `getStatsLib()`
+// in json/_env.js. Keys are the property names the call sites expect; values are
+// the jsDelivr subpaths.
+//
+// Importing the `@stdlib/stats` umbrella instead costs the WHOLE namespace: its
+// `/+esm` root is a re-export barrel, so the browser walks out to 533 chunks and
+// ~2.7 MB of JavaScript in a 6-level request waterfall. These seven entry points
+// come to 391 chunks and ~1.2 MB — same functions.
+//
+// Add to this list when a call site in json/numeric.js or json/contingency.js
+// adopts a new stdlib function. Exported so test/helpers/stdlib_stats.mjs can
+// build the same namespace from local node_modules — one source of truth, so the
+// Node and browser paths cannot drift apart.
+/** @type {Record<string, string>} */
+export const STDLIB_STATS_PARTS = {
+  chi2test: 'chi2test',
+  ttest2: 'ttest2',
+  anova1: 'anova1',
+  kruskalTest: 'kruskal-test',
+  bartlettTest: 'bartlett-test',
+  kstest: 'kstest'
+};
+
+// Nested access: json/contingency.js reads `stats.base.dists.chisquare.cdf`.
+export const STDLIB_CHISQUARE_CDF = 'base/dists/chisquare/cdf';
+
 /**
- * Dynamically import stdlib-js stats module (ESM) if not present.
+ * Dynamically import the stdlib-js stats entry points the library uses (ESM) if not
+ * present, assembling them into the same shape the umbrella package exposes.
  * @param {any=} nsArg Optional namespace to attach to
  * @returns {Promise<'ok'|void>}
  */
 export function loadStdlibStats(nsArg) {
   const ns = nsArg || (typeof window !== 'undefined' ? (window.Statz || window.Utils) : undefined) || {};
   if (ns.stdlibStats) return Promise.resolve('ok');
-  // Use jsDelivr's +esm endpoint so nested imports stay pinned to npm versions.
-  return import('https://cdn.jsdelivr.net/npm/@stdlib/stats@0.3.2/+esm')
-    .then(mod => { ns.stdlibStats = mod?.default || mod; })
+  // jsDelivr's +esm endpoint keeps nested imports pinned to npm versions.
+  /** @param {string} subpath */
+  const url = (subpath) => `https://cdn.jsdelivr.net/npm/@stdlib/stats@${STDLIB_STATS_VERSION}/${subpath}/+esm`;
+  /** @param {any} mod */
+  const unwrap = (mod) => (mod && mod.default) || mod;
+  const names = Object.keys(STDLIB_STATS_PARTS);
+  return Promise.all([
+    ...names.map(name => import(url(STDLIB_STATS_PARTS[name]))),
+    import(url(STDLIB_CHISQUARE_CDF))
+  ])
+    .then(mods => {
+      /** @type {Record<string, any>} */
+      const stats = {};
+      names.forEach((name, i) => { stats[name] = unwrap(mods[i]); });
+      stats.base = { dists: { chisquare: { cdf: unwrap(mods[names.length]) } } };
+      ns.stdlibStats = stats;
+      return /** @type {'ok'} */ ('ok');
+    })
     .catch(e => { console.warn('Stdlib failed; going without it:', e); });
 }
 
@@ -356,14 +400,26 @@ export async function analysisResultToImages(resultObj, options) {
 }
 
 /**
- * Convenience initializer: loadDeps then loadStdlibStats then loadPlotly, return health.
+ * Convenience initializer: load every adapter, then return health.
+ *
+ * The three loaders run concurrently because none of them reads what the others
+ * write — `loadDeps` attaches jStat/simple-statistics, `loadStdlibStats` attaches
+ * stdlibStats, `loadPlotly` attaches Plotly. Awaiting them in sequence used to
+ * park the (large) Plotly download behind stdlib's whole request waterfall, which
+ * dominated first paint on Bubble pages since build.mjs invokes this inline.
+ *
+ * `Promise.all` preserves the previous failure semantics: `loadStdlibStats` and
+ * `loadPlotly` swallow their own errors, so only a `loadDeps` failure rejects.
+ *
  * @param {any=} nsArg Optional namespace to attach adapters to
  */
 export async function initDeps(nsArg) {
   const ns = nsArg || (typeof window !== 'undefined' ? (window.Statz || window.Utils) : undefined) || {};
-  await loadDeps(ns);
-  await loadStdlibStats(ns);
-  await loadPlotly(ns);
+  await Promise.all([
+    loadDeps(ns),
+    loadStdlibStats(ns),
+    loadPlotly(ns)
+  ]);
   // Install the DOM observer that auto-renders chart placeholders. Idempotent —
   // safe even when initDeps is invoked more than once. Bubble's HTML element
   // injects our fragment via innerHTML, which strips <script> execution; the
