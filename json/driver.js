@@ -1563,12 +1563,32 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const staticPlot = (/** @type {any} */ (mergedOptions).chart_interactive) !== true;
   const showXTitle = (/** @type {any} */ (mergedOptions).chart_show_xaxis_title) !== false;
   const showYTitle = (/** @type {any} */ (mergedOptions).chart_show_yaxis_title) !== false;
+  // Reclaim ~25px of margin per hidden axis title (Plotly reserves that space in the
+  // caller-set `margin.b` / `margin.l` regardless of whether the title text is empty).
+  // Min clamps: 25px bottom (fits single-line tick text), 40px left (fits 4-5 digit
+  // numeric ticks like "1000" or "100%"). Charts that don't set a title in the first
+  // place (chart_n xaxis uses tick text, likert yaxis is empty, etc.) are skipped by
+  // the `layout.<axis>?.title` guard — no margin change on them.
+  const TITLE_MARGIN_RECLAIM = 25;
+  const MIN_MARGIN_B = 25;
+  const MIN_MARGIN_L = 40;
   result.forEach((/** @type {any} */ r) => {
     if (!r.chart?.spec) return;
     r.chart.spec.config = { ...(r.chart.spec.config || {}), staticPlot };
     const layout = r.chart.spec.layout || {};
-    if (!showXTitle && layout.xaxis?.title) layout.xaxis.title.text = '';
-    if (!showYTitle && layout.yaxis?.title) layout.yaxis.title.text = '';
+    layout.margin = layout.margin || {};
+    if (!showXTitle && layout.xaxis?.title) {
+      layout.xaxis.title.text = '';
+      if (typeof layout.margin.b === 'number') {
+        layout.margin.b = Math.max(MIN_MARGIN_B, layout.margin.b - TITLE_MARGIN_RECLAIM);
+      }
+    }
+    if (!showYTitle && layout.yaxis?.title) {
+      layout.yaxis.title.text = '';
+      if (typeof layout.margin.l === 'number') {
+        layout.margin.l = Math.max(MIN_MARGIN_L, layout.margin.l - TITLE_MARGIN_RECLAIM);
+      }
+    }
   });
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
   // `chart_options` bag on the result carries HTML-level chart display flags for

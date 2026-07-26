@@ -1488,6 +1488,64 @@ test("chart_show_yaxis_title=false: blanks yaxis.title.text on every chart entry
   assert.equal(result.analysis[0].chart.spec.layout.xaxis.title.text, "Group");
 });
 
+test("chart_show_xaxis_title=false: reclaims margin.b (previously reserved for the title)", () => {
+  // chart_q_q emits `margin: { t:60, r:30, b:80, l:60 }`. Hiding the x-axis title
+  // should reclaim ~25px from margin.b so the plot area recovers vertical space.
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "Outcome", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["y","n","y","n"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Outcome", role: "response" })];
+  // Baseline (title visible): margin.b = 80 as emitted by chart_q_q.
+  const shown = driver.runAnalysis(preds, resps, dbs, { mode: "chart" });
+  assert.equal(shown.result.analysis[0].chart.spec.layout.margin.b, 80);
+  // Hidden: margin.b reduced by 25 → 55.
+  const hidden = driver.runAnalysis(preds, resps, dbs, { mode: "chart", chart_show_xaxis_title: false });
+  assert.equal(hidden.result.analysis[0].chart.spec.layout.margin.b, 55);
+});
+
+test("chart_show_yaxis_title=false: reclaims margin.l (min-clamped for numeric tick room)", () => {
+  const q1 = {
+    col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b"] },
+    col_vars: []
+  };
+  const q2 = {
+    col_hash: "h_q2", col_label: "Outcome", col_type: "q", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["y","n","y","n"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [q1, q2] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
+  const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Outcome", role: "response" })];
+  // chart_q_q emits margin.l = 60. Reduced by 25 → 35 → clamped to min 40.
+  const hidden = driver.runAnalysis(preds, resps, dbs, { mode: "chart", chart_show_yaxis_title: false });
+  assert.equal(hidden.result.analysis[0].chart.spec.layout.margin.l, 40, "clamped to MIN_MARGIN_L to keep room for numeric tick text");
+});
+
+test("axis titles hidden: charts without a title object (chart_n xaxis) DON'T reduce margin", () => {
+  // chart_n uses xaxis tick text for the var label, no xaxis.title.text is set.
+  // The post-processor guard `layout.xaxis?.title` prevents margin reduction here.
+  const n1 = {
+    col_hash: "h_n1", col_label: "Age", col_type: "n", col_sep: "",
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ["25","30","35","40"] },
+    col_vars: []
+  };
+  const dbs = { db: { columns: [n1] } };
+  const preds = [JSON.stringify({ database_id: "db", col_hash: "h_n1", col_var_index: null, col_label: "Age", role: "predictor" })];
+  const hidden = driver.runAnalysis(preds, [], dbs, { mode: "chart", chart_show_xaxis_title: false });
+  // chart_n emits margin: { t:30, r:30, b:50, l:70 } — b unchanged since xaxis has no title.
+  assert.equal(hidden.result.analysis[0].chart.spec.layout.margin.b, 50, "no title → no margin reduction");
+});
+
 test("chart_show_title (default false): result.chart_options.show_title carries the flag", () => {
   const q1 = {
     col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
