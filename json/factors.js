@@ -155,6 +155,37 @@ ns.decodeColumn = function (column) {
 };
 
 /**
+ * Canonical "is this value missing?" test for the Stat-z value model.
+ *
+ * Missing = null/undefined, or blank after trimming. That covers every representation the
+ * pipeline produces: compact `q` code 0 (decoded to `null` by `decodeColValues`), compact `l`
+ * empty code string (`''`), non-compact XLSX/CSV `null`, and `meta.processing.excluded_values`
+ * (rewritten to `''` by `applyProcessing`). The literal string "NA" is never used as a sentinel.
+ *
+ * For `col_type === 'l'`, a separator-only value (e.g. `';'`) is also missing — it yields zero
+ * items, matching how `summarize_l` and `getIndividualItems` treat it.
+ *
+ * Unparseable values in `'n'` columns are NOT missing here: they are present-but-invalid. Keeping
+ * the test purely structural makes it the exact analog of R's `is.na` and keeps it consistent with
+ * what `exportDatabaseAsHTML` shows in the same cell. Note the deliberate divergence from
+ * `summarize_n`, which DOES count non-finite values in its `n_missing` stat.
+ *
+ * @param {unknown} value
+ * @param {'q'|'n'|'l'=} col_type
+ * @param {string=} col_sep Required only for `col_type === 'l'`.
+ * @returns {boolean}
+ */
+ns.isMissingValue = function (value, col_type = 'q', col_sep = '') {
+  const s = String(value ?? '').trim();
+  if (s === '') return true;
+  if (col_type === 'l') {
+    const sep = col_sep || ';';
+    return s.split(sep).every(part => part.trim() === '');
+  }
+  return false;
+};
+
+/**
  * Encode if needed, otherwise return raw_values shape.
  * @param {string[]} values
  * @param {'q'|'n'|'l'=} col_type
@@ -368,7 +399,7 @@ ns.applyProcessing = function (columnObject, options = {}) {
     const excludeSet = new Set(proc.excluded_values.map(String));
     if (col_type === 'l' && col_sep) {
       values = values.map(v => {
-        if (v == null || String(v).trim() === '') return v;
+        if (ns.isMissingValue(v)) return v;
         const items = String(v).split(col_sep).map(s => s.trim()).filter(Boolean);
         const filtered = items.filter(item => !excludeSet.has(item));
         return filtered.length > 0 ? filtered.join(col_sep) : '';
@@ -384,10 +415,7 @@ ns.applyProcessing = function (columnObject, options = {}) {
   // Step 2: NA handling — labels ALL empty rows (originally missing OR just excluded)
   if (proc.na_action === 'label') {
     const naLabel = proc.na_label || translate('table.missing', proc.lang);
-    values = values.map(v => {
-      const s = v == null ? '' : String(v).trim();
-      return s === '' ? naLabel : v;
-    });
+    values = values.map(v => ns.isMissingValue(v) ? naLabel : v);
   }
 
   // Step 3: Re-encode
@@ -537,7 +565,7 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
   const addValue = (raw) => {
     const text = raw === null || raw === undefined ? '' : String(raw);
     const normalized = shouldSplit ? text.trim() : text;
-    if (!includeEmpty && normalized.trim() === '') return;
+    if (!includeEmpty && ns.isMissingValue(normalized)) return;
     const key = normalized.trim();
     counts.set(key, (counts.get(key) || 0) + 1);
   };

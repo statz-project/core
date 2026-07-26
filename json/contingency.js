@@ -1,6 +1,7 @@
 // @ts-check
 import { getStatsLib, formatNumberLocale } from './_env.js';
 import { getDefaultMissingLabel, normalizeLanguage, translate } from '../i18n/index.js';
+import factors from './factors.js';
 
 const ns = {};
 
@@ -114,16 +115,17 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
   const pValueLabel = translate('table.columns.pValue', lang);
   const table = {}; const totalByRow = {}; const totalByCol = {};
   predictorVals.forEach((pred, i) => {
-    const row = pred?.toString().trim(); const col = responseVals[i]?.toString().trim();
-    if (!row || !col) return;
+    if (factors.isMissingValue(pred) || factors.isMissingValue(responseVals[i])) return;
+    const row = String(pred).trim(); const col = String(responseVals[i]).trim();
     if (!table[row]) table[row] = {};
     if (!table[row][col]) table[row][col] = 0;
     table[row][col]++;
     totalByRow[row] = (totalByRow[row] || 0) + 1;
     totalByCol[col] = (totalByCol[col] || 0) + 1;
   });
-  const rowLevels = rowLabels ?? [...new Set(predictorVals.map(v => v?.trim()).filter(Boolean))].sort();
-  const colLevels = colLabels ?? [...new Set(responseVals.map(v => v?.trim()).filter(Boolean))].sort();
+  const levelsOf = (vals) => [...new Set(vals.filter(v => !factors.isMissingValue(v)).map(v => String(v).trim()))].sort();
+  const rowLevels = rowLabels ?? levelsOf(predictorVals);
+  const colLevels = colLabels ?? levelsOf(responseVals);
   const stats = getStatsLib();
   const observed = rowLevels.map(r => colLevels.map(c => table[r]?.[c] || 0));
   const test = (() => {

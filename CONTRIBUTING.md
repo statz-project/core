@@ -67,6 +67,14 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 - The `snapshots` module is intentionally **decoupled from `driver.js`** (imports only `hashing.js` + `variants.js`) so it stays safe against circular-import TDZ. New code in `snapshots.js` should preserve that: don't add imports pointing back to `driver.js` or `contingency.js`/`numeric.js`.
 - Adding a new field to `col_values` / `meta.processing` / `meta.recipe`? Verify it's covered by `hashColumn` / `hashVariant` in [snapshots.js](json/snapshots.js). If it should NOT affect the hash (purely cosmetic), leave it out; if it should, add it to the canonical shape.
 
+## Missing values
+
+- `factors.isMissingValue(value, col_type, col_sep)` is the canonical test: null/undefined or blank after trimming, plus separator-only values (`';'`) for `'l'` columns. **Use it instead of writing the check inline** — that is what makes missing-value handling traceable across the core.
+- It is deliberately **structural only**. An unparseable value in an `'n'` column (e.g. `"abc"`) is present-but-invalid, not missing — that matches R's `is.na` and what `exportDatabaseAsHTML` shows in the cell. `summarize_n`'s `n_missing` stat diverges on purpose (it counts non-finite values) and is the one place left with an inline check; don't "fix" either side without deciding which question you're answering.
+- `charts/likert.js` and `charts/paired_q.js` also look untouched, but their `String(raw ?? '').trim()` is a **level lookup** (`levels.indexOf`), not a missing test — a blank simply matches no level. Leave them.
+- Helpers answering "how much data is missing" read the **resolved** view (`factors.resolveColumn`), i.e. the same final data `runAnalysis` sees. `excluded_values` therefore count as missing, and `na_action: 'label'` legitimately reports zero missing — the user turned those rows into a category. Don't add per-consumer overrides to `resolveColumn` to "see through" processing; expose `applyProcessing: false` instead, as `exportDatabaseAsHTML` and `buildMissingMap` do.
+- `isMissingValue` lives on `factors`, which is **not** spread into `json_utils.js`, so it is core-internal. If Bubble ever needs it, re-export one line from `exporters.js` rather than adding `factors` to the public spread.
+
 ## Chart rendering & export
 
 - The chart pipeline is **spec-only in the core**: `runAnalysis({mode:'chart'})` emits Plotly figure specs in `entry.chart.spec`; no rendering happens inside the core.

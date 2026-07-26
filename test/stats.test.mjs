@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Statz } from "../index.js";
 import { parseFixture } from '../scripts/dev/load-fixture.mjs';
-import statistics from '@stdlib/stats';
+import statistics from './helpers/stdlib_stats.mjs';
 import jStat from "jstat";
 import * as simpleStatistics from "simple-statistics";
 import driver from "../json/driver.js";

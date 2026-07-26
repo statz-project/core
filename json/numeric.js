@@ -546,7 +546,7 @@ ns.decomposeListAsBinaryCols = function (values, sep = ';', options = {}) {
   const yesLabel = options?.yes_label ?? labelsBase.yes; const noLabel = options?.no_label ?? labelsBase.no; const min_count = options?.binary_min_count ?? 1;
   const labels = { yes: yesLabel, no: noLabel };
   const n = values.length; const result = {}; const countMap = {}; const allItems = [];
-  values.forEach(val => { const trimmed = (val || '').trim(); if (!trimmed) { allItems.push(null); return; } const items = trimmed.split(sep).map(x => x.trim()).filter(Boolean); const itemSet = new Set(items); allItems.push(itemSet); items.forEach(item => { countMap[item] = (countMap[item] || 0) + 1; }); });
+  values.forEach(val => { if (factors.isMissingValue(val)) { allItems.push(null); return; } const items = String(val).trim().split(sep).map(x => x.trim()).filter(Boolean); const itemSet = new Set(items); allItems.push(itemSet); items.forEach(item => { countMap[item] = (countMap[item] || 0) + 1; }); });
   Object.entries(countMap).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).forEach(([item, count]) => {
     if (count >= min_count) {
       const column = [];
@@ -577,8 +577,8 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   const groupMap = {};
   const missingCounts = {};
   predictorVals.forEach((pred, i) => {
-    const group = responseVals[i]?.toString().trim();
-    if (!group) return;
+    if (factors.isMissingValue(responseVals[i])) return;
+    const group = String(responseVals[i]).trim();
     if (!groupMap[group]) groupMap[group] = [];
     const sanitized = typeof pred === 'string' ? variants.sanitizeNumericString(pred) : String(pred);
     const val = Number.parseFloat(sanitized);
@@ -727,8 +727,9 @@ ns.getNumericWarnings = function (column, lang) {
   /** @type {string[]} */
   const warnings = [];
   values.forEach((value, i) => {
-    const original = value == null ? '' : String(value).trim();
-    if (original === '' || CLEAN_NUMERIC_RE.test(original)) return;
+    if (factors.isMissingValue(value)) return;
+    const original = String(value).trim();
+    if (CLEAN_NUMERIC_RE.test(original)) return;
     const normalized = variants.sanitizeNumericString(original);
     const parsed = Number.parseFloat(normalized);
     if (Number.isFinite(parsed)) {

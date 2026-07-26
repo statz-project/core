@@ -291,7 +291,7 @@ const applyFill = (values, fillValue, meta) => {
   meta.actions.push({ type: 'fill_missing', value: fill });
   return values.map((value) => {
     const text = toStringSafe(value);
-    return text.trim() === '' ? fill : text;
+    return factors.isMissingValue(text) ? fill : text;
   });
 };
 

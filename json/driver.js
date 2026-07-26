@@ -303,12 +303,13 @@ ns.tabularRowsToMatrix = function (columns, rows) { return rows.map(row => colum
  * @returns {TableLike}
  */
 ns.summarize_q = function (values, formatFn = null, options = {}, { labels = null } = {}) {
+  /** @type {Record<string, number>} */
   const freqMap = {}; let missingCount = 0; const total = values.length;
   const lang = normalizeLanguage(options?.lang);
   const missingLabel = options?.missing_label ?? getDefaultMissingLabel(lang);
   const includeMissing = options?.include_missing ?? true;
   const [variableHeader, descriptionHeader] = getTableHeaders(lang);
-  values.forEach(val => { const v = val?.toString().trim(); if (!v) { missingCount++; return; } freqMap[v] = (freqMap[v] || 0) + 1; });
+  values.forEach(val => { if (factors.isMissingValue(val)) { missingCount++; return; } const v = String(val).trim(); freqMap[v] = (freqMap[v] || 0) + 1; });
   const sortedLabels = labels ?? Object.keys(freqMap).sort();
   const rows = sortedLabels.map(label => { const count = freqMap[label] || 0; const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { [variableHeader]: label, [descriptionHeader]: cell }; });
   if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ [variableHeader]: missingLabel, [descriptionHeader]: cell }); }
@@ -325,12 +326,15 @@ ns.summarize_q = function (values, formatFn = null, options = {}, { labels = nul
  */
 ns.summarize_l = function (values, sep = ';', formatFn = null, options = {}) {
   if (!Array.isArray(values)) return { columns: [], rows: [], summary: { total: 0, total_is_full: true } };
+  /** @type {Record<string, number>} */
   const counts = {}; let missingCount = 0; const total = values.length;
   const lang = normalizeLanguage(options?.lang);
   const missingLabel = options?.missing_label ?? getDefaultMissingLabel(lang);
   const includeMissing = options?.include_missing ?? true;
   const [variableHeader, descriptionHeader] = getTableHeaders(lang);
-  values.forEach(v => { if (!v?.trim()) { missingCount++; return; } const items = v.split(sep).map(s => s.trim()).filter(Boolean); if (items.length === 0) { missingCount++; return; } items.forEach(item => { counts[item] = (counts[item] || 0) + 1; }); });
+  // isMissingValue with col_type 'l' covers both a blank cell and a separator-only one (';'),
+  // which is why there is no second `items.length === 0` check here.
+  values.forEach(v => { if (factors.isMissingValue(v, 'l', sep)) { missingCount++; return; } String(v).split(sep).map(s => s.trim()).filter(Boolean).forEach(item => { counts[item] = (counts[item] || 0) + 1; }); });
   const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([level, count]) => { const percent = (count / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count, percent, total }) : `${count} (${percentFormatted}%)`; return { [variableHeader]: level, [descriptionHeader]: cell }; });
   if (includeMissing && missingCount > 0) { const percent = (missingCount / total) * 100; const percentFormatted = formatNumberLocale(percent, 1, lang); const cell = formatFn ? formatFn({ count: missingCount, percent, total }) : `${missingCount} (${percentFormatted}%)`; rows.push({ [variableHeader]: missingLabel, [descriptionHeader]: cell }); }
   return { columns: [variableHeader, descriptionHeader], rows, summary: { total, total_is_full: true }, lang };

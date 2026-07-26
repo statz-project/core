@@ -5,6 +5,7 @@
 // total number of rows, so they can sum to more than 100% if items co-occur — same
 // semantic as the R reference (total_override = nrow(data)).
 import { buildBarSpec } from './_shared.js';
+import factors from '../factors.js';
 
 /**
  * @param {Array<string|null|undefined>} values
@@ -19,9 +20,8 @@ export function chart_l(values, sep = ';', options = {}, meta = {}) {
   const freq = {};
   const total = values.length;
   values.forEach((raw) => {
-    const v = String(raw ?? '').trim();
-    if (!v) return;
-    v.split(sep).map((s) => s.trim()).filter(Boolean).forEach((item) => {
+    if (factors.isMissingValue(raw, 'l', sep)) return;
+    String(raw).trim().split(sep).map((s) => s.trim()).filter(Boolean).forEach((item) => {
       freq[item] = (freq[item] || 0) + 1;
     });
   });

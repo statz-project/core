@@ -1,9 +1,77 @@
 ﻿// @ts-check
-import { formatPValue } from './_env.js';
+import { formatNumberLocale, formatPValue } from './_env.js';
 import { normalizeLanguage, translate } from '../i18n/index.js';
 import factors from './factors.js';
 
 const ns = {};
+
+/**
+ * Escape text for safe emission inside an HTML element.
+ * @param {unknown} val
+ * @returns {string}
+ */
+const escapeHtml = (val) => {
+  const str = String(val ?? '');
+  // Avoid regex literals with `</` sequences (safer for inline bundles); use split/join for < and >.
+  return str
+    .replace(/&/g, '&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;');
+};
+
+/**
+ * Escape text for safe emission inside a double-quoted HTML attribute.
+ * @param {unknown} val
+ * @returns {string}
+ */
+const escapeAttr = (val) => escapeHtml(val).split('"').join('&quot;');
+
+/**
+ * Flatten a database payload into renderable column entries (base columns + their variants),
+ * decoding values and optionally applying replacements + processing.
+ * Shared by `exportDatabaseAsHTML` and `buildMissingMap`.
+ *
+ * @param {{ columns: Array<Record<string, any>> }} db Caller must have validated `db.columns`.
+ * @param {{ showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean }} options
+ * @returns {Array<{hash: string, rawLabel: string, label: string, values: any[], colType: 'q'|'n'|'l', colSep: string, isDeleted: boolean, isVariant: boolean}>}
+ */
+const collectDecodedColumns = function (db, options) {
+  const showDeletedColumns = options.showDeletedColumns === true; // default hide deleted
+  const showVariants = options.showVariants !== false; // default true
+  const shouldApplyProcessing = options.applyProcessing !== false; // default true (also applies replacements)
+  /** @param {any} m */
+  const hasMeta = (m) => (Array.isArray(m?.replacements) && m.replacements.length > 0) || (m?.processing && Object.keys(m.processing).length > 0);
+
+  return db.columns.flatMap(col => {
+    const entries = [];
+    const colType = col.col_type ?? 'q';
+    const colSep = col.col_sep ?? (colType === 'l' ? ';' : '');
+    let effectiveCol = col;
+    if (shouldApplyProcessing && hasMeta(col.meta)) {
+      effectiveCol = factors.resolveColumn(/** @type {any} */ (col));
+    }
+    const baseValues = factors.decodeColValues(effectiveCol.col_values, colType, colSep) ?? col.raw_values ?? [];
+    const baseRawLabel = col.col_label ?? col.col_name ?? col.col_hash ?? '';
+    entries.push({ hash: col.col_hash, rawLabel: baseRawLabel, label: escapeHtml(baseRawLabel), values: baseValues, colType, colSep, isDeleted: !!col.col_del, isVariant: false });
+
+    if (showVariants && Array.isArray(col.col_vars)) {
+      col.col_vars.forEach((variant, idx) => {
+        const vType = variant?.col_type ?? colType;
+        const vSep = variant?.col_sep ?? colSep;
+        let effectiveVariant = variant;
+        if (shouldApplyProcessing && hasMeta(variant?.meta)) {
+          effectiveVariant = factors.resolveColumn({ ...variant, col_type: vType, col_sep: vSep, col_values: variant?.col_values ?? col.col_values });
+        }
+        // Pointer-style base variants have no col_values — fall back to the parent column.
+        const variantValues = effectiveVariant?.col_values ?? col.col_values;
+        const vValues = factors.decodeColValues(variantValues, vType, vSep) ?? variant?.raw_values ?? [];
+        const vRawLabel = variant?.var_label ?? `${baseRawLabel} (v${idx + 1})`;
+        entries.push({ hash: `${col.col_hash}__var${idx}`, rawLabel: vRawLabel, label: escapeHtml(vRawLabel), values: vValues, colType: vType, colSep: vSep, isDeleted: !!col.col_del, isVariant: true });
+      });
+    }
+    return entries;
+  }).filter(col => col.hash && (showDeletedColumns || !col.isDeleted));
+};
 
 /**
  * Render a simple HTML table string.
@@ -324,17 +392,7 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
   // Defaults to true when the flag is absent so legacy result payloads (pre-toggle)
   // still render titles.
   const showChartTitle = resultObj?.chart_options?.show_title !== false;
-  /** @param {unknown} v */
-  const escapeAttr = (v) => String(v ?? '')
-    .replace(/&/g, '&amp;')
-    .split('<').join('&lt;')
-    .split('>').join('&gt;')
-    .split('"').join('&quot;');
-  /** @param {unknown} v */
-  const escapeText = (v) => String(v ?? '')
-    .replace(/&/g, '&amp;')
-    .split('<').join('&lt;')
-    .split('>').join('&gt;');
+  const escapeText = escapeHtml;
 
   const cells = [];
   for (const entry of resultObj.analysis) {
@@ -463,24 +521,10 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   const limit = Number.isFinite(maxRows) && maxRows > 0 ? Math.floor(maxRows) : 200;
   const includeStyles = options.includeStyles !== false;
   const includeRowIndex = options.includeRowIndex !== false; // default true
-  const showDeletedColumns = options.showDeletedColumns === true; // default hide deleted
-  const showVariants = options.showVariants !== false; // default true
-  const shouldApplyProcessing = options.applyProcessing !== false; // default true (also applies replacements)
   const includeTitles = options.includeTitles !== false; // default true
   const titleThresholdRaw = Number(options.titleThreshold);
   // Default 40: derived from monospace 11px × ~6.6px/char fitting in 300px - 16px padding ≈ 43 chars.
   const titleThreshold = Number.isFinite(titleThresholdRaw) && titleThresholdRaw >= 0 ? Math.floor(titleThresholdRaw) : 40;
-  const hasMeta = (m) => (Array.isArray(m?.replacements) && m.replacements.length > 0) || (m?.processing && Object.keys(m.processing).length > 0);
-  const escapeHtml = (val) => {
-    const str = String(val ?? '');
-    // Avoid regex literals with `</` sequences (safer for inline bundles); use split/join for < and >.
-    return str
-      .replace(/&/g, '&amp;')
-      .split('<').join('&lt;')
-      .split('>').join('&gt;');
-  };
-  /** @param {unknown} val */
-  const escapeAttr = (val) => escapeHtml(val).split('"').join('&quot;');
   /**
    * @param {unknown} rawVal
    * @param {'td'|'th'} tag
@@ -495,35 +539,7 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
     return `<${tag}${attrs}>${content}</${tag}>`;
   };
 
-  const decodedCols = db.columns.flatMap(col => {
-    const entries = [];
-    const colType = col.col_type ?? 'q';
-    const colSep = col.col_sep ?? (colType === 'l' ? ';' : '');
-    let effectiveCol = col;
-    if (shouldApplyProcessing && hasMeta(col.meta)) {
-      effectiveCol = factors.resolveColumn(col);
-    }
-    const baseValues = factors.decodeColValues(effectiveCol.col_values, colType, colSep) ?? col.raw_values ?? [];
-    const baseRawLabel = col.col_label ?? col.col_name ?? col.col_hash ?? '';
-    entries.push({ hash: col.col_hash, rawLabel: baseRawLabel, label: escapeHtml(baseRawLabel), values: baseValues, isDeleted: !!col.col_del, isVariant: false });
-
-    if (showVariants && Array.isArray(col.col_vars)) {
-      col.col_vars.forEach((variant, idx) => {
-        const vType = variant?.col_type ?? colType;
-        const vSep = variant?.col_sep ?? colSep;
-        let effectiveVariant = variant;
-        if (shouldApplyProcessing && hasMeta(variant?.meta)) {
-          effectiveVariant = factors.resolveColumn({ ...variant, col_type: vType, col_sep: vSep, col_values: variant?.col_values ?? col.col_values });
-        }
-        // Pointer-style base variants have no col_values — fall back to the parent column.
-        const variantValues = effectiveVariant?.col_values ?? col.col_values;
-        const vValues = factors.decodeColValues(variantValues, vType, vSep) ?? variant?.raw_values ?? [];
-        const vRawLabel = variant?.var_label ?? `${baseRawLabel} (v${idx + 1})`;
-        entries.push({ hash: `${col.col_hash}__var${idx}`, rawLabel: vRawLabel, label: escapeHtml(vRawLabel), values: vValues, isDeleted: !!col.col_del, isVariant: true });
-      });
-    }
-    return entries;
-  }).filter(col => col.hash && (showDeletedColumns || !col.isDeleted));
+  const decodedCols = collectDecodedColumns(/** @type {any} */ (db), options);
 
   if (decodedCols.length === 0) return '';
   const nRows = Math.max(...decodedCols.map(c => c.values.length), 0);
@@ -561,6 +577,260 @@ ns.exportDatabaseAsHTML = function (db, options = {}) {
   <div class="statz-viewer-wrap">
     ${tableHTML}
   </div>`;
+};
+
+/**
+ * @typedef {Object} MissingMapColumn
+ * @property {string} hash
+ * @property {string} rawLabel Unescaped label; the renderer escapes on emit.
+ * @property {boolean} isDeleted
+ * @property {boolean} isVariant
+ * @property {number} nMissing Count over the padded length (= nRows).
+ * @property {number} pctMissing 0–100.
+ * @property {number[]} bins Missing count per bin; `bins.length === nBins`.
+ */
+
+/**
+ * @typedef {Object} MissingMap
+ * @property {string} title
+ * @property {string} lang
+ * @property {number} nRows Longest column; shorter columns are padded (padding counts as missing).
+ * @property {number} nBins
+ * @property {number} binWidth Observations per bin (1 when `nRows <= maxBins`).
+ * @property {Array<{index: number, pct: number}>} ticks Axis ticks; `pct` is 0–100.
+ * @property {MissingMapColumn[]} columns
+ */
+
+/**
+ * Pick "nice" observation indices for the bottom axis: steps of 1/2/5 × 10^k targeting ~6 ticks,
+ * always including the first and last observation. `pct` is the CENTRE of the observation, which
+ * is where that observation's flex span sits inside the strip.
+ * @param {number} nRows
+ * @returns {Array<{index: number, pct: number}>}
+ */
+const missmapTicks = (nRows) => {
+  if (!(nRows > 0)) return [];
+  /** @param {number} index */
+  const toTick = (index) => ({ index, pct: ((index - 0.5) / nRows) * 100 });
+  if (nRows === 1) return [toTick(1)];
+  const raw = nRows / 6;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  const indices = [1];
+  for (let v = step; v < nRows; v += step) {
+    const rounded = Math.round(v);
+    // Drop candidates that would collide with the first or crowd the last label.
+    if (rounded > 1 && (nRows - rounded) > step * 0.4) indices.push(rounded);
+  }
+  indices.push(nRows);
+  return indices.map(toTick);
+};
+
+/**
+ * Build the data behind a missing-data map (the JS analog of R `DescTools::PlotMiss`).
+ * One entry per column/variant; each entry carries per-bin missing counts so the renderer can
+ * draw a raster at any width without re-walking the values.
+ *
+ * Missingness is evaluated on the RESOLVED view — `meta.replacements` + `meta.processing` applied,
+ * exactly what `runAnalysis` sees. So `excluded_values` count as missing, and a column with
+ * `na_action: 'label'` reports NO missing data, because the user chose to turn those rows into a
+ * real category. Pass `applyProcessing: false` to inspect the original, unedited import instead.
+ *
+ * `maxBins` reduces the raster RESOLUTION; unlike `maxRows` in `exportDatabaseAsHTML` it never
+ * truncates — every observation always falls inside some bin.
+ *
+ * @param {{ columns?: Array<Record<string, any>> }} db
+ * @param {{ title?: string, lang?: string, showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean, maxBins?: number }=} options
+ * @returns {MissingMap|null} Null for an unusable payload (no columns, or no observations).
+ */
+ns.buildMissingMap = function (db, options = {}) {
+  if (!db || !Array.isArray(db.columns) || db.columns.length === 0) return null;
+  const lang = normalizeLanguage(options.lang);
+  const title = options.title ?? translate('table.title', lang);
+  const maxBinsRaw = Number(options.maxBins);
+  const maxBins = Number.isFinite(maxBinsRaw) && maxBinsRaw > 0 ? Math.floor(maxBinsRaw) : 300;
+
+  const decodedCols = collectDecodedColumns(/** @type {any} */ (db), options);
+  if (decodedCols.length === 0) return null;
+
+  const nRows = Math.max(...decodedCols.map(c => c.values.length), 0);
+  if (nRows === 0) return null;
+
+  const binWidth = Math.max(1, Math.ceil(nRows / maxBins));
+  const nBins = Math.ceil(nRows / binWidth);
+
+  /** @type {MissingMapColumn[]} */
+  const columns = decodedCols.map(col => {
+    const bins = new Array(nBins).fill(0);
+    let nMissing = 0;
+    for (let i = 0; i < nRows; i++) {
+      // Columns shorter than nRows are padded, and the padding counts as missing.
+      if (!factors.isMissingValue(col.values[i], col.colType, col.colSep)) continue;
+      nMissing++;
+      bins[Math.floor(i / binWidth)]++;
+    }
+    return {
+      hash: col.hash,
+      rawLabel: col.rawLabel,
+      isDeleted: col.isDeleted,
+      isVariant: col.isVariant,
+      nMissing,
+      pctMissing: (nMissing / nRows) * 100,
+      bins
+    };
+  });
+
+  return { title, lang, nRows, nBins, binWidth, ticks: missmapTicks(nRows), columns };
+};
+
+/**
+ * Render a missing-data map as a self-contained, script-free HTML string (safe for `innerHTML`).
+ * Rows are variables — name at the left (ellipsized), missing count at the right — and the bottom
+ * axis indexes the observations, mirroring R `DescTools::PlotMiss`.
+ *
+ * Each row's raster is ONE table cell holding a flex strip whose `<span>` children are
+ * run-length-encoded: consecutive stretches with the same state collapse into a single span
+ * weighted by the number of observations it covers. That keeps the output small (and free of the
+ * uneven column widths you get from hundreds of sibling table cells). A bin is marked when ANY
+ * observation inside it is missing, so nothing ever disappears at low resolution.
+ *
+ * @param {{ columns?: Array<Record<string, any>> }} db
+ * @param {{ title?: string, lang?: string, includeStyles?: boolean, includeTitles?: boolean, showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean, maxBins?: number, showPercent?: boolean, missingColor?: string, presentColor?: string, nameWidth?: number, rowHeight?: number }=} options
+ * @returns {string} Empty string for an unusable payload.
+ */
+ns.exportMissingMapAsHTML = function (db, options = {}) {
+  const map = ns.buildMissingMap(db, options);
+  if (!map) return '';
+  const lang = map.lang;
+  const includeStyles = options.includeStyles !== false; // default true
+  const includeTitles = options.includeTitles !== false; // default true
+  const showPercent = options.showPercent !== false; // default true
+  const missingColor = typeof options.missingColor === 'string' && options.missingColor ? options.missingColor : '#ca1551';
+  const presentColor = typeof options.presentColor === 'string' && options.presentColor ? options.presentColor : '#e8e9f3';
+  const nameWidthRaw = Number(options.nameWidth);
+  const nameWidth = Number.isFinite(nameWidthRaw) && nameWidthRaw > 0 ? Math.floor(nameWidthRaw) : 180;
+  const rowHeightRaw = Number(options.rowHeight);
+  const rowHeight = Number.isFinite(rowHeightRaw) && rowHeightRaw > 0 ? Math.floor(rowHeightRaw) : 14;
+  const { nRows, nBins, binWidth } = map;
+
+  /** @param {number} v */
+  const pct1 = (v) => formatNumberLocale(v, 1, lang);
+
+  /**
+   * Run-length-encode a column's bins into flex-weighted spans. The weight is the observation
+   * count the run covers, so every strip sums to exactly `nRows` and stays aligned with the axis.
+   * @param {MissingMapColumn} col
+   * @returns {string}
+   */
+  const renderStrip = (col) => {
+    if (col.nMissing === 0) return '<div class="statz-missmap-strip"></div>';
+    /** @type {string[]} */
+    const spans = [];
+    let runStart = 0;
+    let runHasMissing = col.bins[0] > 0;
+    /** @param {number} endBin Exclusive. */
+    const flush = (endBin) => {
+      // The last bin may be short when nRows is not a multiple of binWidth.
+      const firstObs = runStart * binWidth;
+      const lastObs = Math.min(endBin * binWidth, nRows);
+      const weight = lastObs - firstObs;
+      if (weight <= 0) return;
+      if (!runHasMissing) {
+        spans.push(`<span style="flex:${weight}"></span>`);
+        return;
+      }
+      let attrs = ` class="statz-missmap-m" style="flex:${weight}"`;
+      if (includeTitles) {
+        const range = firstObs + 1 === lastObs ? String(lastObs) : `${firstObs + 1}–${lastObs}`;
+        if (binWidth === 1) {
+          // Every observation in the run is missing, so a count would add nothing.
+          attrs += ` title="${escapeAttr(translate('table.missmap.cellTitleFull', lang, { range }))}"`;
+        } else {
+          // Binned: the mark only means "at least one missing here", so report the real count.
+          let nMissingRun = 0;
+          for (let b = runStart; b < endBin; b++) nMissingRun += col.bins[b];
+          attrs += ` title="${escapeAttr(translate('table.missmap.cellTitle', lang, { range, count: nMissingRun, percent: pct1((nMissingRun / weight) * 100) }))}"`;
+        }
+      }
+      spans.push(`<span${attrs}></span>`);
+    };
+    for (let b = 1; b < nBins; b++) {
+      const hasMissing = col.bins[b] > 0;
+      if (hasMissing === runHasMissing) continue;
+      flush(b);
+      runStart = b;
+      runHasMissing = hasMissing;
+    }
+    flush(nBins);
+    return `<div class="statz-missmap-strip">${spans.join('')}</div>`;
+  };
+
+  const bodyRows = map.columns.map(col => {
+    let nameClass = 'statz-missmap-name';
+    if (col.isDeleted) nameClass += ' statz-missmap-name--del';
+    else if (col.isVariant) nameClass += ' statz-missmap-name--var';
+    // Emitted unconditionally (under includeTitles): with a fixed-width name column the
+    // truncation point is a pixel fact, so a character threshold would be wrong either way.
+    const nameTitle = includeTitles ? ` title="${escapeAttr(col.rawLabel)}"` : '';
+    const count = showPercent ? `${col.nMissing} (${pct1(col.pctMissing)}%)` : String(col.nMissing);
+    return `<tr><th scope="row"><div class="${nameClass}"${nameTitle}>${escapeHtml(col.rawLabel)}</div></th>`
+      + `<td class="statz-missmap-grid">${renderStrip(col)}</td>`
+      + `<td class="statz-missmap-num">${count}</td></tr>`;
+  }).join('');
+
+  const axisTicks = map.ticks.map((tick, i) => {
+    // First and last labels are clamped to the strip edges instead of centred, so they never
+    // overflow the axis box.
+    if (i === 0) return `<span class="statz-missmap-t0">${tick.index}</span>`;
+    if (i === map.ticks.length - 1) return `<span class="statz-missmap-t1">${tick.index}</span>`;
+    return `<span style="left:${tick.pct.toFixed(2)}%">${tick.index}</span>`;
+  }).join('');
+
+  const tableHTML = `<table class="statz-missmap">`
+    + `<caption>${escapeHtml(map.title)}</caption>`
+    + `<colgroup><col class="statz-missmap-cname" style="width:${nameWidth}px"><col><col class="statz-missmap-cnum"></colgroup>`
+    + `<thead><tr><th class="statz-missmap-hname">${escapeHtml(translate('table.columns.variable', lang))}</th>`
+    + `<th class="statz-missmap-grid"></th>`
+    + `<th class="statz-missmap-hnum">${escapeHtml(translate('table.missmap.missingHeader', lang))}</th></tr></thead>`
+    + `<tbody>${bodyRows}</tbody>`
+    + `<tfoot><tr><td class="statz-missmap-nlab">n = ${nRows}</td>`
+    + `<td class="statz-missmap-grid"><div class="statz-missmap-axis">${axisTicks}</div></td><td></td></tr></tfoot>`
+    + `</table>`;
+
+  if (!includeStyles) return `<div class="statz-missmap-wrap">${tableHTML}</div>`;
+  // No inline <script>: browsers strip scripts injected via innerHTML, and this widget is static.
+  return `<style>
+.statz-missmap-wrap{max-width:100%;overflow-x:auto;font-family:Arial,sans-serif;color:#30323d;}
+.statz-missmap{border-collapse:collapse;table-layout:fixed;width:100%;min-width:420px;background:transparent;}
+.statz-missmap caption{caption-side:top;text-align:center;font-weight:bold;font-size:14px;padding:0 0 10px;color:#30323d;}
+.statz-missmap col.statz-missmap-cnum{width:96px;}
+.statz-missmap th,.statz-missmap td{border:0;padding:0 8px;background:transparent;vertical-align:middle;}
+.statz-missmap thead th{font-size:11px;padding-bottom:6px;border-bottom:1px solid rgba(48,50,61,0.15);}
+.statz-missmap thead th.statz-missmap-hname{text-align:left;}
+.statz-missmap thead th.statz-missmap-hnum{text-align:right;}
+/* Zero HORIZONTAL padding on the raster column: the strip's flex weights and the axis's
+   left:% offsets must resolve against the exact same content box to stay aligned. */
+.statz-missmap td.statz-missmap-grid,.statz-missmap th.statz-missmap-grid{padding:2px 0;}
+.statz-missmap-name{max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:normal;text-align:left;}
+.statz-missmap-name--del{color:${missingColor};text-decoration:line-through;}
+.statz-missmap-name--var{color:#198f51;font-style:italic;}
+.statz-missmap-num{text-align:right;font-size:12px;white-space:nowrap;}
+.statz-missmap-strip{display:flex;width:100%;height:${rowHeight}px;overflow:hidden;background:${presentColor};}
+/* flex-basis 0 makes each span's width proportional to its inline flex-grow, which the renderer
+   sets to the number of observations the run covers. No min-width here: with a 0 basis
+   flex-shrink is inert, so any min-width would overflow the strip and silently clip the
+   right-hand observations. Visibility of thin marks comes from the 0.5 opacity floor instead. */
+.statz-missmap-strip>span{flex:1 1 0;display:block;}
+.statz-missmap-strip>span.statz-missmap-m{background:${missingColor};}
+.statz-missmap tbody tr:hover .statz-missmap-strip{outline:1px solid rgba(48,50,61,0.35);}
+.statz-missmap-axis{position:relative;height:16px;margin-top:4px;border-top:1px solid rgba(48,50,61,0.15);font-size:10px;color:#666;}
+.statz-missmap-axis>span{position:absolute;top:3px;transform:translateX(-50%);white-space:nowrap;}
+.statz-missmap-axis>span.statz-missmap-t0{left:0;transform:none;}
+.statz-missmap-axis>span.statz-missmap-t1{right:0;left:auto;transform:none;}
+.statz-missmap-nlab{font-size:10px;color:#666;white-space:nowrap;text-align:left;}
+</style>
+<div class="statz-missmap-wrap">${tableHTML}</div>`;
 };
 
 export default ns;

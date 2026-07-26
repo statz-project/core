@@ -3,6 +3,7 @@
 // (non-paired path): one column of jittered points per group, mean crossbar per group,
 // optional box overlay per group.
 import variants from '../variants.js';
+import factors from '../factors.js';
 import { resolveTheme, wrapText, computeCenter } from './_shared.js';
 
 /**
@@ -29,8 +30,8 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
   /** @type {Record<string, number[]>} */
   const valuesByGroup = {};
   for (let i = 0; i < len; i++) {
-    const g = String(groupVals[i] ?? '').trim();
-    if (!g) continue;
+    if (factors.isMissingValue(groupVals[i])) continue;
+    const g = String(groupVals[i]).trim();
     const raw = numericVals[i];
     const sanitized = typeof raw === 'string' ? variants.sanitizeNumericString(raw) : String(raw ?? '');
     const parsed = Number.parseFloat(sanitized);

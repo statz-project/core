@@ -41,6 +41,11 @@ const MESSAGES = {
         "percentByColumn": "Os percentuais referem-se ao total de cada coluna",
         "percentByRow": "Os percentuais referem-se ao total de cada linha",
         "percentTotalFull": "Os percentuais consideram todos os registros, incluindo ausentes"
+      },
+      "missmap": {
+        "missingHeader": "Ausentes",
+        "cellTitle": "obs {range}: {count} ausentes ({percent}%)",
+        "cellTitleFull": "Ausentes: obs {range}"
       }
     },
     "binary": {
@@ -220,6 +225,11 @@ const MESSAGES = {
         "percentByColumn": "Percentages refer to the total of each column",
         "percentByRow": "Percentages refer to the total of each row",
         "percentTotalFull": "Percentages consider all records, including missing values"
+      },
+      "missmap": {
+        "missingHeader": "Missing",
+        "cellTitle": "obs {range}: {count} missing ({percent}%)",
+        "cellTitleFull": "Missing: obs {range}"
       }
     },
     "binary": {
@@ -399,6 +409,11 @@ const MESSAGES = {
         "percentByColumn": "Los porcentajes se refieren al total de cada columna",
         "percentByRow": "Los porcentajes se refieren al total de cada fila",
         "percentTotalFull": "Los porcentajes consideran todos los registros, incluidos los ausentes"
+      },
+      "missmap": {
+        "missingHeader": "Ausentes",
+        "cellTitle": "obs {range}: {count} ausentes ({percent}%)",
+        "cellTitleFull": "Ausentes: obs {range}"
       }
     },
     "binary": {

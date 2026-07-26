@@ -2,6 +2,7 @@
 // Univariate qualitative bar chart. Mirrors r.plot.barplot.
 import { buildBarSpec } from './_shared.js';
 import { getDefaultMissingLabel, normalizeLanguage } from '../../i18n/index.js';
+import factors from '../factors.js';
 
 /**
  * Build a Plotly bar spec for a qualitative variable.
@@ -21,8 +22,8 @@ export function chart_q(values, options = {}, meta = {}) {
   let missing = 0;
   const total = values.length;
   values.forEach((raw) => {
-    const v = String(raw ?? '').trim();
-    if (!v) { missing += 1; return; }
+    if (factors.isMissingValue(raw)) { missing += 1; return; }
+    const v = String(raw).trim();
     freq[v] = (freq[v] || 0) + 1;
   });
   const presetLabels = Array.isArray(meta.labels) ? meta.labels : null;

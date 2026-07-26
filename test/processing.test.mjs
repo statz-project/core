@@ -356,3 +356,28 @@ test("getIndividualItems: operates on column as-is (no implicit replacement appl
   const resolved = factors.getIndividualItems(factors.applyReplacements(recorded));
   assert.deepEqual(resolved.sort(), ['Female', 'Male']);
 });
+
+test("isMissingValue: null/undefined/blank are missing, falsy-looking strings are not", () => {
+  [null, undefined, '', '   ', '\t', '\n'].forEach(v => {
+    assert.equal(factors.isMissingValue(v), true, `${JSON.stringify(v)} should be missing`);
+  });
+  ['0', 'NA', 'false', 'null', 0, false].forEach(v => {
+    assert.equal(factors.isMissingValue(v), false, `${JSON.stringify(v)} should be present`);
+  });
+});
+
+test("isMissingValue: separator-only list values are missing", () => {
+  assert.equal(factors.isMissingValue(';', 'l', ';'), true);
+  assert.equal(factors.isMissingValue(' ; ; ', 'l', ';'), true);
+  assert.equal(factors.isMissingValue('a;', 'l', ';'), false);
+  assert.equal(factors.isMissingValue('a;b', 'l', ';'), false);
+  // Defaults to ';' when the caller omits the separator
+  assert.equal(factors.isMissingValue(';;', 'l'), true);
+});
+
+test("isMissingValue: unparseable numeric values are present-but-invalid, not missing", () => {
+  // Deliberate divergence from summarize_n's n_missing stat: the test is purely structural so
+  // it matches R's is.na and what exportDatabaseAsHTML shows in the same cell.
+  assert.equal(factors.isMissingValue('abc', 'n'), false);
+  assert.equal(factors.isMissingValue('', 'n'), true);
+});

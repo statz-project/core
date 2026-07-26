@@ -2,6 +2,7 @@
 // Grouped bar chart for two qualitative variables (q × q). Mirrors r.plot.grouped_bar.
 // x-axis: predictor levels. One bar per response level inside each group (barmode='group').
 import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap } from './_shared.js';
+import factors from '../factors.js';
 
 /**
  * @param {Array<string|null|undefined>} predictorVals
@@ -18,9 +19,9 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
   /** @type {Record<string, number>} */
   const rowTotals = {};
   for (let i = 0; i < len; i++) {
-    const p = String(predictorVals[i] ?? '').trim();
-    const r = String(responseVals[i] ?? '').trim();
-    if (!p || !r) continue;
+    if (factors.isMissingValue(predictorVals[i]) || factors.isMissingValue(responseVals[i])) continue;
+    const p = String(predictorVals[i]).trim();
+    const r = String(responseVals[i]).trim();
     if (!counts[p]) counts[p] = {};
     counts[p][r] = (counts[p][r] || 0) + 1;
     rowTotals[p] = (rowTotals[p] || 0) + 1;
