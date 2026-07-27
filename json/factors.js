@@ -367,6 +367,94 @@ ns.resolveColumn = function (columnObject, options = {}) {
 };
 
 /**
+ * Coerce a variant index arriving from the UI into a usable `col_vars` position.
+ * The blank check MUST come before `Number()`: `Number('')`, `Number(null)` and `Number('  ')`
+ * are all 0, which would silently select `col_vars[0]` instead of the base column.
+ * @param {number|string|null|undefined} raw
+ * @param {number} nVars
+ * @returns {number|null} Null means "use the base column".
+ */
+const normalizeVarIndex = (raw, nVars) => {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'string' && raw.trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n >= nVars) return null;
+  return n;
+};
+
+/**
+ * Resolve a variable reference (`col_hash` + optional variant index) into its final read-time
+ * view: base column or variant, pointer-style variants folded onto their parent, then
+ * `meta.replacements` + `meta.processing` applied — exactly the data `runAnalysis` sees.
+ *
+ * This is the reusable form of a lookup currently inlined in four places (`runAnalysis`,
+ * `describeColumn`, `getColumnValues` in driver.js, and `collectDecodedColumns` in exporters.js).
+ * New code must call this rather than re-deriving the chain.
+ *
+ * Meta fallback is PER FIELD (`variant.meta.replacements ?? column.meta.replacements`, same for
+ * `processing`), matching `runAnalysis`. `describeColumn` uses a whole-object fallback (so a
+ * variant with `meta = {}` blocks the column's replacements) and `collectDecodedColumns` has no
+ * fallback at all — do NOT align this helper to those.
+ *
+ * `varIndex` tolerates the string-typed inputs the UI produces: `''`, `'  '`, null, undefined, a
+ * non-integer, a negative value, or an index past the end of `col_vars` all resolve to the BASE
+ * column — the same silent fallback as `driver.getColumnValues`. Never throws.
+ *
+ * @param {{columns?: Array<Record<string, any>>}|null|undefined} db
+ * @param {string} colHash
+ * @param {number|string|null|undefined} [varIndex]
+ * @param {{ applyProcessing?: boolean }} [options] `applyProcessing: false` returns the original
+ *   imported values, skipping both replacements and processing.
+ * @returns {{column: Record<string, any>, variant: Record<string, any>|null, varIndex: number|null,
+ *   label: string, colType: 'q'|'n'|'l', colSep: string, colValues: ColValues, values: string[]}|null}
+ *   Null when `db` carries no `columns` array or `colHash` matches no column.
+ */
+ns.resolveVariable = function (db, colHash, varIndex = null, options = {}) {
+  if (!db || !Array.isArray(db.columns)) return null;
+  // A one-line lookup rather than `driver.getColumn`: factors.js must not import driver.js
+  // (driver imports factors), and importing driver into exporters.js would drag in the whole
+  // chart-builder graph for the sake of a `find`.
+  const column = db.columns.find(col => col?.col_hash === colHash);
+  if (!column) return null;
+
+  const vars = Array.isArray(column.col_vars) ? column.col_vars : [];
+  const resolvedIndex = normalizeVarIndex(varIndex, vars.length);
+  const variant = resolvedIndex === null ? null : (vars[resolvedIndex] ?? null);
+
+  const colType = variant?.col_type ?? column.col_type ?? 'q';
+  const colSep = variant?.col_sep ?? column.col_sep ?? (colType === 'l' ? ';' : '');
+  // Pointer-style variants (typically col_vars[0]) omit col_values — fall back to the parent.
+  let colValues = variant?.col_values ?? column.col_values;
+
+  if (options.applyProcessing !== false) {
+    const replacements = variant?.meta?.replacements ?? column.meta?.replacements;
+    const processing = variant?.meta?.processing ?? column.meta?.processing;
+    const hasReplacements = Array.isArray(replacements) && replacements.length > 0;
+    const hasProcessing = processing && Object.keys(processing).length > 0;
+    if (hasReplacements || hasProcessing) {
+      const resolved = ns.resolveColumn({
+        col_type: colType,
+        col_sep: colSep,
+        col_values: colValues,
+        meta: { replacements: replacements || [], processing: processing || {} }
+      });
+      colValues = resolved.col_values;
+    }
+  }
+
+  return {
+    column,
+    variant,
+    varIndex: resolvedIndex,
+    label: variant?.var_label ?? column.col_label ?? column.col_name ?? colHash,
+    colType,
+    colSep,
+    colValues,
+    values: ns.decodeColValues(colValues, colType, colSep) ?? column.raw_values ?? []
+  };
+};
+
+/**
  * Apply meta.processing transformations to a column's values.
  * Returns a NEW column object with processed col_values.
  * The original columnObject is never mutated.

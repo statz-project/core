@@ -375,6 +375,100 @@ test("isMissingValue: separator-only list values are missing", () => {
   assert.equal(factors.isMissingValue(';;', 'l'), true);
 });
 
+// ---------------------------------------------------------------------------
+// resolveVariable — col_hash + variant index → final read-time values
+// ---------------------------------------------------------------------------
+
+// A one-column db whose base column has replacements + processing, plus two variants:
+// [0] pointer-style (no col_values — must fall back to the parent), [1] its own payload.
+function makeVarDb() {
+  const col = makeQCol(['a', 'b', 'unknown', 'a', null]);
+  col.col_hash = 'h_x';
+  col.col_label = 'X base';
+  col.meta = { replacements: [{ from: 'unknown', to: 'a' }], processing: { excluded_values: ['b'] } };
+  col.col_vars = [
+    { var_label: 'Original', meta: { kind: 'original' } },
+    factors.makeColumn(['p', 'q', 'p', 'q', 'p'], { col_type: 'q', col_sep: '', includeBaseVariant: false, var_label: 'V1' })
+  ];
+  col.col_vars[1].var_label = 'V1';
+  col.col_vars[1].meta = { kind: 'recode', replacements: [], processing: {} };
+  return { columns: [col] };
+}
+
+test("resolveVariable: unusable inputs return null", () => {
+  assert.equal(factors.resolveVariable(null, 'h_x'), null);
+  assert.equal(factors.resolveVariable({}, 'h_x'), null);
+  assert.equal(factors.resolveVariable({ columns: [] }, 'h_x'), null);
+  assert.equal(factors.resolveVariable(makeVarDb(), 'nope'), null);
+});
+
+test("resolveVariable: base column resolves label, type, sep and values", () => {
+  const r = factors.resolveVariable(makeVarDb(), 'h_x');
+  assert.equal(r.varIndex, null);
+  assert.equal(r.variant, null);
+  assert.equal(r.label, 'X base');
+  assert.equal(r.colType, 'q');
+  assert.equal(r.colSep, '');
+  assert.equal(r.values.length, 5);
+});
+
+test("resolveVariable: variant index arrives as a STRING from the UI", () => {
+  const r = factors.resolveVariable(makeVarDb(), 'h_x', '1');
+  assert.equal(r.varIndex, 1);
+  assert.equal(r.label, 'V1');
+  assert.deepEqual(r.values, ['p', 'q', 'p', 'q', 'p']);
+});
+
+test("resolveVariable: blank index means the base column, never col_vars[0]", () => {
+  // Guards the Number('') === 0 trap: a blank must NOT select the first variant.
+  ['', '   ', null, undefined].forEach(idx => {
+    const r = factors.resolveVariable(makeVarDb(), 'h_x', idx);
+    assert.equal(r.varIndex, null, `${JSON.stringify(idx)} → base column`);
+    assert.equal(r.label, 'X base');
+  });
+});
+
+test("resolveVariable: garbage or out-of-range index falls back to the base column", () => {
+  ['abc', '2.5', '-1', '99', 2.5, -1, 99, NaN].forEach(idx => {
+    const r = factors.resolveVariable(makeVarDb(), 'h_x', idx);
+    assert.equal(r.varIndex, null, `${JSON.stringify(idx)} → base column`);
+    assert.equal(r.label, 'X base');
+  });
+});
+
+test("resolveVariable: pointer-style variant falls back to the parent payload", () => {
+  const db = makeVarDb();
+  const base = factors.resolveVariable(db, 'h_x');
+  const pointer = factors.resolveVariable(db, 'h_x', 0);
+  assert.equal(pointer.label, 'Original', 'own label');
+  assert.equal(pointer.colType, base.colType);
+  assert.deepEqual(pointer.values, base.values, 'parent values');
+});
+
+test("resolveVariable: applies meta.replacements + meta.processing by default", () => {
+  const r = factors.resolveVariable(makeVarDb(), 'h_x');
+  // 'unknown' → 'a' (replacement); 'b' excluded → '' ; null stays missing.
+  assert.deepEqual(r.values.map(v => v ?? ''), ['a', '', 'a', 'a', '']);
+});
+
+test("resolveVariable: applyProcessing:false returns the unedited import", () => {
+  const r = factors.resolveVariable(makeVarDb(), 'h_x', '', { applyProcessing: false });
+  assert.deepEqual(r.values.map(v => v ?? ''), ['a', 'b', 'unknown', 'a', '']);
+});
+
+test("resolveVariable: variant meta falls back to column meta PER FIELD", () => {
+  // The variant declares only `processing`; the column's `replacements` must still apply.
+  // describeColumn's whole-object fallback gets this wrong — this helper deliberately does not.
+  const db = makeVarDb();
+  db.columns[0].col_vars[1] = factors.makeColumn(['x', 'drop', 'unknown'], { col_type: 'q', col_sep: '', includeBaseVariant: false });
+  db.columns[0].col_vars[1].var_label = 'V1';
+  db.columns[0].col_vars[1].meta = { processing: { excluded_values: ['drop'] } };
+  const r = factors.resolveVariable(db, 'h_x', 1);
+  const seen = r.values.map(v => v ?? '');
+  assert.equal(seen[1], '', 'variant processing applied');
+  assert.equal(seen[2], 'a', "column's replacements still applied (unknown → a)");
+});
+
 test("isMissingValue: unparseable numeric values are present-but-invalid, not missing", () => {
   // Deliberate divergence from summarize_n's n_missing stat: the test is purely structural so
   // it matches R's is.na and what exportDatabaseAsHTML shows in the same cell.

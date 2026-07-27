@@ -46,6 +46,9 @@ const MESSAGES = {
         "missingHeader": "Ausentes",
         "cellTitle": "obs {range}: {count} ausentes ({percent}%)",
         "cellTitleFull": "Ausentes: obs {range}"
+      },
+      "crosstab": {
+        "noteTruncated": "{label}: exibindo os {shown} níveis mais frequentes de {total}"
       }
     },
     "binary": {
@@ -230,6 +233,9 @@ const MESSAGES = {
         "missingHeader": "Missing",
         "cellTitle": "obs {range}: {count} missing ({percent}%)",
         "cellTitleFull": "Missing: obs {range}"
+      },
+      "crosstab": {
+        "noteTruncated": "{label}: showing the {shown} most frequent levels of {total}"
       }
     },
     "binary": {
@@ -414,6 +420,9 @@ const MESSAGES = {
         "missingHeader": "Ausentes",
         "cellTitle": "obs {range}: {count} ausentes ({percent}%)",
         "cellTitleFull": "Ausentes: obs {range}"
+      },
+      "crosstab": {
+        "noteTruncated": "{label}: mostrando los {shown} niveles más frecuentes de {total}"
       }
     },
     "binary": {

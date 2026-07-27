@@ -2,6 +2,7 @@
 import { formatNumberLocale, formatPValue } from './_env.js';
 import { normalizeLanguage, translate } from '../i18n/index.js';
 import factors from './factors.js';
+import variants from './variants.js';
 
 const ns = {};
 
@@ -839,6 +840,299 @@ ns.exportMissingMapAsHTML = function (db, options = {}) {
 .statz-missmap-nlab{font-size:10px;color:#666;white-space:nowrap;text-align:left;}
 </style>
 <div class="statz-missmap-wrap">${tableHTML}</div>`;
+};
+
+/**
+ * The axis keys a single value contributes to. For `'l'` the value is split into its items and
+ * DEDUPED: the crosstab counts record presence, so `"a;a"` must increment its cell once.
+ * Deliberately diverges from `summarize_l` (driver.js), which counts item occurrences.
+ * @param {unknown} raw
+ * @param {'q'|'n'|'l'} colType
+ * @param {string} colSep
+ * @returns {string[]}
+ */
+const crosstabKeys = (raw, colType, colSep) => {
+  if (colType !== 'l') return [String(raw).trim()];
+  return [...new Set(String(raw).split(colSep || ';').map(s => s.trim()).filter(Boolean))];
+};
+
+/**
+ * Compare two numeric level labels by VALUE. R's `factor()` on a numeric vector sorts numerically,
+ * so `xtabs` shows 1, 2, 10 — a lexicographic sort would show 1, 10, 2.
+ * Present-but-unparseable labels sort last. The `localeCompare` tie-break matters: `"1"`, `"1.0"`
+ * and `"01"` are distinct levels with equal numeric value, and without it their order would be
+ * whatever the engine's stable sort happened to produce.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+const compareNumericLevels = (a, b) => {
+  const na = Number.parseFloat(variants.sanitizeNumericString(String(a ?? '').trim()));
+  const nb = Number.parseFloat(variants.sanitizeNumericString(String(b ?? '').trim()));
+  const aBad = !Number.isFinite(na);
+  const bBad = !Number.isFinite(nb);
+  if (aBad && bBad) return a.localeCompare(b);
+  if (aBad) return 1;
+  if (bBad) return -1;
+  return (na - nb) || a.localeCompare(b);
+};
+
+/**
+ * Keep only the `maxLevels` most frequent levels, then restore canonical order — the cap changes
+ * WHICH levels appear, never their order. Ties are broken by canonical rank (keep the earlier
+ * level) so the result is deterministic rather than engine-dependent.
+ * @param {string[]} levels Canonical order.
+ * @param {Map<string, number>} freq Level → number of records carrying it.
+ * @param {number} maxLevels
+ * @returns {string[]}
+ */
+const capLevels = (levels, freq, maxLevels) => {
+  if (levels.length <= maxLevels) return levels;
+  const rank = new Map(levels.map((lvl, i) => [lvl, i]));
+  return [...levels]
+    .sort((a, b) => (freq.get(b) ?? 0) - (freq.get(a) ?? 0) || (rank.get(a) ?? 0) - (rank.get(b) ?? 0))
+    .slice(0, maxLevels)
+    .sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0));
+};
+
+/**
+ * @typedef {Object} CrosstabAxis
+ * @property {string} hash
+ * @property {number|null} varIndex Resolved index (null = base column). Differs from the requested
+ *   one when a blank/stale/out-of-range index fell back to the base column.
+ * @property {string} label Unescaped; the renderer escapes on emit.
+ * @property {'q'|'n'|'l'} colType
+ * @property {string[]} levels Post-cap, in canonical order.
+ * @property {number} nLevelsTotal Pre-cap count. `levels.length < nLevelsTotal` ⇒ truncated.
+ */
+
+/**
+ * @typedef {Object} Crosstab
+ * @property {string|null} title Null when the caller passed none; the renderer emits no caption.
+ * @property {string} lang
+ * @property {CrosstabAxis} row
+ * @property {CrosstabAxis} col
+ * @property {number[][]} counts `counts[rowLevel][colLevel]`. Cells only — no margins; sum them if
+ *   you need totals.
+ * @property {number} nRows Longest of the two value arrays.
+ * @property {number} nCompared Records with BOTH sides present. `nCompared + nExcluded === nRows`.
+ * @property {number} nExcluded Records dropped for missingness on either side.
+ * @property {boolean} isMultiResponse True when either axis is `'l'`: a record is then counted in
+ *   every cell its items reach, so the cells sum to more than `nCompared`.
+ */
+
+/**
+ * Build a counts-only contingency table between two variables/variants of the same database —
+ * the JS analog of R's `xtabs()`, for exploratory preview.
+ *
+ * NO inferential statistics: no χ², no p-value, no percentages, no effect sizes. Use `runAnalysis`
+ * for those; this helper exists so the user can look at a cross-tabulation before deciding what to
+ * test.
+ *
+ * Both variables are read through `factors.resolveVariable`, i.e. on the RESOLVED view
+ * (`meta.replacements` + `meta.processing` applied) — the same data `runAnalysis` sees, so the
+ * counts agree with it. `applyProcessing: false` inspects the original import instead.
+ *
+ * Level order per type:
+ *  - `q` — factor order from `col_values.labels`, keeping declared-but-unused levels as zero rows
+ *    (faithful to `factor()`); alphabetical when the column is not factor-compacted.
+ *  - `n` — numeric, because that is what R's `factor()` does. `"1"` and `"1.0"` deliberately stay
+ *    DISTINCT levels: values arrive as strings from the import, and a preview whose job is to
+ *    surface data quality must show that both spellings exist.
+ *  - `l` — split into items, alphabetical, OBSERVED items only (an `l` vocabulary's label order is
+ *    import first-appearance order, i.e. arbitrary; `summarize_l` also reports observed items only).
+ *
+ * Records are compared COMPLETE-CASE: a record whose value is missing on either axis is dropped
+ * from every cell and counted in `nExcluded`. `l` axes count presence only, which makes `l × l` a
+ * single co-occurrence matrix — so unlike `summarize_l_l` this needs no `subset_items` constraint.
+ *
+ * @param {{ columns?: Array<Record<string, any>> }} db
+ * @param {string} rowHash `col_hash` of the row variable.
+ * @param {number|string|null|undefined} rowVarIndex Variant index, or blank for the base column.
+ * @param {string} colHash `col_hash` of the column variable.
+ * @param {number|string|null|undefined} colVarIndex Variant index, or blank for the base column.
+ * @param {{ title?: string, lang?: string, applyProcessing?: boolean, maxLevels?: number }=} options
+ * @returns {Crosstab|null} Null when the payload is unusable: no `db.columns`, either hash unknown,
+ *   or either axis yielding zero levels.
+ */
+ns.buildCrosstab = function (db, rowHash, rowVarIndex, colHash, colVarIndex, options = {}) {
+  if (!db || !Array.isArray(db.columns) || db.columns.length === 0) return null;
+  const lang = normalizeLanguage(options.lang);
+  const title = typeof options.title === 'string' && options.title.trim() !== '' ? options.title : null;
+  const maxLevelsRaw = Number(options.maxLevels);
+  const maxLevels = Number.isFinite(maxLevelsRaw) && maxLevelsRaw > 0 ? Math.floor(maxLevelsRaw) : 100;
+  const resolveOpts = { applyProcessing: options.applyProcessing !== false };
+
+  const rowVar = factors.resolveVariable(db, rowHash, rowVarIndex, resolveOpts);
+  const colVar = factors.resolveVariable(db, colHash, colVarIndex, resolveOpts);
+  if (!rowVar || !colVar) return null;
+
+  const rowValues = rowVar.values;
+  const colValues = colVar.values;
+  const nRows = Math.max(rowValues.length, colValues.length);
+
+  // Pass 1: complete-case filter + per-level RECORD frequencies (which the cap needs) + level
+  // discovery. Deriving the observed keys here rather than via getIndividualItems keeps levels and
+  // counting keys in agreement by construction — getIndividualItems filters with `.filter(Boolean)`,
+  // which would drop a genuine numeric 0 from the levels while it still got counted.
+  /** @type {Map<string, number>} */
+  const rowFreq = new Map();
+  /** @type {Map<string, number>} */
+  const colFreq = new Map();
+  let nCompared = 0;
+  let nExcluded = 0;
+  for (let i = 0; i < nRows; i++) {
+    // Beyond a short column's end the value is undefined → missing → excluded, matching
+    // buildMissingMap's "padding counts as missing" so the two views agree.
+    if (factors.isMissingValue(rowValues[i], rowVar.colType, rowVar.colSep)
+      || factors.isMissingValue(colValues[i], colVar.colType, colVar.colSep)) {
+      nExcluded++;
+      continue;
+    }
+    nCompared++;
+    for (const key of crosstabKeys(rowValues[i], rowVar.colType, rowVar.colSep)) rowFreq.set(key, (rowFreq.get(key) ?? 0) + 1);
+    for (const key of crosstabKeys(colValues[i], colVar.colType, colVar.colSep)) colFreq.set(key, (colFreq.get(key) ?? 0) + 1);
+  }
+
+  /**
+   * @param {{colType: 'q'|'n'|'l', colValues: any}} axis
+   * @param {Map<string, number>} freq
+   * @returns {string[]}
+   */
+  const orderLevels = (axis, freq) => {
+    const observed = [...freq.keys()];
+    if (axis.colType === 'n') return observed.sort(compareNumericLevels);
+    if (axis.colType === 'l') return observed.sort((a, b) => a.localeCompare(b));
+    // `q`: declared factor levels first (order === 'levels' only returns labels when the column is
+    // compacted — otherwise getIndividualItems falls through to first-appearance order, hence the
+    // explicit alphabetical sort here), then any observed value the labels don't declare.
+    // Declared labels are trimmed and deduped so they match the counting keys: an untrimmed label
+    // would otherwise render as a phantom zero row next to its own trimmed key.
+    const declared = (axis.colValues?.col_compact && Array.isArray(axis.colValues?.labels))
+      ? [...new Set(factors.getIndividualItems({ col_type: 'q', col_values: axis.colValues }, { order: 'levels' }).map(lvl => String(lvl).trim()))]
+      : [];
+    const declaredSet = new Set(declared);
+    const extra = observed.filter(v => !declaredSet.has(v)).sort((a, b) => a.localeCompare(b));
+    return declared.length ? [...declared, ...extra] : observed.sort((a, b) => a.localeCompare(b));
+  };
+
+  const rowLevelsAll = orderLevels(rowVar, rowFreq);
+  const colLevelsAll = orderLevels(colVar, colFreq);
+  if (rowLevelsAll.length === 0 || colLevelsAll.length === 0) return null;
+  const rowLevels = capLevels(rowLevelsAll, rowFreq, maxLevels);
+  const colLevels = capLevels(colLevelsAll, colFreq, maxLevels);
+
+  const rowIdx = new Map(rowLevels.map((lvl, i) => [lvl, i]));
+  const colIdx = new Map(colLevels.map((lvl, i) => [lvl, i]));
+
+  // Pass 2: fill the matrix.
+  const counts = rowLevels.map(() => new Array(colLevels.length).fill(0));
+  for (let i = 0; i < nRows; i++) {
+    if (factors.isMissingValue(rowValues[i], rowVar.colType, rowVar.colSep)
+      || factors.isMissingValue(colValues[i], colVar.colType, colVar.colSep)) continue;
+    for (const a of crosstabKeys(rowValues[i], rowVar.colType, rowVar.colSep)) {
+      const ri = rowIdx.get(a);
+      if (ri === undefined) continue; // level dropped by the cap
+      for (const b of crosstabKeys(colValues[i], colVar.colType, colVar.colSep)) {
+        const ci = colIdx.get(b);
+        if (ci === undefined) continue;
+        counts[ri][ci]++;
+      }
+    }
+  }
+
+  return {
+    title,
+    lang,
+    row: { hash: rowHash, varIndex: rowVar.varIndex, label: rowVar.label, colType: rowVar.colType, levels: rowLevels, nLevelsTotal: rowLevelsAll.length },
+    col: { hash: colHash, varIndex: colVar.varIndex, label: colVar.label, colType: colVar.colType, levels: colLevels, nLevelsTotal: colLevelsAll.length },
+    counts,
+    nRows,
+    nCompared,
+    nExcluded,
+    isMultiResponse: rowVar.colType === 'l' || colVar.colType === 'l'
+  };
+};
+
+/**
+ * Render a counts-only contingency table as a self-contained, script-free HTML string (safe for
+ * `innerHTML`). The two-row header names both variables, mirroring how `xtabs` prints its dimnames.
+ *
+ * Cells only — **no marginal totals**, like a plain `xtabs()` printout.
+ *
+ * `options.title` renders as a centred `<caption>`; omit it and no caption is emitted — there is no
+ * default title, matching `exportDatabaseAsHTML` and `exportMissingMapAsHTML`.
+ *
+ * The level-truncation disclosure is the only footer content, and it is mandatory: 100 columns look
+ * like a 100-level variable. `nExcluded` (complete-case deletion) and `isMultiResponse` are
+ * deliberately NOT rendered either — same reasoning, they live on `buildCrosstab`'s return.
+ *
+ * @param {{ columns?: Array<Record<string, any>> }} db
+ * @param {string} rowHash
+ * @param {number|string|null|undefined} rowVarIndex
+ * @param {string} colHash
+ * @param {number|string|null|undefined} colVarIndex
+ * @param {{ title?: string, lang?: string, includeStyles?: boolean, includeTitles?: boolean, applyProcessing?: boolean, maxLevels?: number }=} options
+ * @returns {string} Empty string for an unusable payload.
+ */
+ns.exportCrosstabAsHTML = function (db, rowHash, rowVarIndex, colHash, colVarIndex, options = {}) {
+  const ct = ns.buildCrosstab(db, rowHash, rowVarIndex, colHash, colVarIndex, options);
+  if (!ct) return '';
+  const lang = ct.lang;
+  const includeStyles = options.includeStyles !== false; // default true
+  const includeTitles = options.includeTitles !== false; // default true
+  const nLevelCols = ct.col.levels.length;
+  const nCols = 1 + nLevelCols;
+
+  /** @param {string} text */
+  const titleAttr = (text) => (includeTitles ? ` title="${escapeAttr(text)}"` : '');
+
+  const headTop = `<tr><td class="statz-xtab-corner"></td>`
+    + `<th class="statz-xtab-colvar" colspan="${nLevelCols}" scope="colgroup"${titleAttr(ct.col.label)}>${escapeHtml(ct.col.label)}</th>`
+    + `</tr>`;
+  const headBottom = `<tr><th class="statz-xtab-rowvar" scope="col"${titleAttr(ct.row.label)}>${escapeHtml(ct.row.label)}</th>`
+    + ct.col.levels.map(lvl => `<th scope="col"${titleAttr(lvl)}>${escapeHtml(lvl)}</th>`).join('')
+    + `</tr>`;
+
+  const bodyRows = ct.row.levels.map((lvl, ri) => `<tr>`
+    + `<th scope="row"${titleAttr(lvl)}>${escapeHtml(lvl)}</th>`
+    + ct.counts[ri].map(count => `<td>${count}</td>`).join('')
+    + `</tr>`).join('');
+
+  // One segment per truncated axis, each naming its variable. This is the only footer content, so
+  // when no axis was truncated the <tfoot> is omitted entirely.
+  const noteSegments = [ct.row, ct.col]
+    .filter(axis => axis.levels.length < axis.nLevelsTotal)
+    .map(axis => translate('table.crosstab.noteTruncated', lang, { label: axis.label, shown: axis.levels.length, total: axis.nLevelsTotal }));
+  const noteRow = noteSegments.length
+    ? `<tr><td colspan="${nCols}" class="statz-xtab-note">${escapeHtml(`${noteSegments.join('; ')}.`)}</td></tr>`
+    : '';
+
+  const caption = ct.title === null ? '' : `<caption>${escapeHtml(ct.title)}</caption>`;
+  const tableHTML = `<table class="statz-xtab">${caption}`
+    + `<thead>${headTop}${headBottom}</thead>`
+    + `<tbody>${bodyRows}</tbody>`
+    + (noteRow ? `<tfoot>${noteRow}</tfoot>` : '')
+    + `</table>`;
+
+  if (!includeStyles) return `<div class="statz-xtab-wrap">${tableHTML}</div>`;
+  // No inline <script>: browsers strip scripts injected via innerHTML, and this widget is static.
+  return `<style>
+.statz-xtab-wrap{max-width:100%;overflow:auto;font-family:Arial,sans-serif;color:#30323d;}
+.statz-xtab{border-collapse:collapse;background:transparent;font-size:12px;}
+.statz-xtab caption{caption-side:top;text-align:center;font-weight:bold;font-size:14px;padding:0 0 10px;color:#30323d;}
+.statz-xtab th,.statz-xtab td{border:1px solid rgba(48,50,61,0.15);padding:4px 8px;background:transparent;text-align:right;white-space:nowrap;}
+.statz-xtab thead th{font-weight:bold;text-align:center;}
+/* Label columns read as text, not as numbers. */
+.statz-xtab tbody th[scope=row],.statz-xtab th.statz-xtab-rowvar{text-align:left;}
+/* The corner sits above the row-variable NAME, not above data: no box around nothing. */
+.statz-xtab td.statz-xtab-corner{border:0;}
+.statz-xtab tbody tr:hover{background:#d9d9d9;}
+/* Level labels can be long; cap and ellipsize — the full text lives in the title attribute. */
+.statz-xtab thead th,.statz-xtab tbody th[scope=row]{max-width:180px;overflow:hidden;text-overflow:ellipsis;}
+.statz-xtab td.statz-xtab-note{text-align:left;font-size:12px;color:#666;border:0;padding:8px 0 0;white-space:normal;}
+</style>
+<div class="statz-xtab-wrap">${tableHTML}</div>`;
 };
 
 export default ns;

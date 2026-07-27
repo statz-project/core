@@ -456,3 +456,318 @@ test("exportMissingMapAsHTML: axis clamps its first and last labels exactly once
   assert.match(html, /<span class="statz-missmap-t0">1<\/span>/);
   assert.match(html, /<span class="statz-missmap-t1">200<\/span>/);
 });
+
+// ---------------------------------------------------------------------------
+// buildCrosstab / exportCrosstabAsHTML — the xtabs analog
+// ---------------------------------------------------------------------------
+
+import { translate } from "../i18n/index.js";
+
+// sexo/faixa share 6 complete pairs; 2 records are missing on one side.
+const xtabDb = () => makeDb([
+  rawCol("sexo", ["M", "F", "M", "F", "F", "M", null, "F"]),
+  rawCol("faixa", ["18-30", "31-50", "18-30", "51+", "31-50", "51+", "18-30", null]),
+  rawCol("idade", ["10", "2", "100", "2", "10", "2", "9", "10"], { col_type: "n" }),
+  rawCol("sintomas", ["ansi;depr", "ansi", "depr", "ansi;depr", "", "depr;ansi", "ansi", "depr"], { col_type: "l", col_sep: ";" })
+]);
+
+// Row/column level → count, for readable assertions.
+const cellOf = (ct, rowLevel, colLevel) => ct.counts[ct.row.levels.indexOf(rowLevel)][ct.col.levels.indexOf(colLevel)];
+// buildCrosstab returns cells only, so the tests sum them where a total is the point.
+const sumCells = (ct) => ct.counts.reduce((total, row) => total + row.reduce((a, b) => a + b, 0), 0);
+const rowSums = (ct) => ct.counts.map(row => row.reduce((a, b) => a + b, 0));
+const colSums = (ct) => ct.col.levels.map((_, ci) => ct.counts.reduce((total, row) => total + row[ci], 0));
+
+test("buildCrosstab: unusable payloads return null", () => {
+  assert.equal(exporters.buildCrosstab(null, "h_sexo", "", "h_faixa", ""), null);
+  assert.equal(exporters.buildCrosstab({ columns: [] }, "h_sexo", "", "h_faixa", ""), null);
+  assert.equal(exporters.buildCrosstab(xtabDb(), "nope", "", "h_faixa", ""), null, "unknown row hash");
+  assert.equal(exporters.buildCrosstab(xtabDb(), "h_sexo", "", "nope", ""), null, "unknown col hash");
+});
+
+test("buildCrosstab: q×q counts and margins match a hand-computed table", () => {
+  const ct = exporters.buildCrosstab(xtabDb(), "h_faixa", "", "h_sexo", "");
+  assert.deepEqual(ct.row.levels, ["18-30", "31-50", "51+"]);
+  assert.deepEqual(ct.col.levels, ["F", "M"]);
+  assert.deepEqual(ct.counts, [[0, 2], [2, 0], [1, 1]]);
+  assert.deepEqual(rowSums(ct), [2, 2, 2]);
+  assert.deepEqual(colSums(ct), [3, 3]);
+  assert.equal(sumCells(ct), 6);
+  assert.equal(ct.isMultiResponse, false);
+  assert.equal(sumCells(ct), ct.nCompared, "no l axis → the cells sum to the record count");
+});
+
+test("buildCrosstab: complete-case deletion; nCompared + nExcluded === nRows", () => {
+  const ct = exporters.buildCrosstab(xtabDb(), "h_faixa", "", "h_sexo", "");
+  assert.equal(ct.nRows, 8);
+  assert.equal(ct.nCompared, 6);
+  assert.equal(ct.nExcluded, 2);
+  assert.equal(ct.nCompared + ct.nExcluded, ct.nRows);
+});
+
+test("buildCrosstab: a short column is padded and every padded pair is excluded", () => {
+  const db = makeDb([rawCol("long", ["a", "b", "a", "b"]), rawCol("short", ["x", "y"])]);
+  const ct = exporters.buildCrosstab(db, "h_long", "", "h_short", "");
+  assert.equal(ct.nRows, 4);
+  assert.equal(ct.nCompared, 2);
+  assert.equal(ct.nExcluded, 2);
+});
+
+test("buildCrosstab: q levels follow col_values.labels, unused level is a zero row", () => {
+  // Compact column declaring a level that never occurs — factor() keeps it, so we do too.
+  const db = makeDb([
+    rawCol("grp", null, { col_values: { col_compact: true, labels: ["low", "mid", "high"], codes: [1, 1, 3, 3], raw_values: null } }),
+    rawCol("out", ["yes", "no", "yes", "no"])
+  ]);
+  const ct = exporters.buildCrosstab(db, "h_grp", "", "h_out", "");
+  assert.deepEqual(ct.row.levels, ["low", "mid", "high"], "declared factor order, not alphabetical");
+  assert.deepEqual(ct.counts[ct.row.levels.indexOf("mid")], [0, 0], "unused level → zero row");
+});
+
+test("buildCrosstab: q non-compact levels are sorted alphabetically, not first-appearance", () => {
+  // Guards the getIndividualItems({order:'levels'}) fall-through, which returns unsorted keys
+  // when the column is not factor-compacted — exactly the shape of the rawCol fixture.
+  const db = makeDb([rawCol("g", ["zebra", "alpha", "mid", "alpha"]), rawCol("o", ["1", "1", "1", "1"])]);
+  const ct = exporters.buildCrosstab(db, "h_g", "", "h_o", "");
+  assert.deepEqual(ct.row.levels, ["alpha", "mid", "zebra"]);
+});
+
+test("buildCrosstab: untrimmed declared labels match their counting keys", () => {
+  // A label carrying whitespace must not produce a phantom zero row alongside its trimmed key.
+  const db = makeDb([
+    rawCol("g", null, { col_values: { col_compact: true, labels: [" x", "y "], codes: [1, 2, 1], raw_values: null } }),
+    rawCol("o", ["1", "1", "1"])
+  ]);
+  const ct = exporters.buildCrosstab(db, "h_g", "", "h_o", "");
+  assert.deepEqual(ct.row.levels, ["x", "y"]);
+  assert.equal(cellOf(ct, "x", "1"), 2);
+  assert.equal(sumCells(ct), 3, "nothing lost to a key/level mismatch");
+});
+
+test("buildCrosstab: n levels sort numerically, not lexically", () => {
+  const ct = exporters.buildCrosstab(xtabDb(), "h_idade", "", "h_sexo", "");
+  assert.deepEqual(ct.row.levels, ["2", "10", "100"], "R's factor() sorts by value");
+});
+
+test("buildCrosstab: unparseable n level sorts last; 1 and 1.0 stay distinct", () => {
+  const db = makeDb([rawCol("v", ["10", "1.0", "n/a", "1", "2"], { col_type: "n" }), rawCol("o", ["a", "a", "a", "a", "a"])]);
+  const ct = exporters.buildCrosstab(db, "h_v", "", "h_o", "");
+  assert.deepEqual(ct.row.levels, ["1", "1.0", "2", "10", "n/a"]);
+});
+
+test("buildCrosstab: a numeric 0 survives as a level", () => {
+  // getIndividualItems filters with .filter(Boolean), which would drop a real 0 from the levels
+  // while it still got counted — a level/key mismatch. Levels are derived in the counting pass.
+  const db = makeDb([rawCol("v", [0, 1, 0, 2], { col_type: "n" }), rawCol("o", ["a", "a", "a", "a"])]);
+  const ct = exporters.buildCrosstab(db, "h_v", "", "h_o", "");
+  assert.deepEqual(ct.row.levels, ["0", "1", "2"]);
+  assert.equal(cellOf(ct, "0", "a"), 2);
+  assert.equal(sumCells(ct), 4, "nothing lost");
+});
+
+test("buildCrosstab: compact q code 0 counts as missing", () => {
+  const db = makeDb([
+    rawCol("g", null, { col_values: { col_compact: true, labels: ["a", "b"], codes: [1, 0, 2, 0], raw_values: null } }),
+    rawCol("o", ["x", "x", "x", "x"])
+  ]);
+  const ct = exporters.buildCrosstab(db, "h_g", "", "h_o", "");
+  assert.equal(ct.nExcluded, 2);
+  assert.equal(sumCells(ct), 2);
+});
+
+test("buildCrosstab: l×q counts presence once per record, even for a repeated item", () => {
+  const db = makeDb([rawCol("it", ["a;a", "a;b", "b"], { col_type: "l", col_sep: ";" }), rawCol("o", ["x", "x", "x"])]);
+  const ct = exporters.buildCrosstab(db, "h_it", "", "h_o", "");
+  assert.equal(cellOf(ct, "a", "x"), 2, "'a;a' increments once, plus 'a;b'");
+  assert.equal(cellOf(ct, "b", "x"), 2);
+});
+
+test("buildCrosstab: separator-only l value excludes the record", () => {
+  const db = makeDb([rawCol("it", [";", "a", " ; "], { col_type: "l", col_sep: ";" }), rawCol("o", ["x", "x", "x"])]);
+  const ct = exporters.buildCrosstab(db, "h_it", "", "h_o", "");
+  assert.equal(ct.nExcluded, 2);
+  assert.equal(sumCells(ct), 1);
+});
+
+test("buildCrosstab: an l axis makes margins exceed the record count", () => {
+  const ct = exporters.buildCrosstab(xtabDb(), "h_sintomas", "", "h_sexo", "");
+  assert.equal(ct.isMultiResponse, true);
+  assert.ok(sumCells(ct) > ct.nCompared, `${sumCells(ct)} > ${ct.nCompared}`);
+  assert.deepEqual(ct.row.levels, ["ansi", "depr"], "observed items, alphabetical");
+});
+
+test("buildCrosstab: l×l is a single co-occurrence matrix, no subset_items needed", () => {
+  const db = makeDb([
+    rawCol("s", ["a;b", "a", "b", "a;b"], { col_type: "l", col_sep: ";" }),
+    rawCol("m", ["X;Y", "X", "Y", "X"], { col_type: "l", col_sep: ";" })
+  ]);
+  const ct = exporters.buildCrosstab(db, "h_s", "", "h_m", "");
+  assert.deepEqual(ct.row.levels, ["a", "b"]);
+  assert.deepEqual(ct.col.levels, ["X", "Y"]);
+  assert.equal(cellOf(ct, "a", "X"), 3, "records 1, 2 and 4 have a AND X");
+  assert.equal(cellOf(ct, "b", "Y"), 2, "records 1 and 3 have b AND Y");
+});
+
+test("buildCrosstab: maxLevels keeps the top-N most frequent in canonical order", () => {
+  const db = makeDb([
+    rawCol("g", ["rare", "common", "common", "common", "mid", "mid"]),
+    rawCol("o", ["x", "x", "x", "x", "x", "x"])
+  ]);
+  const ct = exporters.buildCrosstab(db, "h_g", "", "h_o", "", { maxLevels: 2 });
+  assert.deepEqual(ct.row.levels, ["common", "mid"], "alphabetical order preserved among survivors");
+  assert.equal(ct.row.nLevelsTotal, 3, "pre-cap count reported");
+  assert.equal(sumCells(ct), 5, "the dropped level's record is not counted");
+});
+
+test("buildCrosstab: equal frequencies keep the earlier canonical level", () => {
+  const db = makeDb([rawCol("g", ["b", "a", "c"]), rawCol("o", ["x", "x", "x"])]);
+  const ct = exporters.buildCrosstab(db, "h_g", "", "h_o", "", { maxLevels: 2 });
+  assert.deepEqual(ct.row.levels, ["a", "b"], "deterministic tie-break by canonical rank");
+});
+
+test("buildCrosstab: processing is resolved on BOTH axes", () => {
+  const db = makeDb([
+    rawCol("a", ["p", "drop", "p"], { meta: { replacements: [], processing: { excluded_values: ["drop"] } } }),
+    rawCol("b", ["q", "q", "gone"], { meta: { replacements: [], processing: { excluded_values: ["gone"] } } })
+  ]);
+  const resolved = exporters.buildCrosstab(db, "h_a", "", "h_b", "");
+  assert.deepEqual(resolved.row.levels, ["p"]);
+  assert.deepEqual(resolved.col.levels, ["q"]);
+  assert.equal(sumCells(resolved), 1, "only record 1 survives on both axes");
+  const raw = exporters.buildCrosstab(db, "h_a", "", "h_b", "", { applyProcessing: false });
+  assert.equal(sumCells(raw), 3);
+  assert.ok(raw.row.levels.includes("drop"), "excluded value is a level again");
+});
+
+test("buildCrosstab: variant index selects the variant on either axis", () => {
+  const db = makeDb([
+    rawCol("a", ["p", "q"], {
+      col_vars: [
+        { var_label: "Original", meta: { kind: "original" } },
+        { var_label: "A recoded", col_type: "q", col_sep: "", meta: {}, col_values: { col_compact: false, labels: null, codes: null, raw_values: ["Z", "Z"] } }
+      ]
+    }),
+    rawCol("b", ["x", "y"])
+  ]);
+  const ct = exporters.buildCrosstab(db, "h_a", "1", "h_b", "");
+  assert.equal(ct.row.label, "A recoded");
+  assert.deepEqual(ct.row.levels, ["Z"]);
+  assert.equal(ct.row.varIndex, 1);
+});
+
+test("buildCrosstab: same column on both axes gives a diagonal-only matrix", () => {
+  const ct = exporters.buildCrosstab(xtabDb(), "h_sexo", "", "h_sexo", "");
+  ct.counts.forEach((row, i) => row.forEach((count, j) => {
+    if (i !== j) assert.equal(count, 0, `off-diagonal [${i}][${j}] must be 0`);
+  }));
+  assert.ok(ct.counts[0][0] > 0);
+});
+
+test("buildCrosstab: zero complete cases with declared q levels → all-zero table, not null", () => {
+  // "these two are never both observed" is informative; a null would hide it.
+  const db = makeDb([
+    rawCol("a", null, { col_values: { col_compact: true, labels: ["p", "q"], codes: [1, 2, 0, 0], raw_values: null } }),
+    rawCol("b", null, { col_values: { col_compact: true, labels: ["x", "y"], codes: [0, 0, 1, 2], raw_values: null } })
+  ]);
+  const ct = exporters.buildCrosstab(db, "h_a", "", "h_b", "");
+  assert.ok(ct, "not null");
+  assert.equal(ct.nCompared, 0);
+  assert.equal(ct.nExcluded, 4);
+  assert.equal(sumCells(ct), 0);
+  assert.deepEqual(ct.counts, [[0, 0], [0, 0]]);
+});
+
+test("buildCrosstab: an n axis with zero complete cases → null (no levels to name)", () => {
+  // Unlike q, n levels are OBSERVED rather than declared, so there is nothing to render.
+  const db = makeDb([rawCol("v", ["1", "2", null], { col_type: "n" }), rawCol("o", [null, null, "x"])]);
+  assert.equal(exporters.buildCrosstab(db, "h_v", "", "h_o", ""), null);
+});
+
+test("exportCrosstabAsHTML: unusable payload returns ''", () => {
+  assert.equal(exporters.exportCrosstabAsHTML(null, "h_sexo", "", "h_faixa", ""), "");
+  assert.equal(exporters.exportCrosstabAsHTML(xtabDb(), "nope", "", "h_faixa", ""), "");
+});
+
+test("exportCrosstabAsHTML: title lands in <caption>; no title → no caption, no default", () => {
+  const db = xtabDb();
+  const titled = exporters.exportCrosstabAsHTML(db, "h_faixa", "", "h_sexo", "", { title: "Coorte <b>2024</b> & co", includeStyles: false });
+  assert.match(titled, /<caption>Coorte &lt;b&gt;2024&lt;\/b&gt; &amp; co<\/caption>/);
+  [undefined, "", "  "].forEach(title => {
+    const html = exporters.exportCrosstabAsHTML(db, "h_faixa", "", "h_sexo", "", { title, includeStyles: false, lang: "pt_br" });
+    assert.equal(html.includes("<caption"), false);
+    assert.equal(html.includes("Tabela"), false, "no fallback to the generic table.title");
+  });
+});
+
+test("exportCrosstabAsHTML: header geometry and cell-only body", () => {
+  const db = xtabDb();
+  const html = exporters.exportCrosstabAsHTML(db, "h_faixa", "", "h_sexo", "", { includeStyles: false, lang: "en_us" });
+  // 2 column levels → the column-variable name spans exactly those 2 columns.
+  assert.match(html, /<th class="statz-xtab-colvar" colspan="2" scope="colgroup"/);
+  assert.match(html, /<td class="statz-xtab-corner"><\/td>/, "corner is a td, not a th");
+  // Header row 2: the row-variable name plus one cell per column level.
+  assert.match(html, /<tr><th class="statz-xtab-rowvar" scope="col" title="faixa">faixa<\/th><th scope="col" title="F">F<\/th><th scope="col" title="M">M<\/th><\/tr>/);
+  // Body row: 1 label + 2 counts, nothing else.
+  assert.match(html, /<tr><th scope="row" title="18-30">18-30<\/th><td>0<\/td><td>2<\/td><\/tr>/);
+});
+
+test("exportCrosstabAsHTML: no marginal totals are rendered", () => {
+  // Cells only, like a plain xtabs() printout. The margins stay on buildCrosstab's return.
+  const db = xtabDb();
+  const html = exporters.exportCrosstabAsHTML(db, "h_faixa", "", "h_sexo", "", { includeStyles: false, lang: "en_us" });
+  assert.equal(html.includes("statz-xtab-tot"), false);
+  assert.equal(html.includes("rowspan"), false);
+  assert.equal(/>Total</.test(html), false, "no Total label anywhere");
+  assert.equal(html.includes("<tfoot>"), false, "nothing left to put in it");
+  const ct = exporters.buildCrosstab(db, "h_faixa", "", "h_sexo", "");
+  assert.equal("rowTotals" in ct, false, "margins are not on the data helper either");
+  assert.equal("colTotals" in ct, false);
+  assert.equal("grandTotal" in ct, false);
+});
+
+test("exportCrosstabAsHTML: truncation note names each capped axis and spans the table", () => {
+  // colspan is 1 label column + 2 level columns.
+  const html = exporters.exportCrosstabAsHTML(xtabDb(), "h_faixa", "", "h_sexo", "", { includeStyles: false, lang: "en_us", maxLevels: 2 });
+  assert.match(html, /<td colspan="3" class="statz-xtab-note">faixa: showing the 2 most frequent levels of 3\.<\/td>/);
+});
+
+test("exportCrosstabAsHTML: no tfoot at all when nothing was truncated", () => {
+  const html = exporters.exportCrosstabAsHTML(xtabDb(), "h_faixa", "", "h_sexo", "", { includeStyles: false });
+  assert.equal(html.includes("statz-xtab-note"), false);
+  assert.equal(html.includes("<tfoot>"), false);
+  // nExcluded and isMultiResponse are deliberately NOT rendered — they live on buildCrosstab.
+  assert.equal(html.includes("excluded"), false);
+});
+
+test("exportCrosstabAsHTML: level labels are escaped in cells and in title attributes", () => {
+  const db = makeDb([rawCol("g", ['<script>x</script>', 'a"b']), rawCol("o", ["1", "1"])]);
+  const html = exporters.exportCrosstabAsHTML(db, "h_g", "", "h_o", "", { includeStyles: false });
+  assert.equal(html.includes("<script"), false, "no script tag survives");
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /title="a&quot;b"/);
+});
+
+test("exportCrosstabAsHTML: includeStyles and includeTitles gate their output", () => {
+  const db = xtabDb();
+  assert.equal(exporters.exportCrosstabAsHTML(db, "h_faixa", "", "h_sexo", "", {}).split("<style>").length - 1, 1);
+  assert.equal(exporters.exportCrosstabAsHTML(db, "h_faixa", "", "h_sexo", "", { includeStyles: false }).includes("<style>"), false);
+  assert.equal(exporters.exportCrosstabAsHTML(db, "h_faixa", "", "h_sexo", "", { includeStyles: false, includeTitles: false }).includes("title="), false);
+});
+
+test("exportCrosstabAsHTML: emitted CSS uses only /* */ comments", () => {
+  // The build strips newlines, so a // comment would swallow the rest of the style block.
+  const html = exporters.exportCrosstabAsHTML(xtabDb(), "h_faixa", "", "h_sexo", "");
+  const css = html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
+  assert.equal(css.includes("//"), false);
+  assert.equal((css.match(/\/\*/g) || []).length, (css.match(/\*\//g) || []).length);
+});
+
+test("crosstab i18n: the truncation note resolves in all three locales", () => {
+  const key = "table.crosstab.noteTruncated";
+  ["pt_br", "en_us", "es_es"].forEach(lang => {
+    // translate() returns the key itself when nothing resolves, so a typo would render literally.
+    const value = translate(key, lang, { label: "v", shown: 2, total: 3 });
+    assert.notEqual(value, key, `${key} unresolved for ${lang}`);
+    assert.match(value, /\bv\b/, "interpolates the variable label");
+  });
+});

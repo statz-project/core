@@ -73,7 +73,20 @@ Thanks for your interest in improving Stat‑z! This guide explains how to work 
 - It is deliberately **structural only**. An unparseable value in an `'n'` column (e.g. `"abc"`) is present-but-invalid, not missing — that matches R's `is.na` and what `exportDatabaseAsHTML` shows in the cell. `summarize_n`'s `n_missing` stat diverges on purpose (it counts non-finite values) and is the one place left with an inline check; don't "fix" either side without deciding which question you're answering.
 - `charts/likert.js` and `charts/paired_q.js` also look untouched, but their `String(raw ?? '').trim()` is a **level lookup** (`levels.indexOf`), not a missing test — a blank simply matches no level. Leave them.
 - Helpers answering "how much data is missing" read the **resolved** view (`factors.resolveColumn`), i.e. the same final data `runAnalysis` sees. `excluded_values` therefore count as missing, and `na_action: 'label'` legitimately reports zero missing — the user turned those rows into a category. Don't add per-consumer overrides to `resolveColumn` to "see through" processing; expose `applyProcessing: false` instead, as `exportDatabaseAsHTML` and `buildMissingMap` do.
-- `isMissingValue` lives on `factors`, which is **not** spread into `json_utils.js`, so it is core-internal. If Bubble ever needs it, re-export one line from `exporters.js` rather than adding `factors` to the public spread.
+- `isMissingValue` reaches `window.Statz` automatically: `driver.js`'s `export default { ...ns, ...factors, … }` spreads the whole `factors` namespace, and `json_utils.js` spreads `driver`. So every `ns.*` added to `factors.js` is public API — name it accordingly and document it.
+
+## Variable-signature resolution
+
+- Turning a `col_hash` + variant index into usable values goes through **`factors.resolveVariable(db, colHash, varIndex, { applyProcessing })`**. It handles the variant lookup, the pointer-style `col_vars[0]` fallback, and `meta.replacements` + `meta.processing`, returning `{column, variant, varIndex, label, colType, colSep, colValues, values}`.
+- It is the reusable form of a chain still inlined in four places: `runAnalysis` ([driver.js](json/driver.js)), `describeColumn`, `getColumnValues`, and `collectDecodedColumns` ([exporters.js](json/exporters.js)). **New code must not add a fifth copy.** Migrating the existing four is a pending follow-up, not a refactor to fold into an unrelated change — `runAnalysis` is the highest-traffic path in the core, and `getColumnValues` is public API that deliberately skips `meta`.
+- Its meta fallback is **per field** (`variant.meta.replacements ?? column.meta.replacements`, same for `processing`), matching `runAnalysis`. `describeColumn` uses a whole-object fallback (a variant with `meta = {}` blocks the column's replacements) and `collectDecodedColumns` has no fallback at all. Those two are known bugs, not the spec — don't align new code to them.
+- `varIndex` tolerates UI-typed input: `''`, `'  '`, null, undefined, a non-integer, a negative value, or an out-of-range index all resolve to the **base column**, silently. The blank check must precede `Number()` — `Number('')` is `0`, which would select `col_vars[0]`.
+
+## Footer notes in render helpers
+
+- A footer note earns its place only when **its absence would let a *correct* reading of the table produce a *false* conclusion**. Notes that restate what the table already shows are noise; delete them.
+- Two worked examples: `exportMissingMapAsHTML` has **no** notes (the per-column count and the `n =` axis label already carried the information). `exportCrosstabAsHTML` emits **one** — the level-truncation disclosure, because 100 columns look like a 100-level variable. Its `nExcluded` and `isMultiResponse` are computed but **not rendered**, exposed on the data helper so the host page decides what to show. Marginal totals were dropped from both layers — the matrix is trivially summable, so carrying derived aggregates earned nothing.
+- Never add a `showNotes`-style toggle: an option that hides a validity disclosure is a footgun.
 
 ## Chart rendering & export
 
