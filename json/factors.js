@@ -387,14 +387,18 @@ const normalizeVarIndex = (raw, nVars) => {
  * view: base column or variant, pointer-style variants folded onto their parent, then
  * `meta.replacements` + `meta.processing` applied — exactly the data `runAnalysis` sees.
  *
- * This is the reusable form of a lookup currently inlined in four places (`runAnalysis`,
- * `describeColumn`, `getColumnValues` in driver.js, and `collectDecodedColumns` in exporters.js).
- * New code must call this rather than re-deriving the chain.
+ * This is the single implementation of a lookup that used to be inlined in four places
+ * (`runAnalysis`, `describeColumn`, `getColumnValues`, `collectDecodedColumns`). Call it rather
+ * than re-deriving the chain.
  *
- * Meta fallback is PER FIELD (`variant.meta.replacements ?? column.meta.replacements`, same for
- * `processing`), matching `runAnalysis`. `describeColumn` uses a whole-object fallback (so a
- * variant with `meta = {}` blocks the column's replacements) and `collectDecodedColumns` has no
- * fallback at all — do NOT align this helper to those.
+ * **Whose meta applies depends on whether the variant owns its payload:**
+ *  - Base column, or a POINTER-style variant (`col_vars[0]`, which has no `col_values` of its own
+ *    and therefore *is* the parent's payload) → the column's `meta`, merged PER FIELD with the
+ *    variant's so a variant declaring only `processing` still inherits the column's `replacements`.
+ *  - A DERIVED variant (one that carries its own `col_values`) → **only its own `meta`.** Its values
+ *    were already produced from the resolved source by `variants.createVariant`, so re-applying the
+ *    column's replacements would apply them twice — with a map whose range overlaps its domain
+ *    (`a→b`, `b→c`) that visibly corrupts the values.
  *
  * `varIndex` tolerates the string-typed inputs the UI produces: `''`, `'  '`, null, undefined, a
  * non-integer, a negative value, or an index past the end of `col_vars` all resolve to the BASE
@@ -422,13 +426,20 @@ ns.resolveVariable = function (db, colHash, varIndex = null, options = {}) {
   const variant = resolvedIndex === null ? null : (vars[resolvedIndex] ?? null);
 
   const colType = variant?.col_type ?? column.col_type ?? 'q';
-  const colSep = variant?.col_sep ?? column.col_sep ?? (colType === 'l' ? ';' : '');
+  // `!colSep` rather than `??`: an `l` column stored with col_sep '' must still get ';'.
+  let colSep = variant?.col_sep ?? column.col_sep;
+  if (!colSep) colSep = colType === 'l' ? ';' : '';
   // Pointer-style variants (typically col_vars[0]) omit col_values — fall back to the parent.
   let colValues = variant?.col_values ?? column.col_values;
 
   if (options.applyProcessing !== false) {
-    const replacements = variant?.meta?.replacements ?? column.meta?.replacements;
-    const processing = variant?.meta?.processing ?? column.meta?.processing;
+    // A derived variant already embeds the source's resolution (createVariant resolves before
+    // transforming), so it must NOT inherit the column's meta — only a pointer-style variant,
+    // which has no payload of its own, falls back to the parent.
+    const inheritsColumnMeta = !variant || variant.col_values == null;
+    const parentMeta = inheritsColumnMeta ? column.meta : null;
+    const replacements = variant?.meta?.replacements ?? parentMeta?.replacements;
+    const processing = variant?.meta?.processing ?? parentMeta?.processing;
     const hasReplacements = Array.isArray(replacements) && replacements.length > 0;
     const hasProcessing = processing && Object.keys(processing).length > 0;
     if (hasReplacements || hasProcessing) {

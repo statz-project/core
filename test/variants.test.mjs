@@ -799,3 +799,68 @@ test('removeVariantAt: rejects unknown colHash', () => {
     /not found/
   );
 });
+
+// ---------------------------------------------------------------------------
+// Source resolution — delegated to factors.resolveVariable
+// ---------------------------------------------------------------------------
+
+// Column 'sexo' with a pointer-style col_vars[0] and one derived variant m/f → M/F.
+const makeSourceCol = () => {
+  const col = factors.makeColumn(["m", "f", "m"], { col_type: "q", col_sep: "", includeBaseVariant: true });
+  col.col_hash = "h_sexo";
+  col.col_label = "sexo";
+  col.meta = { replacements: [], processing: {} };
+  col.col_vars.push(variants.createVariant(col, {
+    kind: "search_replace", var_label: "V1",
+    replacements: [{ search: "m", replace: "M" }, { search: "f", replace: "F" }]
+  }));
+  return col;
+};
+
+test("createVariant: sourceVarIndex works as a string, as the UI sends it", () => {
+  const col = makeSourceCol();
+  const cfg = { kind: "search_replace", var_label: "X", replacements: [{ search: "M", replace: "1" }] };
+  const fromNumber = variants.createVariant(col, { ...cfg, sourceVarIndex: 1 });
+  const fromString = variants.createVariant(col, { ...cfg, sourceVarIndex: "1" });
+  assert.deepEqual(factors.decodeColumn(fromString), factors.decodeColumn(fromNumber));
+  assert.deepEqual(factors.decodeColumn(fromString), ["1", "F", "1"]);
+  assert.equal(fromString.meta.source_var_index, 1, "the coerced index is what gets stored");
+});
+
+test("createVariant: an unusable sourceVarIndex falls back to the base column and records it", () => {
+  // meta.source_var_index feeds snapshots' upstream chain, so it must name the source actually
+  // used rather than echo back an index that points at nothing.
+  const col = makeSourceCol();
+  const cfg = { kind: "search_replace", var_label: "Y", replacements: [] };
+  [99, -1, "", null, "abc"].forEach(sourceVarIndex => {
+    const v = variants.createVariant(col, { ...cfg, sourceVarIndex });
+    assert.equal(v.meta.source_var_index, null, `${JSON.stringify(sourceVarIndex)} → base column`);
+    assert.deepEqual(factors.decodeColumn(v), ["m", "f", "m"], "base column values");
+  });
+});
+
+test("createVariant: a pointer-style source applies its own processing on top of the column's", () => {
+  const col = makeSourceCol();
+  col.meta = { replacements: [{ from: "m", to: "MASC" }], processing: {} };
+  col.col_vars[0].meta = { kind: "original", processing: { excluded_values: ["f"] } };
+  const v = variants.createVariant(col, { kind: "search_replace", var_label: "Z", sourceVarIndex: 0, replacements: [] });
+  const seen = factors.decodeColumn(v).map(x => x ?? "");
+  assert.deepEqual(seen, ["MASC", "", "MASC"], "column's replacement ran, then the variant's exclusion");
+});
+
+test("createVariant: a derived source is read as stored, never re-resolved through the column", () => {
+  // The derived variant was built from the resolved source, so re-applying the column's
+  // replacements would apply them twice.
+  const col = factors.makeColumn(["a", "b", "c"], { col_type: "q", col_sep: "", includeBaseVariant: true });
+  col.col_hash = "h_y";
+  col.col_label = "Y";
+  col.meta = { replacements: [{ from: "a", to: "b" }, { from: "b", to: "c" }], processing: {} };
+  col.col_vars.push(variants.createVariant(col, {
+    kind: "search_replace", var_label: "V1", replacements: [{ search: "c", replace: "Z" }]
+  }));
+  assert.deepEqual(factors.decodeColumn(col.col_vars[1]), ["b", "Z", "Z"], "built from the resolved source");
+  const downstream = variants.createVariant(col, {
+    kind: "search_replace", var_label: "V2", sourceVarIndex: 1, replacements: [{ search: "Z", replace: "!" }]
+  });
+  assert.deepEqual(factors.decodeColumn(downstream), ["b", "!", "!"], "'b' is not re-mapped to 'c'");
+});

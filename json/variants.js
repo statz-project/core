@@ -45,6 +45,9 @@ const ns = {};
  * @property {string} [col_sep]
  * @property {ColValues} col_values
  * @property {ColumnVariant[]} [col_vars]
+ * @property {string} [col_hash] Absent on freshly built columns; `createVariant` only needs it to
+ *   address the column inside the one-column database it hands to `factors.resolveVariable`.
+ * @property {any} [meta]
  */
 /**
  * @typedef {Object} ReplaceSpec
@@ -771,19 +774,26 @@ ns.normalizeRecipe = function (config = {}) {
  */
 ns.createVariant = function (baseCol, config = {}) {
   if (!baseCol) throw new Error('Base column is required to create a variant.');
+  // Source resolution: apply meta.replacements + meta.processing of the source BEFORE running the
+  // variant pipeline. This aligns with the user mental model — variants operate on the effective
+  // view of the data, not raw col_values.
+  //
+  // Delegated to factors.resolveVariable by wrapping the column in a one-column database, so the
+  // pointer-vs-derived meta rule and the variant-index coercion live in exactly one place. The
+  // write path therefore resolves its source identically to how every read path will later read it.
+  // A freshly built column may carry no col_hash, so address it by a local sentinel.
+  const sourceHash = baseCol.col_hash ?? '__source__';
+  const source = factors.resolveVariable({ columns: [{ ...baseCol, col_hash: sourceHash }] }, sourceHash, config.sourceVarIndex);
+  if (!source) throw new Error('Base column is required to create a variant.');
+  // The index actually USED, not the one requested: a blank, string or out-of-range value resolves
+  // to the base column, and `meta.source_var_index` feeds snapshots' upstream chain, so it has to
+  // name the real source.
   /** @type {number|null} */
-  const variantIndex = Number.isInteger(config.sourceVarIndex) ? /** @type {number} */ (config.sourceVarIndex) : null;
-  const sourceVariant = variantIndex !== null && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[variantIndex] : null;
-  // Source resolution: apply meta.replacements + meta.processing of the source
-  // BEFORE running the variant pipeline. This aligns with the user mental model — variants
-  // operate on the effective view of the data, not raw col_values.
-  // Pointer-style variants (no own col_values) fall back to the parent column.
-  const sourceTarget = (sourceVariant && sourceVariant.col_values) ? sourceVariant : baseCol;
-  const resolvedSource = factors.resolveColumn(sourceTarget);
-  const sourceType = resolvedSource.col_type ?? 'q';
-  const sourceSep = resolvedSource.col_sep ?? (sourceType === 'l' ? DEFAULT_LIST_SEP : '');
-  const decoded = factors.decodeColValues(resolvedSource.col_values, sourceType, sourceSep) || [];
-  let workingValues = decoded.map(toStringSafe);
+  const variantIndex = source.varIndex;
+  const sourceType = source.colType;
+  const sourceSep = source.colSep; // resolveVariable already defaults 'l' columns to ';'
+  const sourceColValues = source.colValues;
+  let workingValues = source.values.map(toStringSafe);
   let currentType = sourceType;
   let currentSep = sourceSep;
 
@@ -795,10 +805,10 @@ ns.createVariant = function (baseCol, config = {}) {
   /** @type {string[]|null} */
   let workingLabels = null;
   if ((sourceType === 'q' || sourceType === 'l')
-      && resolvedSource.col_values
-      && resolvedSource.col_values.col_compact
-      && Array.isArray(resolvedSource.col_values.labels)) {
-    workingLabels = resolvedSource.col_values.labels.slice();
+      && sourceColValues
+      && sourceColValues.col_compact
+      && Array.isArray(sourceColValues.labels)) {
+    workingLabels = sourceColValues.labels.slice();
   }
 
   const lang = normalizeLanguage(config.lang);

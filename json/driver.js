@@ -42,30 +42,21 @@ ns.getColumn = function (database, colHash) {
 };
 
 /**
- * Retrieve a column by hash and decode its raw values.
+ * Retrieve a column by hash and decode its **stored** values.
+ *
+ * Deliberately does NOT apply `meta.replacements` / `meta.processing` — it is the "as stored" view.
+ * For the final, analysis-facing values call `factors.resolveVariable(database, colHash, variantIndex)`
+ * directly; this helper is a thin wrapper around it with `applyProcessing: false`.
+ *
  * @param {{columns?: Column[]}|null|undefined} database Parsed database payload returned by parseColumns
  * @param {string} colHash Column hash to match
  * @param {number|null} [variantIndex=null] Optional variant index from col_vars
  * @returns {{ column: Column|null, variant: any|null, rawValues: any[] }}
  */
 ns.getColumnValues = function (database, colHash, variantIndex = null) {
-  const column = ns.getColumn(database, colHash);
-  if (!column) {
-    return { column: null, variant: null, rawValues: [] };
-  }
-  const hasVariantIndex = variantIndex !== null && variantIndex !== undefined;
-  const variant = hasVariantIndex && Array.isArray(column.col_vars)
-    ? column.col_vars[variantIndex] ?? null
-    : null;
-  const colType = variant?.col_type ?? column.col_type ?? 'q';
-  let colSep = variant?.col_sep ?? column.col_sep;
-  if (!colSep) colSep = colType === 'l' ? ';' : '';
-  const colValues = variant?.col_values ?? column.col_values;
-  const target = variant
-    ? { ...variant, col_type: colType, col_sep: colSep, col_values: colValues }
-    : { ...column, col_type: colType, col_sep: colSep, col_values: colValues };
-  const rawValues = factors.decodeColumn(target) || [];
-  return { column, variant, rawValues };
+  const resolved = factors.resolveVariable(database, colHash, variantIndex, { applyProcessing: false });
+  if (!resolved) return { column: null, variant: null, rawValues: [] };
+  return { column: resolved.column, variant: resolved.variant, rawValues: resolved.values };
 };
 
 /**
@@ -1519,40 +1510,20 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   }
 
   const columns = predictors.concat(responses).map(col => {
-    const db = dbs[col.database_id];
-    if (!db) return null;
-    const baseCol = ns.getColumn(db, col.col_hash);
-    if (!baseCol) return null;
-    const hasVariantIndex = col.col_var_index !== null && col.col_var_index !== undefined;
-    const variant = hasVariantIndex && Array.isArray(baseCol.col_vars) ? baseCol.col_vars[col.col_var_index] : null;
-    let effectiveColValues = variant?.col_values ?? baseCol.col_values;
-    const effectiveType = variant?.col_type ?? baseCol.col_type;
-    const effectiveSep = variant?.col_sep ?? baseCol.col_sep ?? ';';
-    // Resolve meta.replacements + meta.processing in read-time pipeline
-    const replacementsMeta = variant?.meta?.replacements ?? baseCol.meta?.replacements;
-    const processingMeta = variant?.meta?.processing || baseCol.meta?.processing;
-    const hasReplacements = Array.isArray(replacementsMeta) && replacementsMeta.length > 0;
-    const hasProcessing = processingMeta && Object.keys(processingMeta).length > 0;
-    if (hasReplacements || hasProcessing) {
-      const tempCol = {
-        col_type: effectiveType,
-        col_sep: effectiveSep,
-        col_values: effectiveColValues,
-        meta: { replacements: replacementsMeta || [], processing: processingMeta || {} }
-      };
-      const resolved = factors.resolveColumn(tempCol);
-      effectiveColValues = resolved.col_values;
-    }
-    const raw_values = factors.decodeColValues(effectiveColValues, effectiveType, effectiveSep);
+    // Read-time pipeline (variant lookup + meta.replacements + meta.processing) lives in
+    // factors.resolveVariable; only the analysis-specific record shape is assembled here.
+    const resolved = factors.resolveVariable(dbs[col.database_id], col.col_hash, col.col_var_index);
+    if (!resolved) return null;
     return {
-      col_hash: baseCol.col_hash,
-      col_label: col.col_label || variant?.var_label || baseCol.col_label,
-      col_type: effectiveType,
-      col_sep: effectiveSep,
-      col_values: effectiveColValues,
-      raw_values,
-      col_var_index: hasVariantIndex ? col.col_var_index : null,
-      var_meta: variant?.meta ?? null
+      col_hash: resolved.column.col_hash,
+      // The signature's label wins: it carries the user's current edit from the UI.
+      col_label: col.col_label || resolved.label,
+      col_type: resolved.colType,
+      col_sep: resolved.colSep,
+      col_values: resolved.colValues,
+      raw_values: resolved.values,
+      col_var_index: resolved.varIndex,
+      var_meta: resolved.variant?.meta ?? null
     };
   }).filter(Boolean);
   const rowwise = ns.getRowwiseData(columns);
@@ -1623,34 +1594,21 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
   }
   const colHash = baseColumn.col_hash;
   const database = { columns: [baseColumn] };
-  let lookup;
+  let resolved;
   try {
-    lookup = ns.getColumnValues(database, colHash, variantIndex);
+    // resolveVariable applies meta.replacements + meta.processing with a PER-FIELD fallback from
+    // the variant to its parent column, so a variant declaring only `processing` still inherits the
+    // column's `replacements`. (This used to be a whole-object fallback here, which blocked them.)
+    resolved = factors.resolveVariable(database, colHash, variantIndex);
   } catch (error) {
     console.warn('describeColumn: failed to decode column values.', error);
     return [];
   }
-  let resolvedColumn = lookup.column || baseColumn;
-  let values = Array.isArray(lookup.rawValues) ? lookup.rawValues : [];
+  if (!resolved) return [];
+  const values = Array.isArray(resolved.values) ? resolved.values : [];
   if (!values.length) return [];
-  let variant = lookup.variant;
-  const colType = variant?.col_type ?? resolvedColumn.col_type ?? 'q';
-  let colSep = variant?.col_sep ?? resolvedColumn.col_sep;
-  if (!colSep) colSep = colType === 'l' ? ';' : '';
-  // Resolve meta.replacements + meta.processing in read-time pipeline
-  const metaSource = variant?.meta || resolvedColumn.meta;
-  const hasReplacements = Array.isArray(metaSource?.replacements) && metaSource.replacements.length > 0;
-  const hasProcessing = metaSource?.processing && Object.keys(metaSource.processing).length > 0;
-  if (hasReplacements || hasProcessing) {
-    const tempCol = { col_type: colType, col_sep: colSep, col_values: variant?.col_values ?? resolvedColumn.col_values, meta: metaSource };
-    const resolved = factors.resolveColumn(tempCol);
-    values = factors.decodeColumn({ col_type: colType, col_sep: colSep, col_values: resolved.col_values });
-    if (variant) {
-      variant = { ...variant, col_values: resolved.col_values };
-    } else {
-      resolvedColumn = { ...resolvedColumn, col_values: resolved.col_values };
-    }
-  }
+  const colType = resolved.colType;
+  const colSep = resolved.colSep;
   const structured = options?.structured === true;
   const lang = normalizeLanguage(options?.lang);
   const summaryOptions = { ...options, lang };
@@ -1661,7 +1619,8 @@ ns.describeColumn = function (column, variantIndex = null, options = {}) {
   let table;
   try {
     if (colType === 'q') {
-      const labels = variant?.col_values?.labels ?? resolvedColumn.col_values?.labels ?? null;
+      // Post-resolution factor order (applyProcessing may have re-sorted or merged the levels).
+      const labels = resolved.colValues?.labels ?? null;
       table = ns.summarize_q(values, formatFn, summaryOptions, { labels });
     } else if (colType === 'l') {
       table = ns.summarize_l(values, colSep, formatFn, summaryOptions);

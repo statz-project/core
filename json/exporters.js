@@ -28,9 +28,59 @@ const escapeHtml = (val) => {
 const escapeAttr = (val) => escapeHtml(val).split('"').join('&quot;');
 
 /**
+ * Parse a "maximum" render option (`maxRows`, `maxBins`, `maxLevels`).
+ *
+ * An explicit **`0` means NO LIMIT** and yields `Infinity`, which flows untouched through the
+ * `Math.min` / `Math.ceil` / `length <=` comparisons at the call sites. `Infinity` itself is
+ * accepted for the same meaning. Anything else invalid — blank, null, negative, non-numeric —
+ * falls back to the caller's default.
+ *
+ * The blank/null guard MUST precede `Number()`: `Number('')` and `Number(null)` are both `0`, so
+ * without it an empty UI field would silently switch the widget from its default cap to unlimited.
+ * Same trap, same fix as `factors.resolveVariable`'s variant-index coercion.
+ *
+ * @param {unknown} raw
+ * @param {number} fallback Used when `raw` is absent or unusable.
+ * @returns {number} A positive integer, or `Infinity` for "no limit".
+ */
+const parseMaxOption = (raw, fallback) => {
+  if (raw === null || raw === undefined) return fallback;
+  if (typeof raw === 'string' && raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (n === 0 || n === Infinity) return Infinity;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+};
+
+/**
+ * True when a variant would render a row byte-identical to its own base column, making it pure
+ * duplication in a table that already shows that column.
+ *
+ * A variant with no `col_values` of its own is a POINTER to its parent (`addVariant` seeds
+ * `col_vars[0]` this way, labelled with the column's own label), so it decodes to the parent's
+ * values. When it also declares no `replacements`/`processing`, it resolves through exactly the
+ * column's meta too — same values, same everything.
+ *
+ * A pointer variant that DOES carry its own processing is kept: it inherits the column's
+ * replacements but adds its own rules on top, so its values genuinely differ.
+ *
+ * @param {any} variant
+ * @returns {boolean}
+ */
+const isRedundantPointerVariant = (variant) => {
+  if (!variant || variant.col_values != null) return false;
+  const meta = variant.meta;
+  const hasReplacements = Array.isArray(meta?.replacements) && meta.replacements.length > 0;
+  const hasProcessing = meta?.processing && Object.keys(meta.processing).length > 0;
+  return !hasReplacements && !hasProcessing;
+};
+
+/**
  * Flatten a database payload into renderable column entries (base columns + their variants),
  * decoding values and optionally applying replacements + processing.
  * Shared by `exportDatabaseAsHTML` and `buildMissingMap`.
+ *
+ * Variants that merely point at their parent column are skipped — the base column entry already
+ * carries those values, and showing both put the same data under the same label twice.
  *
  * @param {{ columns: Array<Record<string, any>> }} db Caller must have validated `db.columns`.
  * @param {{ showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean }} options
@@ -39,35 +89,26 @@ const escapeAttr = (val) => escapeHtml(val).split('"').join('&quot;');
 const collectDecodedColumns = function (db, options) {
   const showDeletedColumns = options.showDeletedColumns === true; // default hide deleted
   const showVariants = options.showVariants !== false; // default true
-  const shouldApplyProcessing = options.applyProcessing !== false; // default true (also applies replacements)
-  /** @param {any} m */
-  const hasMeta = (m) => (Array.isArray(m?.replacements) && m.replacements.length > 0) || (m?.processing && Object.keys(m.processing).length > 0);
+  const resolveOpts = { applyProcessing: options.applyProcessing !== false };
 
   return db.columns.flatMap(col => {
+    /** @type {Array<{hash: string, rawLabel: string, label: string, values: any[], colType: 'q'|'n'|'l', colSep: string, isDeleted: boolean, isVariant: boolean}>} */
     const entries = [];
-    const colType = col.col_type ?? 'q';
-    const colSep = col.col_sep ?? (colType === 'l' ? ';' : '');
-    let effectiveCol = col;
-    if (shouldApplyProcessing && hasMeta(col.meta)) {
-      effectiveCol = factors.resolveColumn(/** @type {any} */ (col));
-    }
-    const baseValues = factors.decodeColValues(effectiveCol.col_values, colType, colSep) ?? col.raw_values ?? [];
-    const baseRawLabel = col.col_label ?? col.col_name ?? col.col_hash ?? '';
-    entries.push({ hash: col.col_hash, rawLabel: baseRawLabel, label: escapeHtml(baseRawLabel), values: baseValues, colType, colSep, isDeleted: !!col.col_del, isVariant: false });
+    // factors.resolveVariable owns the variant lookup, the pointer-style fallback and the
+    // meta pipeline, so the viewer shows exactly what runAnalysis analyses.
+    const base = factors.resolveVariable(db, col.col_hash, null, resolveOpts);
+    if (!base) return entries;
+    const baseRawLabel = base.label;
+    entries.push({ hash: col.col_hash, rawLabel: baseRawLabel, label: escapeHtml(baseRawLabel), values: base.values, colType: base.colType, colSep: base.colSep, isDeleted: !!col.col_del, isVariant: false });
 
     if (showVariants && Array.isArray(col.col_vars)) {
       col.col_vars.forEach((variant, idx) => {
-        const vType = variant?.col_type ?? colType;
-        const vSep = variant?.col_sep ?? colSep;
-        let effectiveVariant = variant;
-        if (shouldApplyProcessing && hasMeta(variant?.meta)) {
-          effectiveVariant = factors.resolveColumn({ ...variant, col_type: vType, col_sep: vSep, col_values: variant?.col_values ?? col.col_values });
-        }
-        // Pointer-style base variants have no col_values — fall back to the parent column.
-        const variantValues = effectiveVariant?.col_values ?? col.col_values;
-        const vValues = factors.decodeColValues(variantValues, vType, vSep) ?? variant?.raw_values ?? [];
+        // Skipped, not renumbered: surviving variants keep their own `__var${idx}` hash.
+        if (isRedundantPointerVariant(variant)) return;
+        const resolved = factors.resolveVariable(db, col.col_hash, idx, resolveOpts);
+        if (!resolved) return;
         const vRawLabel = variant?.var_label ?? `${baseRawLabel} (v${idx + 1})`;
-        entries.push({ hash: `${col.col_hash}__var${idx}`, rawLabel: vRawLabel, label: escapeHtml(vRawLabel), values: vValues, colType: vType, colSep: vSep, isDeleted: !!col.col_del, isVariant: true });
+        entries.push({ hash: `${col.col_hash}__var${idx}`, rawLabel: vRawLabel, label: escapeHtml(vRawLabel), values: resolved.values, colType: resolved.colType, colSep: resolved.colSep, isDeleted: !!col.col_del, isVariant: true });
       });
     }
     return entries;
@@ -514,12 +555,12 @@ ns.exportCombinedAsRows = function (combined) {
  * Decodes column values, builds row-wise data, and emits HTML (with lightweight styles by default).
  * @param {{ columns?: Array<Record<string, any>> }} db
  * @param {{ maxRows?: number, includeStyles?: boolean, includeRowIndex?: boolean, showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean, includeTitles?: boolean, titleThreshold?: number }=} options
+ *   `maxRows` defaults to 200; pass **`0` for every row**.
  * @returns {string}
  */
 ns.exportDatabaseAsHTML = function (db, options = {}) {
   if (!db || !Array.isArray(db.columns) || db.columns.length === 0) return '';
-  const maxRows = Number(options.maxRows);
-  const limit = Number.isFinite(maxRows) && maxRows > 0 ? Math.floor(maxRows) : 200;
+  const limit = parseMaxOption(options.maxRows, 200); // 0 = every row
   const includeStyles = options.includeStyles !== false;
   const includeRowIndex = options.includeRowIndex !== false; // default true
   const includeTitles = options.includeTitles !== false; // default true
@@ -639,7 +680,8 @@ const missmapTicks = (nRows) => {
  * real category. Pass `applyProcessing: false` to inspect the original, unedited import instead.
  *
  * `maxBins` reduces the raster RESOLUTION; unlike `maxRows` in `exportDatabaseAsHTML` it never
- * truncates — every observation always falls inside some bin.
+ * truncates — every observation always falls inside some bin. Defaults to 300; pass **`0`** for one
+ * bin per observation (full resolution).
  *
  * @param {{ columns?: Array<Record<string, any>> }} db
  * @param {{ title?: string, lang?: string, showDeletedColumns?: boolean, showVariants?: boolean, applyProcessing?: boolean, maxBins?: number }=} options
@@ -652,8 +694,7 @@ ns.buildMissingMap = function (db, options = {}) {
   if (!db || !Array.isArray(db.columns) || db.columns.length === 0) return null;
   const lang = normalizeLanguage(options.lang);
   const title = typeof options.title === 'string' && options.title.trim() !== '' ? options.title : null;
-  const maxBinsRaw = Number(options.maxBins);
-  const maxBins = Number.isFinite(maxBinsRaw) && maxBinsRaw > 0 ? Math.floor(maxBinsRaw) : 300;
+  const maxBins = parseMaxOption(options.maxBins, 300); // 0 = one bin per observation
 
   const decodedCols = collectDecodedColumns(/** @type {any} */ (db), options);
   if (decodedCols.length === 0) return null;
@@ -883,7 +924,7 @@ const compareNumericLevels = (a, b) => {
  * level) so the result is deterministic rather than engine-dependent.
  * @param {string[]} levels Canonical order.
  * @param {Map<string, number>} freq Level → number of records carrying it.
- * @param {number} maxLevels
+ * @param {number} maxLevels `Infinity` (from `maxLevels: 0`) keeps every level.
  * @returns {string[]}
  */
 const capLevels = (levels, freq, maxLevels) => {
@@ -952,6 +993,7 @@ const capLevels = (levels, freq, maxLevels) => {
  * @param {string} colHash `col_hash` of the column variable.
  * @param {number|string|null|undefined} colVarIndex Variant index, or blank for the base column.
  * @param {{ title?: string, lang?: string, applyProcessing?: boolean, maxLevels?: number }=} options
+ *   `maxLevels` defaults to 100 per axis; pass **`0`** to keep every level.
  * @returns {Crosstab|null} Null when the payload is unusable: no `db.columns`, either hash unknown,
  *   or either axis yielding zero levels.
  */
@@ -959,8 +1001,7 @@ ns.buildCrosstab = function (db, rowHash, rowVarIndex, colHash, colVarIndex, opt
   if (!db || !Array.isArray(db.columns) || db.columns.length === 0) return null;
   const lang = normalizeLanguage(options.lang);
   const title = typeof options.title === 'string' && options.title.trim() !== '' ? options.title : null;
-  const maxLevelsRaw = Number(options.maxLevels);
-  const maxLevels = Number.isFinite(maxLevelsRaw) && maxLevelsRaw > 0 ? Math.floor(maxLevelsRaw) : 100;
+  const maxLevels = parseMaxOption(options.maxLevels, 100); // 0 = keep every level
   const resolveOpts = { applyProcessing: options.applyProcessing !== false };
 
   const rowVar = factors.resolveVariable(db, rowHash, rowVarIndex, resolveOpts);

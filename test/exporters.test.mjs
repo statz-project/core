@@ -65,6 +65,21 @@ test('exportDatabaseAsHTML: " / < / & escaped inside title attribute', () => {
   assert.ok(tdContent.includes("&amp;"), "& → &amp; in text node");
 });
 
+test("exportDatabaseAsHTML: maxRows=0 means every row; blank still means the default", () => {
+  const db = makeDb([rawCol("x", Array.from({ length: 500 }, (_, i) => `v${i}`))]);
+  const bodyRows = (opts) => (exporters.exportDatabaseAsHTML(db, { ...baseOpts, ...opts }).match(/<tr/g) || []).length - 1;
+  assert.equal(bodyRows({}), 200, "default cap");
+  assert.equal(bodyRows({ maxRows: 0 }), 500, "explicit 0 = no limit");
+  assert.equal(bodyRows({ maxRows: "0" }), 500, "string 0 too — the UI sends strings");
+  assert.equal(bodyRows({ maxRows: Infinity }), 500, "Infinity means the same thing");
+  assert.equal(bodyRows({ maxRows: 50 }), 50, "a positive cap still caps");
+  // Number('') and Number(null) are both 0, so these must be rejected BEFORE the 0 check or an
+  // empty UI field would silently switch the viewer from 200 rows to all of them.
+  ["", "   ", null, undefined, "abc", -1].forEach(raw => {
+    assert.equal(bodyRows({ maxRows: raw }), 200, `${JSON.stringify(raw)} falls back to the default`);
+  });
+});
+
 test("exportDatabaseAsHTML: long col_label produces title on <th>", () => {
   const longLabel = "Description of clinical note ".repeat(2); // 58 chars
   const db = makeDb([{
@@ -258,12 +273,27 @@ test("buildMissingMap: deleted columns hidden by default, included with showDele
   assert.equal(withDeleted.columns[1].isDeleted, true);
 });
 
-test("buildMissingMap: pointer-style base variant falls back to the parent values", () => {
-  const db = makeDb([rawCol("x", ["a", null, "c"], { col_vars: [{ var_label: "Original", meta: { kind: "original" } }] })]);
+test("buildMissingMap: a bare pointer variant is skipped as a duplicate of its base column", () => {
+  // addVariant seeds col_vars[0] as a pointer with the column's own label, so rendering it would
+  // repeat the base column verbatim.
+  const db = makeDb([rawCol("x", ["a", null, "c"], { col_vars: [{ var_label: "x", meta: { kind: "original" } }] })]);
   const map = exporters.buildMissingMap(db);
-  assert.equal(map.columns.length, 2, "base column + base variant");
+  assert.equal(map.columns.length, 1, "only the base column");
+  assert.equal(map.columns[0].isVariant, false);
+});
+
+test("buildMissingMap: derived variants are still listed and follow showVariants", () => {
+  const db = makeDb([rawCol("x", ["a", null, "c"], {
+    col_vars: [
+      { var_label: "x", meta: { kind: "original" } },
+      { var_label: "V1", col_type: "q", col_sep: "", meta: {}, col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a", null, null] } }
+    ]
+  })]);
+  const map = exporters.buildMissingMap(db);
+  assert.equal(map.columns.length, 2, "base column + the derived variant");
   assert.equal(map.columns[1].isVariant, true);
-  assert.equal(map.columns[1].nMissing, map.columns[0].nMissing);
+  assert.equal(map.columns[1].rawLabel, "V1");
+  assert.equal(map.columns[1].nMissing, 2, "its own values, not the parent's");
   assert.equal(exporters.buildMissingMap(db, { showVariants: false }).columns.length, 1);
 });
 
@@ -283,6 +313,20 @@ test("buildMissingMap: nRows <= maxBins keeps a 1:1 raster", () => {
   const map = exporters.buildMissingMap(db);
   assert.equal(map.binWidth, 1);
   assert.equal(map.nBins, 50);
+});
+
+test("buildMissingMap: maxBins=0 means one bin per observation; blank keeps the default", () => {
+  const db = makeDb([rawCol("x", withMissing(1000, [10]))]);
+  const at = (raw) => exporters.buildMissingMap(db, raw === "omit" ? {} : { maxBins: raw });
+  assert.equal(at("omit").binWidth, 4, "default 300 → ceil(1000/300)");
+  const full = at(0);
+  assert.equal(full.binWidth, 1, "explicit 0 = full resolution");
+  assert.equal(full.nBins, 1000);
+  assert.equal(at("0").binWidth, 1, "string 0 too");
+  assert.equal(at(Infinity).binWidth, 1);
+  ["", "   ", null, "abc", -5].forEach(raw => {
+    assert.equal(at(raw).binWidth, 4, `${JSON.stringify(raw)} falls back to the default`);
+  });
 });
 
 test("buildMissingMap: ticks start at 1, end at nRows, ascend, and stay inside the strip", () => {
@@ -419,7 +463,9 @@ test("exportMissingMapAsHTML: includeTitles=false removes every title attribute"
 test("exportMissingMapAsHTML: deleted and variant names get their own classes", () => {
   const db = makeDb([
     rawCol("gone", withMissing(4, [1]), { col_del: true }),
-    rawCol("kept", withMissing(4, [1]), { col_vars: [{ var_label: "Original", meta: { kind: "original" } }] })
+    rawCol("kept", withMissing(4, [1]), {
+      col_vars: [{ var_label: "V1", col_type: "q", col_sep: "", meta: {}, col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a", "b", "c", "d"] } }]
+    })
   ]);
   const html = exporters.exportMissingMapAsHTML(db, { includeStyles: false, showDeletedColumns: true });
   assert.match(html, /statz-missmap-name statz-missmap-name--del/);
@@ -455,6 +501,50 @@ test("exportMissingMapAsHTML: axis clamps its first and last labels exactly once
   assert.equal((html.match(/statz-missmap-t1/g) || []).length, 1);
   assert.match(html, /<span class="statz-missmap-t0">1<\/span>/);
   assert.match(html, /<span class="statz-missmap-t1">200<\/span>/);
+});
+
+const cellsOf = (html) => (html.match(/<td[^>]*>([^<]*)<\/td>/g) || []).map(s => s.replace(/<[^>]*>/g, ""));
+const headersOf = (html) => (html.match(/<th[^>]*>([^<]*)<\/th>/g) || []).map(s => s.replace(/<[^>]*>/g, ""));
+
+test("exportDatabaseAsHTML: a bare pointer variant is not rendered beside its base column", () => {
+  // addVariant seeds col_vars[0] as a pointer labelled with the COLUMN's label, so rendering it
+  // produced two identically-named columns holding identical values.
+  const db = makeDb([rawCol("sexo", ["m", "f"], {
+    col_vars: [
+      { var_label: "sexo", meta: { kind: "original" } },
+      { var_label: "Sexo (M/F)", col_type: "q", col_sep: "", meta: {}, col_values: { col_compact: false, labels: null, codes: null, raw_values: ["M", "F"] } }
+    ]
+  })]);
+  const html = exporters.exportDatabaseAsHTML(db, { includeStyles: false, includeRowIndex: false });
+  assert.deepEqual(headersOf(html), ["sexo", "Sexo (M/F)"], "no duplicated header");
+  assert.deepEqual(cellsOf(html), ["m", "M", "f", "F"]);
+});
+
+test("exportDatabaseAsHTML: a pointer variant carrying its own processing IS kept", () => {
+  // It inherits the column's replacements but adds rules on top, so its values really differ.
+  const db = makeDb([rawCol("x", ["a", "b"], {
+    meta: { replacements: [{ from: "a", to: "KEEP" }], processing: {} },
+    col_vars: [{ var_label: "Sem b", meta: { kind: "original", processing: { excluded_values: ["b"] } } }]
+  })]);
+  const html = exporters.exportDatabaseAsHTML(db, { includeStyles: false, includeRowIndex: false });
+  assert.deepEqual(headersOf(html), ["x", "Sem b"]);
+  // Base: a→KEEP, b. Variant: same replacement, then 'b' excluded to empty.
+  assert.deepEqual(cellsOf(html), ["KEEP", "KEEP", "b", ""]);
+});
+
+test("exportDatabaseAsHTML: a derived variant is NOT re-resolved through its parent's meta", () => {
+  // Its col_values were produced from the resolved source, so applying the column's replacements
+  // again would corrupt them.
+  const db = makeDb([rawCol("x", ["a", "b"], {
+    meta: { replacements: [{ from: "a", to: "b" }, { from: "b", to: "c" }], processing: {} },
+    col_vars: [
+      { var_label: "x", meta: { kind: "original" } },
+      { var_label: "V1", col_type: "q", col_sep: "", meta: { kind: "search_replace" }, col_values: { col_compact: false, labels: null, codes: null, raw_values: ["b", "Z"] } }
+    ]
+  })]);
+  const html = exporters.exportDatabaseAsHTML(db, { includeStyles: false, includeRowIndex: false });
+  // Row 1: base 'a'→'b', derived variant stored 'b' (not re-mapped to 'c'). Row 2: 'b'→'c', 'Z'.
+  assert.deepEqual(cellsOf(html), ["b", "b", "c", "Z"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -617,6 +707,25 @@ test("buildCrosstab: maxLevels keeps the top-N most frequent in canonical order"
   assert.deepEqual(ct.row.levels, ["common", "mid"], "alphabetical order preserved among survivors");
   assert.equal(ct.row.nLevelsTotal, 3, "pre-cap count reported");
   assert.equal(sumCells(ct), 5, "the dropped level's record is not counted");
+});
+
+test("buildCrosstab: maxLevels=0 keeps every level; blank keeps the default", () => {
+  const db = makeDb([
+    rawCol("g", Array.from({ length: 300 }, (_, i) => `L${i}`)),
+    rawCol("o", Array.from({ length: 300 }, () => "x"))
+  ]);
+  const levels = (raw) => exporters.buildCrosstab(db, "h_g", "", "h_o", "", raw === "omit" ? {} : { maxLevels: raw }).row.levels.length;
+  assert.equal(levels("omit"), 100, "default cap");
+  assert.equal(levels(0), 300, "explicit 0 = no cap");
+  assert.equal(levels("0"), 300, "string 0 too");
+  assert.equal(levels(Infinity), 300);
+  assert.equal(levels(25), 25);
+  ["", "   ", null, "abc", -5].forEach(raw => {
+    assert.equal(levels(raw), 100, `${JSON.stringify(raw)} falls back to the default`);
+  });
+  // No cap → nothing was truncated → no footer note.
+  const html = exporters.exportCrosstabAsHTML(db, "h_g", "", "h_o", "", { maxLevels: 0, includeStyles: false });
+  assert.equal(html.includes("statz-xtab-note"), false);
 });
 
 test("buildCrosstab: equal frequencies keep the earlier canonical level", () => {

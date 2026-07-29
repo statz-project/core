@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import factors from "../json/factors.js";
 import driver from "../json/driver.js";
+import variants from "../json/variants.js";
 
 // Helper: build a qualitative column with compact encoding
 function makeQCol(values, meta = {}) {
@@ -456,17 +457,56 @@ test("resolveVariable: applyProcessing:false returns the unedited import", () =>
   assert.deepEqual(r.values.map(v => v ?? ''), ['a', 'b', 'unknown', 'a', '']);
 });
 
-test("resolveVariable: variant meta falls back to column meta PER FIELD", () => {
-  // The variant declares only `processing`; the column's `replacements` must still apply.
-  // describeColumn's whole-object fallback gets this wrong — this helper deliberately does not.
+test("resolveVariable: a pointer-style variant inherits the column's meta PER FIELD", () => {
+  // col_vars[0] has no col_values, so it IS the column's payload: the column's `replacements` must
+  // apply even though the variant declares only `processing`.
+  const db = makeVarDb();
+  db.columns[0].col_vars[0] = { var_label: 'Original', meta: { kind: 'original', processing: { excluded_values: ['a'] } } };
+  const seen = factors.resolveVariable(db, 'h_x', 0).values.map(v => v ?? '');
+  // Source is ['a','b','unknown','a',null]; column replaces unknown→a, variant excludes 'a'.
+  assert.equal(seen[2], '', "column's replacement ran (unknown → a), then the variant excluded 'a'");
+  assert.equal(seen[0], '', 'variant processing applied');
+  assert.equal(seen[1], 'b', 'untouched value survives');
+});
+
+test("resolveVariable: a derived variant uses ONLY its own meta", () => {
+  // A variant carrying its own col_values was built by createVariant FROM the resolved source, so
+  // re-applying the column's replacements would apply them twice. Guards that regression.
   const db = makeVarDb();
   db.columns[0].col_vars[1] = factors.makeColumn(['x', 'drop', 'unknown'], { col_type: 'q', col_sep: '', includeBaseVariant: false });
   db.columns[0].col_vars[1].var_label = 'V1';
   db.columns[0].col_vars[1].meta = { processing: { excluded_values: ['drop'] } };
-  const r = factors.resolveVariable(db, 'h_x', 1);
-  const seen = r.values.map(v => v ?? '');
+  const seen = factors.resolveVariable(db, 'h_x', 1).values.map(v => v ?? '');
   assert.equal(seen[1], '', 'variant processing applied');
-  assert.equal(seen[2], 'a', "column's replacements still applied (unknown → a)");
+  assert.equal(seen[2], 'unknown', "the column's replacements are NOT re-applied to derived values");
+});
+
+test("resolveVariable: derived-variant values survive an overlapping replacement map", () => {
+  // The map a→b, b→c is not idempotent, so a double application is visible: reading the variant
+  // must yield what createVariant stored, not a second pass over it.
+  const col = factors.makeColumn(['a', 'b', 'c'], { col_type: 'q', col_sep: '', includeBaseVariant: true });
+  col.col_hash = 'h_y';
+  col.col_label = 'Y';
+  col.meta = { replacements: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }], processing: {} };
+  col.col_vars.push(variants.createVariant(col, { kind: 'search_replace', var_label: 'V1', replacements: [{ search: 'c', replace: 'Z' }] }));
+  const db = { columns: [col] };
+  assert.deepEqual(factors.resolveVariable(db, 'h_y', null).values, ['b', 'c', 'c'], 'base column resolves once');
+  assert.deepEqual(factors.resolveVariable(db, 'h_y', 0).values, ['b', 'c', 'c'], 'pointer variant matches the base');
+  assert.deepEqual(factors.resolveVariable(db, 'h_y', 1).values, ['b', 'Z', 'Z'], 'derived variant is read as stored');
+});
+
+test("describeColumn: a variant declaring only processing still inherits the column's replacements", () => {
+  // describeColumn used a whole-object meta fallback, so any variant meta blocked the column's
+  // replacements. It now goes through resolveVariable's per-field fallback.
+  const col = makeQCol(['unknown', 'a', 'b', 'a']);
+  col.col_hash = 'h_x';
+  col.col_label = 'X';
+  col.meta = { replacements: [{ from: 'unknown', to: 'DESCONHECIDO' }], processing: {} };
+  col.col_vars = [{ var_label: 'Original', meta: { kind: 'original', processing: { excluded_values: ['b'] } } }];
+  const rows = driver.describeColumn(col, 0, { lang: 'en_us' });
+  const text = rows.join(' ');
+  assert.match(text, /DESCONHECIDO/, "column's replacement applied through the pointer variant");
+  assert.equal(/\bb:/.test(text), false, "variant's own excluded_values also applied");
 });
 
 test("isMissingValue: unparseable numeric values are present-but-invalid, not missing", () => {
