@@ -495,12 +495,12 @@ test("runAnalysis mode=chart Profile C: q x n placed q on x and n on y", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Profile C list-expand — chart_l_q, chart_q_l, chart_l_n, chart_l_l
+// Profile C list-expand — chart_l_q, chart_q_l, chart_l_n, chart_n_l, chart_l_l
 // ---------------------------------------------------------------------------
 
 import { chart_l_q } from "../json/charts/l_q.js";
 import { chart_q_l } from "../json/charts/q_l.js";
-import { chart_l_n } from "../json/charts/l_n.js";
+import { chart_l_n, chart_n_l } from "../json/charts/l_n.js";
 import { chart_l_l } from "../json/charts/l_l.js";
 
 test("chart_l_q: returns one entry per list item", () => {
@@ -542,6 +542,29 @@ test("chart_l_n: returns one entry per list item with individual_values_grouped 
     assert.equal(entry.chart.type, "individual_values_grouped");
     assert.ok(entry.display_label.startsWith("Symptoms:"));
   });
+});
+
+test("chart_n_l: inverted wrapper keeps the item on x and the numeric on y", () => {
+  const nums = [10, 20, 30, 40];
+  const list = ["fever;cough", "fever", "cough", "fever;cough"];
+  const out = chart_n_l(nums, list, {}, { separator: ";", predictorLabel: "Value", responseLabel: "Symptoms" });
+  assert.ok(Array.isArray(out));
+  assert.equal(out.length, 2);
+  out.forEach((entry) => {
+    assert.equal(entry.chart.type, "individual_values_grouped");
+    // The LIST label prefixes the item whichever axis it was assigned to.
+    assert.ok(entry.display_label.startsWith("Symptoms:"), `got ${entry.display_label}`);
+    assert.equal(entry.chart.spec.layout.xaxis.title.text, entry.display_label);
+    assert.equal(entry.chart.spec.layout.yaxis.title.text, "Value");
+  });
+});
+
+test("chart_n_l produces the same specs as chart_l_n with the axes swapped", () => {
+  const nums = [10, 20, 30, 40];
+  const list = ["fever;cough", "fever", "cough", "fever;cough"];
+  const forward = chart_l_n(list, nums, {}, { separator: ";", predictorLabel: "Symptoms", responseLabel: "Value" });
+  const inverse = chart_n_l(nums, list, {}, { separator: ";", predictorLabel: "Value", responseLabel: "Symptoms" });
+  assert.deepEqual(inverse, forward);
 });
 
 test("chart_l_l: returns one entry per (predSubset x respSubset) pair", () => {
@@ -633,6 +656,27 @@ test("runAnalysis mode=chart Profile C: l x n yields array of individual_values_
   assert.ok(result.analysis.length >= 1);
   result.analysis.forEach((entry) => {
     assert.equal(entry.chart.type, "individual_values_grouped");
+  });
+});
+
+test("runAnalysis mode=chart Profile C: n x l inverts into per-item grouped charts", () => {
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const biomarker = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const dbs = { test_db: { columns: [clinics.column, biomarker.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: biomarker.column.col_hash, col_var_index: null, col_label: "Biomarker", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: clinics.column.col_hash, col_var_index: null, col_label: "Clinics", role: "response"
+  })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { mode: "chart" });
+  assert.ok(flags.includes("has_nl"));
+  assert.ok(result.analysis.length >= 1);
+  result.analysis.forEach((entry) => {
+    assert.equal(entry.chart.type, "individual_values_grouped");
+    assert.ok(entry.predictor.startsWith("Clinics:"), `got ${entry.predictor}`);
+    assert.equal(entry.chart.spec.layout.xaxis.title.text, entry.predictor);
+    assert.equal(entry.chart.spec.layout.yaxis.title.text, "Biomarker");
   });
 });
 

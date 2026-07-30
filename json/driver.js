@@ -679,6 +679,36 @@ ns.summarize_l_n = function (predictorVals, responseVals, formatFn = null, flags
 };
 
 /**
+ * Compare a numeric predictor across binary "presence" groups derived from a list RESPONSE.
+ *
+ * Axis-inverted wrapper over `summarize_l_n`. The statistic is identical in both directions —
+ * `summarize_n_q` always takes the numeric column first and the binary item as the grouping
+ * variable — so only the source of each array flips. (Contrast `summarize_q_l`, which had to be a
+ * full copy of `summarize_l_q` because there the binary moves between the predictor and response
+ * positions of `summarize_q_q`.)
+ *
+ * The list label always drives the per-item prefix, so `display_label` reads "Clinics: fever"
+ * whichever side the list sits on.
+ *
+ * @param {string[]} predictorVals Numeric predictor values.
+ * @param {string[]} responseVals List response values.
+ * @param {Function|null} [formatFn]
+ * @param {Set<string>|null} [flagsUsed]
+ * @param {Record<string,any>} [options]
+ * @param {{separator?:string, predictorLabel?:string|null, responseLabel?:string|null, lang?:string, includePrefix?:boolean}} [meta]
+ * @returns {Array<{label:string, display_label:string, predictor_label:string|null, predictor_label_stripped:string|null, response_label:string|null, table:any}>}
+ */
+ns.summarize_n_l = function (predictorVals, responseVals, formatFn = null, flagsUsed = null, options = {}, meta = {}) {
+  return ns.summarize_l_n(responseVals, predictorVals, formatFn, flagsUsed, options, {
+    separator: meta?.separator,
+    predictorLabel: meta?.responseLabel, // the LIST column — supplies the item prefix
+    responseLabel: meta?.predictorLabel, // the NUMERIC column
+    lang: meta?.lang,
+    includePrefix: meta?.includePrefix
+  });
+};
+
+/**
  * Build a map of statistical test methods to display symbols.
  * @param {string[]} methods
  * @param {{symbol_style?: 'numeric'|'alpha'}=} options
@@ -1418,6 +1448,40 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
           response_type: 'n',
           table: entry.table
         }));
+        return summaries;
+      } else if (predictorType === 'n' && responseType === 'l') {
+        // Axis inversion of l × n: the list RESPONSE is expanded into binary presence items and
+        // the numeric predictor is compared across the two groups each item forms. Entries are
+        // labelled exactly like l × n (item as `predictor`) so the section header stays
+        // identifiable — `combineAnalysisAsSingleTable` renders `predictor ?? response`.
+        const includePrefix = options?.label_list_with_column ?? true;
+        const responseSep = responseCol?.col_sep || ';';
+        flagsUsed.add('has_nl');
+        const nlMeta = {
+          separator: responseSep,
+          predictorLabel: pred.col_label,
+          responseLabel: response?.col_label || null,
+          includePrefix
+        };
+        if (options?.mode === 'chart') {
+          const chartSummaries = charts.chart_n_l(predictorVals ?? [], responseVals ?? [], options, nlMeta)
+            .map((/** @type {any} */ entry) => /** @type {any} */ ({
+              predictor: entry.display_label,
+              response: entry.response_label,
+              predictor_type: 'q',
+              response_type: 'n',
+              chart: entry.chart
+            }));
+          return chartSummaries;
+        }
+        const summaries = ns.summarize_n_l(predictorVals, responseVals, formatFn, flagsUsed, options, { ...nlMeta, lang })
+          .map((/** @type {any} */ entry) => ({
+            predictor: entry.display_label,
+            response: entry.response_label,
+            predictor_type: 'q',
+            response_type: 'n',
+            table: entry.table
+          }));
         return summaries;
       }
     }

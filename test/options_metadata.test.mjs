@@ -10,7 +10,7 @@ const { OPTION_METADATA, getAvailableOptions } = optionsMetadata;
 // referencing the new flag in appliesTo will pass.
 const KNOWN_FLAGS = new Set([
   'has_q', 'has_n', 'has_l',
-  'has_qq', 'has_nq', 'has_qn', 'has_nn', 'has_lq', 'has_ql', 'has_ln', 'has_ll',
+  'has_qq', 'has_nq', 'has_qn', 'has_nn', 'has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll',
   'has_residuals', 'has_tukey', 'has_kruskal_sign',
   'has_paired', 'has_paired_n', 'has_paired_q',
   'has_multi_db_broadcast', 'has_multi_db_missing_response',
@@ -171,7 +171,7 @@ test("yes_label / no_label: gated on the 4 list-expand flags only (never on has_
   assert.ok(!lOnly.includes('yes_label'), 'yes_label not applicable to descriptive has_l');
   assert.ok(!lOnly.includes('no_label'), 'no_label not applicable to descriptive has_l');
   // Each list-expand flag surfaces both labels.
-  for (const flag of ['has_lq', 'has_ql', 'has_ln', 'has_ll']) {
+  for (const flag of ['has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll']) {
     const names = getAvailableOptions([flag], 'table').map((o) => o.name);
     assert.ok(names.includes('yes_label'), `yes_label must surface for ${flag}`);
     assert.ok(names.includes('no_label'), `no_label must surface for ${flag}`);
@@ -181,8 +181,8 @@ test("yes_label / no_label: gated on the 4 list-expand flags only (never on has_
 test("binary_min_count: gated on ALL 4 list-expand flags + modeGate null (chart callers filter items too)", () => {
   const lOnly = getAvailableOptions(['has_l'], 'table').map((o) => o.name);
   assert.ok(!lOnly.includes('binary_min_count'), 'binary_min_count not applicable to descriptive has_l');
-  // All 4 list-expand flags surface it — previously has_ql and has_ln were missing.
-  for (const flag of ['has_lq', 'has_ql', 'has_ln', 'has_ll']) {
+  // All 5 list-expand flags surface it — previously has_ql and has_ln were missing.
+  for (const flag of ['has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll']) {
     const names = getAvailableOptions([flag], 'table').map((o) => o.name);
     assert.ok(names.includes('binary_min_count'), `binary_min_count must surface for ${flag}`);
   }

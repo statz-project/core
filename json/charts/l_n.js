@@ -42,3 +42,25 @@ export function chart_l_n(listValues, numericVals, options = {}, meta = {}) {
   });
   return results;
 }
+
+/**
+ * Axis-inverted wrapper: `n` is the predictor and `l` the response. Mirrors the table-mode
+ * `driver.summarize_n_l`, and the same trick `chart_q_n` plays on `chart_n_q`.
+ *
+ * The chart itself is orientation-independent — the binary item is the x-axis grouping and the
+ * numeric is the y values in both directions — so only the label roles are remapped.
+ *
+ * @param {Array<string|number|null|undefined>} numericVals
+ * @param {Array<string|null|undefined>} listValues
+ * @param {Record<string,any>=} options
+ * @param {{separator?:string, predictorLabel?:string|null, responseLabel?:string|null, includePrefix?:boolean}=} meta
+ * @returns {Array<{label:string, display_label:string, predictor_label:string|null, predictor_label_stripped:string|null, response_label:string|null, chart:{type:string, spec:any}}>}
+ */
+export function chart_n_l(numericVals, listValues, options = {}, meta = {}) {
+  return chart_l_n(listValues, numericVals, options, {
+    separator: meta?.separator,
+    predictorLabel: meta?.responseLabel, // the LIST column — supplies the item prefix (x-axis)
+    responseLabel: meta?.predictorLabel, // the NUMERIC column (y-axis)
+    includePrefix: meta?.includePrefix
+  });
+}

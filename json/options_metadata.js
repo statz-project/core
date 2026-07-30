@@ -36,10 +36,10 @@ const ns = {};
 // Flag groups used in appliesTo definitions below. Inlined for readability where appropriate.
 const ALL_INFERENTIAL = [
   'has_qq', 'has_nq', 'has_qn', 'has_nn',
-  'has_lq', 'has_ql', 'has_ln', 'has_ll',
+  'has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll',
   'has_paired_n', 'has_paired_q'
 ];
-const ALL_LIST_EXPAND = ['has_lq', 'has_ql', 'has_ln', 'has_ll'];
+const ALL_LIST_EXPAND = ['has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll'];
 // Qualitative-shape flags — cells that render a "Not informed" bucket / missing category.
 // Numeric analyses express missing counts via stat_options_* with `n_missing`, not via
 // include_missing / missing_label, so `has_n` is deliberately excluded.
@@ -83,14 +83,14 @@ ns.OPTION_METADATA = {
     category: 'descriptive', type: 'multiselect',
     default: ['mean_sd'],
     enum: ['min', 'max', 'mean_sd', 'median_iqr', 'n', 'n_missing'],
-    appliesTo: ['has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'table',
+    appliesTo: ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'table',
     labelKey: 'options.stat_options_by_group.label', descriptionKey: 'options.stat_options_by_group.description'
   },
   stat_options: {
     category: 'descriptive', type: 'multiselect',
     default: ['mean_sd'],
     enum: ['min', 'max', 'mean_sd', 'median_iqr', 'n', 'n_missing'],
-    appliesTo: ['has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'table',
+    appliesTo: ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'table',
     labelKey: 'options.stat_options.label', descriptionKey: 'options.stat_options.description'
   },
   include_missing: {
@@ -175,19 +175,19 @@ ns.OPTION_METADATA = {
   },
   chart_point_size: {
     category: 'chart', type: 'number', default: 8, enum: null,
-    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_nn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
+    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_nn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_point_size.label', descriptionKey: 'options.chart_point_size.description'
   },
   chart_show_boxplot: {
     category: 'chart', type: 'boolean', default: false, enum: null,
-    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
+    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_show_boxplot.label', descriptionKey: 'options.chart_show_boxplot.description'
   },
   chart_show_points: {
     category: 'chart', type: 'boolean', default: true, enum: null,
     // Same appliesTo as chart_show_boxplot: the two toggles together control the numeric
     // chart layer stack (box overlay + points/crossbar layer). Both off → empty axes.
-    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
+    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_show_points.label', descriptionKey: 'options.chart_show_points.description'
   },
   chart_central_tendency: {
@@ -197,7 +197,7 @@ ns.OPTION_METADATA = {
     // arithmetic mean and the median (useful for asymmetric data). Bubble Panel should
     // conditionally hide this dropdown when chart_show_points is unchecked — no gating
     // flag is emitted for that since it's an option-value dependency, not data-driven.
-    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
+    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_central_tendency.label', descriptionKey: 'options.chart_central_tendency.description'
   },
   chart_label_format: {
@@ -223,7 +223,7 @@ ns.OPTION_METADATA = {
   },
   chart_include_zero: {
     category: 'chart', type: 'boolean', default: true, enum: null,
-    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_nn', 'has_ln', 'has_paired_n'], modeGate: 'chart',
+    appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_nn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_include_zero.label', descriptionKey: 'options.chart_include_zero.description'
   },
   chart_interactive: {

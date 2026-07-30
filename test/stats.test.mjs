@@ -258,6 +258,74 @@ test("summarize_l_n: expands a list predictor and runs n×q per binary item", ()
   assert.ok(Number.isFinite(headacheSummary.table.p_value));
 });
 
+test("summarize_n_l: expands a list RESPONSE and runs n×q per binary item", () => {
+  const predictor = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const response  = Statz.getColumnValues(parsed, "col_clinics_hash");
+
+  const summaries = Statz.summarize_n_l(
+    predictor.rawValues,
+    response.rawValues,
+    null,
+    null,
+    { lang: 'en_us' },
+    { responseLabel: "Clinics", separator: ";" }
+  );
+
+  assert.ok(Array.isArray(summaries));
+  assert.ok(summaries.length > 0);
+
+  const headacheSummary = summaries.find(entry => entry.label === 'headache');
+  assert.ok(headacheSummary, "headache response item should be summarized");
+  // The LIST label drives the prefix whichever side the list sits on.
+  assert.equal(headacheSummary.display_label, "Clinics: headache");
+  assert.ok(headacheSummary.table.test_used);
+  assert.ok(Number.isFinite(headacheSummary.table.p_value));
+});
+
+test("summarize_n_l is numerically identical to summarize_l_n with the axes swapped", () => {
+  // The wrapper must stay honest: same statistic, only the labels differ.
+  const numeric = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const list    = Statz.getColumnValues(parsed, "col_clinics_hash");
+
+  const forward = Statz.summarize_l_n(list.rawValues, numeric.rawValues, null, null, { lang: 'en_us' }, { predictorLabel: "Clinics", separator: ";" });
+  const inverse = Statz.summarize_n_l(numeric.rawValues, list.rawValues, null, null, { lang: 'en_us' }, { responseLabel: "Clinics", separator: ";" });
+
+  assert.equal(inverse.length, forward.length);
+  forward.forEach(f => {
+    const i = inverse.find(entry => entry.label === f.label);
+    assert.ok(i, `item ${f.label} present in both directions`);
+    assert.equal(i.display_label, f.display_label);
+    assert.equal(i.table.test_used, f.table.test_used);
+    assert.equal(i.table.p_value, f.table.p_value);
+  });
+});
+
+test("runAnalysis: n × l dispatch emits has_nl and one populated table per list item", () => {
+  const biomarker = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const dbs = { test_db: { columns: [biomarker.column, clinics.column] } };
+  const predictors = [JSON.stringify({
+    database_id: "test_db", col_hash: biomarker.column.col_hash, col_var_index: null, col_label: "Biomarker", role: "predictor"
+  })];
+  const responses = [JSON.stringify({
+    database_id: "test_db", col_hash: clinics.column.col_hash, col_var_index: null, col_label: "Clinics", role: "response"
+  })];
+
+  const { result, flags } = driver.runAnalysis(predictors, responses, dbs, { lang: 'en_us' });
+  assert.ok(flags.includes('has_nl'));
+  assert.ok(result.analysis.length > 1, "one entry per list item");
+  result.analysis.forEach(entry => {
+    // Regression guard: n × l used to fall through the whole dispatcher and emit table: undefined.
+    assert.notEqual(entry.table, undefined, `${entry.predictor} must carry a table`);
+    // Post-expansion shape: the binary item is a synthetic q, the numeric stays n.
+    assert.equal(entry.predictor_type, 'q');
+    assert.equal(entry.response_type, 'n');
+    // The item names the section — combineAnalysisAsSingleTable renders `predictor ?? response`.
+    assert.ok(entry.predictor.startsWith("Clinics:"), `got ${entry.predictor}`);
+    assert.equal(entry.response, "Biomarker");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Phase 2: n × n correlation + q × n axis inversion
 // ---------------------------------------------------------------------------
