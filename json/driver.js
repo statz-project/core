@@ -1141,6 +1141,26 @@ ns.recodeColumn = function (column, changes = {}) {
 };
 
 /**
+ * Section header for a cell whose list side was expanded into per-item entries.
+ *
+ * `combineAnalysisAsSingleTable` renders `predictor ?? response`, so when BOTH axes carry
+ * distinguishing information the header has to name both — otherwise every item comes out under the
+ * same title, and with several predictors the sections become indistinguishable. Same reasoning as
+ * the `n × n` pair-wise label at the tail of `summarizePredictors`.
+ *
+ * `label_list_with_column` governs the whole decoration, not just the list prefix: turn it off and
+ * the header falls back to the bare item, for when the context is obvious to the reader. The item
+ * label itself already honours the same option inside `summarize_*`.
+ *
+ * @param {string|null|undefined} contextLabel The opposite axis (the non-expanded column).
+ * @param {string} itemLabel The per-item label, already prefixed or not by the same option.
+ * @param {boolean} includePrefix
+ * @returns {string}
+ */
+const composeExpandedLabel = (contextLabel, itemLabel, includePrefix) =>
+  includePrefix && contextLabel ? `${contextLabel} × ${itemLabel}` : itemLabel;
+
+/**
  * Summarize each predictor optionally against a qualitative response.
  * @param {Column[]} columns
  * @param {Array<{col_hash:string,col_label:string}>} predictors
@@ -1319,7 +1339,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
             responseLabel: response?.col_label || null,
             includePrefix
           }).map((/** @type {any} */ entry) => /** @type {any} */ ({
-            predictor: pred.col_label,
+            predictor: composeExpandedLabel(pred.col_label, entry.display_label, includePrefix),
             response: entry.display_label,
             predictor_type: 'q',
             response_type: 'q',
@@ -1334,7 +1354,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
           lang,
           includePrefix
         }).map((/** @type {any} */ entry) => ({
-          predictor: pred.col_label,
+          predictor: composeExpandedLabel(pred.col_label, entry.display_label, includePrefix),
           response: entry.display_label,
           predictor_type: 'q',
           response_type: 'q',
@@ -1391,7 +1411,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
               respSubset,
               includePrefix
             }).map((/** @type {any} */ entry) => /** @type {any} */ ({
-              predictor: entry.display_predictor,
+              predictor: `${entry.display_predictor} × ${entry.display_response}`,
               response: entry.display_response,
               predictor_type: 'q',
               response_type: 'q',
@@ -1409,7 +1429,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
             lang,
             includePrefix
           }).map((/** @type {any} */ entry) => ({
-            predictor: entry.display_predictor,
+            predictor: `${entry.display_predictor} × ${entry.display_response}`,
             response: entry.display_response,
             predictor_type: 'q',
             response_type: 'q',
@@ -1466,7 +1486,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         if (options?.mode === 'chart') {
           const chartSummaries = charts.chart_n_l(predictorVals ?? [], responseVals ?? [], options, nlMeta)
             .map((/** @type {any} */ entry) => /** @type {any} */ ({
-              predictor: entry.display_label,
+              predictor: composeExpandedLabel(pred.col_label, entry.display_label, includePrefix),
               response: entry.response_label,
               predictor_type: 'q',
               response_type: 'n',
@@ -1476,7 +1496,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         }
         const summaries = ns.summarize_n_l(predictorVals, responseVals, formatFn, flagsUsed, options, { ...nlMeta, lang })
           .map((/** @type {any} */ entry) => ({
-            predictor: entry.display_label,
+            predictor: composeExpandedLabel(pred.col_label, entry.display_label, includePrefix),
             response: entry.response_label,
             predictor_type: 'q',
             response_type: 'n',
@@ -1511,12 +1531,20 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const predictors = elementPredictors.map(JSON.parse); const responses = elementResponses.map(JSON.parse); const flagsUsed = new Set();
   const lang = mergedOptions.lang;
 
-  // Multi-DB D2 broadcast (Profile C only): when predictors span multiple databases
-  // and there's a response, the response must exist in every participating database;
-  // analyses run per-DB and results are concatenated. Profile A (descriptive only)
-  // already works across DBs naturally via per-predictor resolution.
+  // Multi-DB validation + D2 broadcast (Profile C only). Two separate concerns, both gated on
+  // "there is a response and at least one predictor":
+  //
+  //   1. The response must exist in EVERY database the predictors come from — including the
+  //      single-database case. Rows are paired positionally downstream, so analysing a predictor
+  //      from database A against a response from database B silently correlates unrelated records
+  //      (and the two tables need not even have the same row count).
+  //   2. Only when the predictors actually span MORE than one database does the analysis
+  //      broadcast: it runs per-DB and concatenates the results.
+  //
+  // Profile A (descriptive only) works across DBs naturally via per-predictor resolution, and
+  // Profile B (paired, no predictors) is validated separately by `summarizePaired`.
   const predictorDbIds = new Set(predictors.map((/** @type {any} */ p) => p.database_id));
-  if (predictorDbIds.size > 1 && responses.length > 0) {
+  if (predictors.length > 0 && responses.length > 0) {
     const response = responses[0];
     /** @type {string[]} */
     const missingDbs = [];
@@ -1543,34 +1571,47 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
         flags: Array.from(flagsUsed)
       });
     }
-    flagsUsed.add('has_multi_db_broadcast');
-    /** @type {any[]} */
-    const aggregatedEntries = [];
-    for (const dbId of predictorDbIds) {
-      const dbPredictors = predictors.filter((/** @type {any} */ p) => p.database_id === dbId);
-      const dbResponse = { ...response, database_id: dbId };
-      const subResult = ns.runAnalysis(
-        dbPredictors.map((/** @type {any} */ p) => JSON.stringify(p)),
-        [JSON.stringify(dbResponse)],
-        dbs,
-        options
-      );
-      subResult.flags.forEach((/** @type {string} */ f) => flagsUsed.add(f));
-      aggregatedEntries.push(...subResult.result.analysis);
-    }
-    // Rebuild symbol map on combined methods so symbols are consistent across DBs.
-    const allMethods = aggregatedEntries.map((r) => r.table?.test_used).filter(Boolean);
-    const symbolMap = ns.generateTestSymbolMap(allMethods, mergedOptions);
-    aggregatedEntries.forEach((r) => {
-      if (r.table?.test_used) {
-        r.table.test_symbol = symbolMap[r.table.test_used];
+    // Response present in every predictor database. Broadcast only when there is more than one —
+    // otherwise fall through to the normal single-DB path below.
+    if (predictorDbIds.size > 1) {
+      flagsUsed.add('has_multi_db_broadcast');
+      /** @type {any[]} */
+      const aggregatedEntries = [];
+      for (const dbId of predictorDbIds) {
+        const dbPredictors = predictors.filter((/** @type {any} */ p) => p.database_id === dbId);
+        const dbResponse = { ...response, database_id: dbId };
+        const subResult = ns.runAnalysis(
+          dbPredictors.map((/** @type {any} */ p) => JSON.stringify(p)),
+          [JSON.stringify(dbResponse)],
+          dbs,
+          options
+        );
+        subResult.flags.forEach((/** @type {string} */ f) => flagsUsed.add(f));
+        aggregatedEntries.push(...subResult.result.analysis);
       }
-    });
-    const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
-    return /** @type {any} */ ({
-      result: { analysis: aggregatedEntries, test_legend, lang },
-      flags: Array.from(flagsUsed)
-    });
+      // Rebuild symbol map on combined methods so symbols are consistent across DBs.
+      const allMethods = aggregatedEntries.map((r) => r.table?.test_used).filter(Boolean);
+      const symbolMap = ns.generateTestSymbolMap(allMethods, mergedOptions);
+      aggregatedEntries.forEach((r) => {
+        if (r.table?.test_used) {
+          r.table.test_symbol = symbolMap[r.table.test_used];
+        }
+      });
+      const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+      return /** @type {any} */ ({
+        result: { analysis: aggregatedEntries, test_legend, lang },
+        flags: Array.from(flagsUsed)
+      });
+    }
+    // Single predictor database, response present in it. `col_hash` is the MD5 of the column NAME,
+    // so it is unique only WITHIN a database: two uploads that both have a "Outcome" column share
+    // the same hash. A response picked from another database therefore passes the check above while
+    // still resolving against ITS OWN table — pairing unrelated rows. Rebind it to the predictors'
+    // database, the same rewrite the broadcast performs per database.
+    const soleDbId = predictorDbIds.values().next().value;
+    if (response.database_id !== soleDbId) {
+      responses[0] = { ...response, database_id: soleDbId };
+    }
   }
 
   const columns = predictors.concat(responses).map(col => {

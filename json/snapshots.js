@@ -230,8 +230,22 @@ ns.computeElementSnapshot = function (predictors, responses, databases, analysis
 
   /** @type {Record<string, string>} */
   const raw = {};
-  for (const sig of [...preds, ...resps]) {
+  for (const sig of preds) {
     raw[keyFor(sig)] = valueFor(sig);
+  }
+  // A Profile C response is read from EVERY database the predictors come from, not from the one it
+  // happens to be tagged with: `runAnalysis` rebinds `database_id` per predictor database (the D2
+  // broadcast, and the single-database path too). The snapshot has to cover the same ground —
+  // otherwise editing the response in a database the signature does not name leaves the Element
+  // looking fresh while its analysis silently changes. With no predictors (Profile B paired) the
+  // response is read from its own database, so that is the fallback.
+  const predictorDbIds = [...new Set(preds.map(sig => sig?.database_id).filter(Boolean))];
+  for (const sig of resps) {
+    const targetDbIds = predictorDbIds.length > 0 ? predictorDbIds : [sig?.database_id];
+    for (const dbId of targetDbIds) {
+      const rebound = { ...sig, database_id: dbId };
+      raw[keyFor(rebound)] = valueFor(rebound);
+    }
   }
 
   // Ordering markers — hash the concatenation of identity keys in list order.

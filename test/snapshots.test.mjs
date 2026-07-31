@@ -387,3 +387,42 @@ test("auto-hook: addVariant refreshes hashes on the mutated database", () => {
 });
 
 
+
+test("computeElementSnapshot: a Profile C response is tracked in EVERY predictor database", () => {
+  // runAnalysis rebinds the response's database_id per predictor database (the D2 broadcast, and
+  // the single-DB path too), so the snapshot has to cover the same ground — otherwise editing the
+  // response in a database the signature does not name leaves the Element looking fresh.
+  const col = (hash, label, type, values) => ({
+    col_hash: hash, col_label: label, col_type: type, col_sep: '',
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: values },
+    col_vars: []
+  });
+  const H = 'md5_SharedOutcome';
+  const mk = (pv, ov) => ({ columns: [col('md5_P', 'P', 'n', pv), col(H, 'SharedOutcome', 'q', ov)] });
+  const sig = (db, hash, label) => JSON.stringify({ database_id: db, col_hash: hash, col_var_index: null, col_label: label });
+  const predictors = [sig('dbA', 'md5_P', 'PredA'), sig('dbB', 'md5_P', 'PredB')];
+  const responses = [sig('dbA', H, 'SharedOutcome')];   // picked from dbA only
+
+  const dbA = mk(['1','2','3','4'], ['yes','no','yes','no']);
+  const before = snapshots.computeElementSnapshot(predictors, responses, { dbA, dbB: mk(['5','6','7','8'], ['yes','no','yes','no']) }, {});
+  assert.ok(Object.prototype.hasOwnProperty.call(before, `dbB#${H}#null`), 'response tracked in dbB too');
+
+  // Editing the response in dbB — which the broadcast reads — must invalidate the Element.
+  const after = snapshots.computeElementSnapshot(predictors, responses, { dbA, dbB: mk(['5','6','7','8'], ['other','other','other','other']) }, {});
+  assert.notDeepEqual(after, before);
+});
+
+test("computeElementSnapshot: with no predictors the response keeps its own database", () => {
+  // Profile B (paired) reads responses from their own database; there is nothing to rebind to.
+  const col = (hash, label, values) => ({
+    col_hash: hash, col_label: label, col_type: 'q', col_sep: '',
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: values },
+    col_vars: []
+  });
+  const dbA = { columns: [col('h_o', 'Outcome', ['yes','no'])] };
+  const dbB = { columns: [col('h_o', 'Outcome', ['x','y'])] };
+  const responses = [JSON.stringify({ database_id: 'dbA', col_hash: 'h_o', col_var_index: null, col_label: 'Outcome' })];
+  const snap = snapshots.computeElementSnapshot([], responses, { dbA, dbB }, {});
+  const keys = Object.keys(snap).filter(k => !k.startsWith('__'));
+  assert.deepEqual(keys, ['dbA#h_o#null']);
+});

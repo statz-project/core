@@ -320,10 +320,38 @@ test("runAnalysis: n × l dispatch emits has_nl and one populated table per list
     // Post-expansion shape: the binary item is a synthetic q, the numeric stays n.
     assert.equal(entry.predictor_type, 'q');
     assert.equal(entry.response_type, 'n');
-    // The item names the section — combineAnalysisAsSingleTable renders `predictor ?? response`.
-    assert.ok(entry.predictor.startsWith("Clinics:"), `got ${entry.predictor}`);
+    // combineAnalysisAsSingleTable renders `predictor ?? response`, so the header names BOTH axes:
+    // with several numeric predictors the item alone would repeat across sections.
+    assert.match(entry.predictor, /^Biomarker × Clinics: /, `got ${entry.predictor}`);
     assert.equal(entry.response, "Biomarker");
   });
+});
+
+test("runAnalysis: list-expanded headers name both axes, and label_list_with_column strips them", () => {
+  const biomarker = Statz.getColumnValues(parsed, "col_biomarker_hash");
+  const score = Statz.getColumnValues(parsed, "col_score_hash");
+  const clinics = Statz.getColumnValues(parsed, "col_clinics_hash");
+  const sex = Statz.getColumnValues(parsed, "col_sex_hash");
+  const dbs = { test_db: { columns: [biomarker.column, score.column, clinics.column, sex.column] } };
+  const sig = (c, l, role) => JSON.stringify({ database_id: "test_db", col_hash: c.column.col_hash, col_var_index: null, col_label: l, role });
+  const headers = (preds, resps, opts) => driver
+    .runAnalysis(preds, resps, dbs, { lang: 'en_us', binary_min_count: 30, ...opts })
+    .result.analysis.map(e => e.predictor);
+
+  // Two numeric predictors against one list response: the item alone would repeat verbatim.
+  const nl = headers([sig(biomarker, "Biomarker", "predictor"), sig(score, "Score", "predictor")], [sig(clinics, "Clinics", "response")], {});
+  assert.equal(new Set(nl).size, nl.length, `headers must be unique: ${nl.join(" | ")}`);
+  assert.ok(nl.some(h => h.startsWith("Biomarker × Clinics: ")));
+  assert.ok(nl.some(h => h.startsWith("Score × Clinics: ")));
+
+  // q × l used to repeat the predictor label for every item.
+  const ql = headers([sig(sex, "Sex", "predictor")], [sig(clinics, "Clinics", "response")], {});
+  assert.equal(new Set(ql).size, ql.length, `headers must be unique: ${ql.join(" | ")}`);
+  assert.ok(ql.every(h => h.startsWith("Sex × Clinics: ")));
+
+  // Turning the prefix off is the escape hatch: bare item, caller owns the disambiguation.
+  const bare = headers([sig(sex, "Sex", "predictor")], [sig(clinics, "Clinics", "response")], { label_list_with_column: false });
+  assert.ok(bare.every(h => !h.includes("×") && !h.includes("Clinics")), `got ${bare.join(" | ")}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -821,6 +849,98 @@ test("runAnalysis: multi-DB Profile C with missing response → warning + skip a
   // One warning entry instead of analyses
   assert.equal(result.analysis.length, 1);
   assert.ok(result.analysis[0].table.warning);
+});
+
+test("runAnalysis: a SINGLE predictor whose response lives in another DB is rejected too", () => {
+  // Rows are paired positionally downstream, so pairing a predictor from one database with a
+  // response from another silently correlates unrelated records — the two tables need not even
+  // share a row count. The validation used to be gated on "predictors span >1 database", which
+  // let this single-predictor case through and produced a bogus test.
+  const dbA = {
+    columns: [{
+      col_hash: 'h_pA', col_label: 'Age', col_type: 'n', col_sep: '',
+      col_values: { col_compact: false, labels: null, codes: null, raw_values: ['1','2','3','4','5'] },
+      col_vars: []
+    }]
+  };
+  const dbB = {
+    columns: [{
+      col_hash: 'h_out', col_label: 'Outcome', col_type: 'q', col_sep: '',
+      col_values: { col_compact: false, labels: null, codes: null,
+        raw_values: ['yes','no','yes','no','yes','no','yes','no'] },
+      col_vars: []
+    }]
+  };
+  const predictors = [JSON.stringify({ database_id: 'dbA', col_hash: 'h_pA', col_var_index: null, col_label: 'Age' })];
+  const responses = [JSON.stringify({ database_id: 'dbB', col_hash: 'h_out', col_var_index: null, col_label: 'Outcome' })];
+
+  const { result, flags } = driver.runAnalysis(predictors, responses, { dbA, dbB }, {});
+  assert.ok(flags.includes('has_multi_db_missing_response'));
+  assert.equal(flags.includes('has_multi_db_broadcast'), false, 'nothing to broadcast with one DB');
+  assert.equal(result.analysis.length, 1);
+  assert.ok(result.analysis[0].table.warning);
+  assert.equal(result.analysis[0].table.test_used, undefined, 'no test may be computed');
+});
+
+test("runAnalysis: a response sharing a hash with another DB is rebound to the predictors' DB", () => {
+  // col_hash is the MD5 of the COLUMN NAME, so it is unique only WITHIN a database: two uploads
+  // that both have an "Outcome" column carry the same hash. Picking the response from the other
+  // database therefore passes the presence check while still resolving against ITS OWN table.
+  const H = 'md5_outcome';
+  const dbA = {
+    columns: [
+      { col_hash: 'md5_age', col_label: 'Age', col_type: 'n', col_sep: '',
+        col_values: { col_compact: false, labels: null, codes: null, raw_values: ['1','2','3','4','5','6'] }, col_vars: [] },
+      { col_hash: H, col_label: 'Outcome', col_type: 'q', col_sep: '',
+        col_values: { col_compact: false, labels: null, codes: null, raw_values: ['yes','yes','yes','no','no','no'] }, col_vars: [] }
+    ]
+  };
+  const dbB = {
+    columns: [
+      { col_hash: 'md5_weight', col_label: 'Weight', col_type: 'n', col_sep: '',
+        col_values: { col_compact: false, labels: null, codes: null, raw_values: ['9','9','9'] }, col_vars: [] },
+      // Same name → same hash, but different levels and a different row count.
+      { col_hash: H, col_label: 'Outcome', col_type: 'q', col_sep: '',
+        col_values: { col_compact: false, labels: null, codes: null, raw_values: ['other','other','other'] }, col_vars: [] }
+    ]
+  };
+  const predictors = [JSON.stringify({ database_id: 'dbA', col_hash: 'md5_age', col_var_index: null, col_label: 'Age' })];
+  const foreign = [JSON.stringify({ database_id: 'dbB', col_hash: H, col_var_index: null, col_label: 'Outcome' })];
+  const own = [JSON.stringify({ database_id: 'dbA', col_hash: H, col_var_index: null, col_label: 'Outcome' })];
+
+  const viaForeign = driver.runAnalysis(predictors, foreign, { dbA, dbB }, {});
+  const viaOwn = driver.runAnalysis(predictors, own, { dbA, dbB }, {});
+
+  // The levels must come from dbA either way — dbB's "other" must never surface.
+  assert.deepEqual(viaForeign.result.analysis[0].table.columns, viaOwn.result.analysis[0].table.columns);
+  assert.ok(viaForeign.result.analysis[0].table.columns.includes('yes'));
+  assert.equal(viaForeign.result.analysis[0].table.columns.includes('other'), false);
+  assert.equal(viaForeign.result.analysis[0].table.p_value, viaOwn.result.analysis[0].table.p_value);
+});
+
+test("runAnalysis: single DB with the response present is unaffected by the validation", () => {
+  const db = {
+    columns: [
+      {
+        col_hash: 'h_p', col_label: 'Age', col_type: 'n', col_sep: '',
+        col_values: { col_compact: false, labels: null, codes: null, raw_values: ['1','2','3','4','5'] },
+        col_vars: []
+      },
+      {
+        col_hash: 'h_out', col_label: 'Outcome', col_type: 'q', col_sep: '',
+        col_values: { col_compact: false, labels: null, codes: null, raw_values: ['yes','no','yes','no','yes'] },
+        col_vars: []
+      }
+    ]
+  };
+  const predictors = [JSON.stringify({ database_id: 'db', col_hash: 'h_p', col_var_index: null, col_label: 'Age' })];
+  const responses = [JSON.stringify({ database_id: 'db', col_hash: 'h_out', col_var_index: null, col_label: 'Outcome' })];
+
+  const { result, flags } = driver.runAnalysis(predictors, responses, { db }, {});
+  assert.equal(flags.includes('has_multi_db_missing_response'), false);
+  assert.equal(flags.includes('has_multi_db_broadcast'), false);
+  assert.ok(flags.includes('has_nq'));
+  assert.ok(result.analysis[0].table.test_used, 'the analysis still runs');
 });
 
 test("runAnalysis: Profile B with responses from different DBs → warning, no analysis", () => {

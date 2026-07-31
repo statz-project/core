@@ -674,8 +674,9 @@ test("runAnalysis mode=chart Profile C: n x l inverts into per-item grouped char
   assert.ok(result.analysis.length >= 1);
   result.analysis.forEach((entry) => {
     assert.equal(entry.chart.type, "individual_values_grouped");
-    assert.ok(entry.predictor.startsWith("Clinics:"), `got ${entry.predictor}`);
-    assert.equal(entry.chart.spec.layout.xaxis.title.text, entry.predictor);
+    // Entry header names both axes; the chart's own x-axis keeps just the item.
+    assert.match(entry.predictor, /^Biomarker × Clinics: /, `got ${entry.predictor}`);
+    assert.ok(entry.chart.spec.layout.xaxis.title.text.startsWith("Clinics: "));
     assert.equal(entry.chart.spec.layout.yaxis.title.text, "Biomarker");
   });
 });
