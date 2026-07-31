@@ -1069,3 +1069,31 @@ test("runAnalysis: the level-mismatch flag does not alter the analyses", () => {
   assert.equal(result.analysis[0].table.columns.includes('other'), false);
   assert.ok(result.analysis[1].table.columns.includes('other'));
 });
+
+test("runAnalysis: the mixed-types paired warning names the types in the user's language", () => {
+  // The user picked variables, not `q`/`n`/`l` codes; and a repeated type must not be listed twice.
+  const col = (hash, label, type, values) => ({
+    col_hash: hash, col_label: label, col_type: type, col_sep: '',
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: values },
+    col_vars: []
+  });
+  const db = { columns: [col('h1','T0','q',['a','b','a']), col('h2','T1','q',['a','b','b']), col('h3','T2','n',['1','2','3'])] };
+  const sig = (hash, label) => JSON.stringify({ database_id: 'db', col_hash: hash, col_var_index: null, col_label: label });
+  const responses = [sig('h1','T0'), sig('h2','T1'), sig('h3','T2')];
+
+  const en = driver.runAnalysis([], responses, { db }, { lang: 'en_us' }).result.analysis[0].table.warning;
+  assert.match(en, /qualitative, numeric/);
+  assert.equal(/\bq\b|\bn\b|\bl\b/.test(en.replace(/[a-z]/g, m => m)) && / q,| n,|, q| n\./.test(en), false, 'no raw type codes');
+
+  const pt = driver.runAnalysis([], responses, { db }, { lang: 'pt_br' }).result.analysis[0].table.warning;
+  assert.match(pt, /qualitativa, numérica/);
+  assert.equal(pt.includes('qualitativa, qualitativa'), false, 'the repeated type is deduped');
+});
+
+test("getColumnTypeLabel: falls back to the raw code and tolerates blanks", () => {
+  assert.equal(Statz.getColumnTypeLabel('q', 'pt_br'), 'qualitativa');
+  assert.equal(Statz.getColumnTypeLabel('n', 'en_us'), 'numeric');
+  assert.equal(Statz.getColumnTypeLabel('l', 'es_es'), 'lista');
+  assert.equal(Statz.getColumnTypeLabel('zz', 'pt_br'), 'zz', 'unknown code passes through');
+  assert.equal(Statz.getColumnTypeLabel(null, 'pt_br'), '');
+});

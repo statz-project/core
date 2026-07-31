@@ -55,6 +55,11 @@ const MESSAGES = {
       "yes": "Sim",
       "no": "Não"
     },
+    "columnTypes": {
+      "q": "qualitativa",
+      "n": "numérica",
+      "l": "lista"
+    },
       "warnings": {
         "summarizeFailure": "Erro ao resumir \"{label}\" em \"{context}\"",
         "pairedMixedTypes": "Análise pareada requer respostas do mesmo tipo; obteve {types}.",
@@ -63,7 +68,7 @@ const MESSAGES = {
         "pairedTooFewMomentos": "Análise pareada requer ao menos 2 momentos.",
         "llSubsetRequired": "Análise lista × lista requer um subconjunto de itens em ambos predictor e response.",
         "multiDbMissingResponse": "A response \"{label}\" não está presente em todos os databases dos predictors.",
-        "pairedMultiDbNotAllowed": "Análise pareada requer todas as responses do mesmo database; obteve {databases}."
+        "pairedMultiDbNotAllowed": "Análise pareada requer todas as responses do mesmo database."
       },
       "mapping": {
         "invalid": "Mapeamento inválido para \"{label}\"",
@@ -242,6 +247,11 @@ const MESSAGES = {
       "yes": "Yes",
       "no": "No"
     },
+    "columnTypes": {
+      "q": "qualitative",
+      "n": "numeric",
+      "l": "list"
+    },
       "warnings": {
         "summarizeFailure": "Error summarizing \"{label}\" in \"{context}\"",
         "pairedMixedTypes": "Paired analysis requires responses of the same type; got {types}.",
@@ -250,7 +260,7 @@ const MESSAGES = {
         "pairedTooFewMomentos": "Paired analysis requires at least 2 momentos.",
         "llSubsetRequired": "List × list analysis requires a subset of items in both predictor and response.",
         "multiDbMissingResponse": "Response \"{label}\" is not present in every database used by predictors.",
-        "pairedMultiDbNotAllowed": "Paired analysis requires all responses from the same database; got {databases}."
+        "pairedMultiDbNotAllowed": "Paired analysis requires all responses from the same database."
       },
       "mapping": {
         "invalid": "Invalid mapping for \"{label}\"",
@@ -429,6 +439,11 @@ const MESSAGES = {
       "yes": "Sí",
       "no": "No"
     },
+    "columnTypes": {
+      "q": "cualitativa",
+      "n": "numérica",
+      "l": "lista"
+    },
       "warnings": {
         "summarizeFailure": "Error al resumir \"{label}\" en \"{context}\"",
         "pairedMixedTypes": "El análisis pareado requiere respuestas del mismo tipo; obtuvo {types}.",
@@ -437,7 +452,7 @@ const MESSAGES = {
         "pairedTooFewMomentos": "El análisis pareado requiere al menos 2 momentos.",
         "llSubsetRequired": "El análisis lista × lista requiere un subconjunto de elementos en ambos predictor y response.",
         "multiDbMissingResponse": "La response \"{label}\" no está presente en todas las bases de datos de los predictors.",
-        "pairedMultiDbNotAllowed": "El análisis pareado requiere todas las responses de la misma base de datos; obtuvo {databases}."
+        "pairedMultiDbNotAllowed": "El análisis pareado requiere todas las responses de la misma base de datos."
       },
       "mapping": {
         "invalid": "Asignación no válida para \"{label}\"",
@@ -672,6 +687,22 @@ export function getDefaultMissingLabel(lang) {
   return translate('table.missing', lang);
 }
 
+/**
+ * Human-readable name for a `col_type` code. Messages shown to the user must not expose the
+ * internal `q`/`n`/`l` vocabulary — nobody picked a "q", they picked a qualitative variable.
+ * Unknown codes fall back to the code itself rather than rendering a missing-key string.
+ * @param {string|null|undefined} colType
+ * @param {string|undefined|null} lang
+ * @returns {string}
+ */
+export function getColumnTypeLabel(colType, lang) {
+  const code = String(colType ?? '').trim();
+  if (!code) return '';
+  const key = `columnTypes.${code}`;
+  const label = translate(key, lang);
+  return label === key ? code : label;
+}
+
 export function getBinaryLabels(lang) {
   const code = normalizeLanguage(lang);
   return {
@@ -696,6 +727,7 @@ const api = {
   t: translate,
   getTableHeaders,
   getDefaultMissingLabel,
+  getColumnTypeLabel,
   getBinaryLabels,
   getSupportedLanguages,
   getMessages

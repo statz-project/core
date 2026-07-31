@@ -6,7 +6,7 @@ import numeric from './numeric.js';
 import variants from './variants.js';
 import charts from './charts/index.js';
 import snapshots from './snapshots.js';
-import { getBinaryLabels, getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
+import { getBinaryLabels, getColumnTypeLabel, getDefaultMissingLabel, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 
 /**
  * @typedef {Object} Column
@@ -408,9 +408,9 @@ ns.summarizePaired = function (columns, responses, options, flagsUsed, lang) {
       response: responses[0]?.col_label || null,
       predictor_type: null,
       response_type: null,
-      table: { warning: translate('warnings.pairedMultiDbNotAllowed', lang, {
-        databases: [...dbIds].join(', ')
-      }) }
+      // The offending database ids are deliberately not surfaced: a Bubble UUID is not
+      // actionable. Which database each variable came from belongs in the element summary UI.
+      table: { warning: translate('warnings.pairedMultiDbNotAllowed', lang) }
     };
   }
   const resolvedCols = responses.map((r) =>
@@ -429,7 +429,11 @@ ns.summarizePaired = function (columns, responses, options, flagsUsed, lang) {
       response: responses[0]?.col_label || null,
       predictor_type: null,
       response_type: firstType,
-      table: { warning: translate('warnings.pairedMixedTypes', lang, { types: types.join(', ') }) }
+      // Deduped and translated: the user picked variables, not `q`/`n`/`l` codes, and a repeated
+      // type in the list ('qualitativa, qualitativa, numérica') reads as noise.
+      table: { warning: translate('warnings.pairedMixedTypes', lang, {
+        types: [...new Set(types)].map((/** @type {string} */ t) => getColumnTypeLabel(t, lang)).join(', ')
+      }) }
     };
   }
   const labels = responses.map((r) => r.col_label);
