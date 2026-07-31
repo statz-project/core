@@ -812,7 +812,7 @@ test("runAnalysis: multi-DB Profile C broadcasts response across DBs (D2)", () =
   assert.ok(result.analysis.every(e => e.predictor_type === 'n' && e.response_type === 'q'));
 });
 
-test("runAnalysis: multi-DB Profile C with missing response → warning + skip analysis", () => {
+test("runAnalysis: multi-DB Profile C with missing response → warning + the viable analyses", () => {
   const dbA = {
     columns: [
       {
@@ -845,8 +845,32 @@ test("runAnalysis: multi-DB Profile C with missing response → warning + skip a
 
   const { result, flags } = driver.runAnalysis(predictors, responses, dbs, {});
   assert.ok(flags.includes('has_multi_db_missing_response'));
+  // Only one database contributes, so nothing was concatenated across databases.
   assert.equal(flags.includes('has_multi_db_broadcast'), false);
-  // One warning entry instead of analyses
+  // The notice comes first, then the analyses the viable database could still produce — dropping
+  // dbB must not cost the user dbA's perfectly valid work.
+  assert.equal(result.analysis.length, 2);
+  assert.ok(result.analysis[0].table.warning);
+  assert.equal(result.analysis[1].table.warning, undefined);
+  assert.equal(result.analysis[1].predictor, 'PA', 'the dbA predictor was analysed');
+  assert.ok(result.analysis[1].table.test_used);
+  // The warning no longer leaks the raw database id — the user cannot act on a Bubble UUID.
+  assert.equal(/\d{10,}x\d+/.test(result.analysis[0].table.warning), false);
+  assert.equal(result.analysis[0].table.warning.includes('dbB'), false);
+});
+
+test("runAnalysis: when NO database has the response, only the notice comes back", () => {
+  const dbA = {
+    columns: [{
+      col_hash: 'h_pA', col_label: 'PA', col_type: 'n', col_sep: '',
+      col_values: { col_compact: false, labels: null, codes: null, raw_values: ['1','2','3','4','5'] },
+      col_vars: []
+    }]
+  };
+  const predictors = [JSON.stringify({ database_id: 'dbA', col_hash: 'h_pA', col_var_index: null, col_label: 'PA' })];
+  const responses = [JSON.stringify({ database_id: 'dbZ', col_hash: 'h_absent', col_var_index: null, col_label: 'Outcome' })];
+  const { result, flags } = driver.runAnalysis(predictors, responses, { dbA }, {});
+  assert.ok(flags.includes('has_multi_db_missing_response'));
   assert.equal(result.analysis.length, 1);
   assert.ok(result.analysis[0].table.warning);
 });

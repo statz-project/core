@@ -62,7 +62,7 @@ const MESSAGES = {
         "pairedListNotSupported": "Análise pareada para respostas de tipo lista ainda não é suportada.",
         "pairedTooFewMomentos": "Análise pareada requer ao menos 2 momentos.",
         "llSubsetRequired": "Análise lista × lista requer um subconjunto de itens em ambos predictor e response.",
-        "multiDbMissingResponse": "A response \"{label}\" não está presente em todos os databases dos predictors: faltando em {databases}.",
+        "multiDbMissingResponse": "A response \"{label}\" não está presente em todos os databases dos predictors.",
         "pairedMultiDbNotAllowed": "Análise pareada requer todas as responses do mesmo database; obteve {databases}."
       },
       "mapping": {
@@ -249,7 +249,7 @@ const MESSAGES = {
         "pairedListNotSupported": "Paired analysis for list-type responses is not yet supported.",
         "pairedTooFewMomentos": "Paired analysis requires at least 2 momentos.",
         "llSubsetRequired": "List × list analysis requires a subset of items in both predictor and response.",
-        "multiDbMissingResponse": "Response \"{label}\" is not present in every database used by predictors: missing in {databases}.",
+        "multiDbMissingResponse": "Response \"{label}\" is not present in every database used by predictors.",
         "pairedMultiDbNotAllowed": "Paired analysis requires all responses from the same database; got {databases}."
       },
       "mapping": {
@@ -436,7 +436,7 @@ const MESSAGES = {
         "pairedListNotSupported": "El análisis pareado para respuestas de tipo lista aún no es compatible.",
         "pairedTooFewMomentos": "El análisis pareado requiere al menos 2 momentos.",
         "llSubsetRequired": "El análisis lista × lista requiere un subconjunto de elementos en ambos predictor y response.",
-        "multiDbMissingResponse": "La response \"{label}\" no está presente en todas las bases de datos de los predictors: falta en {databases}.",
+        "multiDbMissingResponse": "La response \"{label}\" no está presente en todas las bases de datos de los predictors.",
         "pairedMultiDbNotAllowed": "El análisis pareado requiere todas las responses de la misma base de datos; obtuvo {databases}."
       },
       "mapping": {

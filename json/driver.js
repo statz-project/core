@@ -1610,45 +1610,52 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
       if (!responseCol) missingDbs.push(/** @type {string} */ (dbId));
       else responseColByDb.set(/** @type {string} */ (dbId), responseCol);
     }
+    // Databases that can actually contribute an analysis. Those missing the response are dropped
+    // rather than aborting the whole Element: a predictor whose own database holds the response is
+    // still perfectly analysable, and losing it would hide valid work behind an unrelated gap.
+    const contributingDbIds = [...predictorDbIds].filter(dbId => responseColByDb.has(/** @type {string} */ (dbId)));
+
+    /** @type {any[]} Non-blocking entries prepended to the analysis list. */
+    const notices = [];
     if (missingDbs.length > 0) {
       flagsUsed.add('has_multi_db_missing_response');
-      /** @type {any} */
-      const missingEntry = {
+      notices.push({
         predictor: null,
         response: response.col_label || null,
         predictor_type: null,
         response_type: null,
         table: { warning: translate('warnings.multiDbMissingResponse', lang, {
-          label: response.col_label || response.col_hash,
-          databases: missingDbs.join(', ')
+          label: response.col_label || response.col_hash
         }) }
-      };
+      });
+    }
+    if (contributingDbIds.length === 0) {
       return /** @type {any} */ ({
-        result: { analysis: [missingEntry], test_legend: [], lang },
+        result: { analysis: notices, test_legend: [], lang },
         flags: Array.from(flagsUsed)
       });
     }
-    // Response present in every predictor database — but a shared name does not guarantee shared
-    // categories. Flag the divergence so the UI can warn; the analyses themselves are left alone,
-    // each one being valid within its own database. Numeric responses are skipped: their distinct
-    // values are data, not categories.
-    if (predictorDbIds.size > 1) {
-      const dbIdList = [...predictorDbIds];
-      const isCategorical = dbIdList.every(dbId => (responseColByDb.get(dbId)?.col_type ?? 'q') !== 'n');
+    // A shared name does not guarantee shared categories. Flag the divergence so the UI can warn;
+    // the analyses themselves are left alone, each being valid within its own database. Numeric
+    // responses are skipped: their distinct values are data, not categories.
+    if (contributingDbIds.length > 1) {
+      const isCategorical = contributingDbIds.every(dbId => (responseColByDb.get(dbId)?.col_type ?? 'q') !== 'n');
       if (isCategorical) {
-        const levelSets = dbIdList.map(dbId => responseLevelKeys(dbs[/** @type {string} */ (dbId)], responseColByDb.get(dbId)));
+        const levelSets = contributingDbIds.map(dbId => responseLevelKeys(dbs[/** @type {string} */ (dbId)], responseColByDb.get(dbId)));
         const reference = levelSets[0];
         const diverges = levelSets.some(set => set.size !== reference.size || [...set].some(key => !reference.has(key)));
         if (diverges) flagsUsed.add('has_multi_db_level_mismatch');
       }
     }
-    // Broadcast only when there is more than one database — otherwise fall through to the normal
-    // single-DB path below.
-    if (predictorDbIds.size > 1) {
-      flagsUsed.add('has_multi_db_broadcast');
+    // Per-database run whenever more than one database contributes, or whenever some were dropped
+    // (so the surviving analyses still reach the user with the notice riding along). A single
+    // contributing database with nothing dropped falls through to the normal path below.
+    if (contributingDbIds.length > 1 || missingDbs.length > 0) {
+      // Only a genuine concatenation across databases counts as a broadcast.
+      if (contributingDbIds.length > 1) flagsUsed.add('has_multi_db_broadcast');
       /** @type {any[]} */
-      const aggregatedEntries = [];
-      for (const dbId of predictorDbIds) {
+      const aggregatedEntries = [...notices];
+      for (const dbId of contributingDbIds) {
         const dbPredictors = predictors.filter((/** @type {any} */ p) => p.database_id === dbId);
         // Rebind BOTH fields: the match may have come from the normalized label, in which case
         // this database stores the column under a different hash.
@@ -1681,7 +1688,7 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     // the same hash. A response picked from another database therefore passes the check above while
     // still resolving against ITS OWN table — pairing unrelated rows. Rebind it to the predictors'
     // database, the same rewrite the broadcast performs per database.
-    const soleDbId = /** @type {string} */ (predictorDbIds.values().next().value);
+    const soleDbId = /** @type {string} */ (contributingDbIds[0]);
     const soleResponseCol = responseColByDb.get(soleDbId);
     if (response.database_id !== soleDbId || response.col_hash !== soleResponseCol.col_hash) {
       responses[0] = { ...response, database_id: soleDbId, col_hash: soleResponseCol.col_hash };
