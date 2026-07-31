@@ -1519,6 +1519,60 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
 };
 
 /**
+ * Locate a Profile C response inside one database.
+ *
+ * `col_hash` is the MD5 of the column NAME, so matching by hash IS matching by exact name. When the
+ * same variable was spelled differently across uploads (`sharedoutcome` vs `SharedOutcome`) the
+ * hashes differ, and renaming `col_label` in the app cannot repair it — the hash is baked at upload
+ * from the spreadsheet header. So fall back to the normalized label, the same key
+ * `buildColumnMappingSuggestions` matches on. That is not a looser rule than the hash: it is the
+ * very same "same column name = same variable" semantic, made insensitive to case and punctuation.
+ *
+ * Only a UNIQUE match counts — two candidates are ambiguous and reported as not found, so the
+ * caller emits its normal "missing in database X" warning rather than guessing.
+ *
+ * @param {{columns?: Column[]}|null|undefined} db
+ * @param {{col_hash?: string, col_label?: string}} response
+ * @returns {any|null}
+ */
+const findResponseInDb = (db, response) => {
+  if (!db || !Array.isArray(db.columns)) return null;
+  const byHash = ns.getColumn(db, /** @type {string} */ (response?.col_hash));
+  if (byHash) return byHash;
+  const target = normalizeHeaderForMatch(response?.col_label);
+  if (!target) return null;
+  const matches = db.columns.filter((/** @type {any} */ col) =>
+    normalizeHeaderForMatch(col?.col_label ?? col?.col_name) === target);
+  return matches.length === 1 ? matches[0] : null;
+};
+
+/**
+ * Normalized category keys of a resolved column, for comparing level identity across databases.
+ * Compared through `normalizeHeaderForMatch` so "Yes"/"yes" is not reported as a divergence.
+ * @param {{columns?: Column[]}} db
+ * @param {any} column
+ * @returns {Set<string>}
+ */
+const responseLevelKeys = (db, column) => {
+  const resolved = factors.resolveVariable(db, column.col_hash, null);
+  const colType = resolved?.colType ?? 'q';
+  const colSep = resolved?.colSep ?? ';';
+  /** @type {Set<string>} */
+  const keys = new Set();
+  for (const value of resolved?.values ?? []) {
+    if (factors.isMissingValue(value, colType, colSep)) continue;
+    const items = colType === 'l'
+      ? String(value).split(colSep).map((/** @type {string} */ s) => s.trim()).filter(Boolean)
+      : [String(value).trim()];
+    for (const item of items) {
+      const key = normalizeHeaderForMatch(item);
+      if (key) keys.add(key);
+    }
+  }
+  return keys;
+};
+
+/**
  * End-to-end analysis from Bubble element inputs to combined analysis object.
  * @param {string[]} elementPredictors JSON strings
  * @param {string[]} elementResponses JSON strings
@@ -1548,10 +1602,13 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     const response = responses[0];
     /** @type {string[]} */
     const missingDbs = [];
+    /** @type {Map<string, any>} Database id → the column that database contributes as the response. */
+    const responseColByDb = new Map();
     for (const dbId of predictorDbIds) {
       const db = dbs[/** @type {string} */ (dbId)];
-      const responseCol = db ? ns.getColumn(db, response.col_hash) : null;
+      const responseCol = db ? findResponseInDb(db, response) : null;
       if (!responseCol) missingDbs.push(/** @type {string} */ (dbId));
+      else responseColByDb.set(/** @type {string} */ (dbId), responseCol);
     }
     if (missingDbs.length > 0) {
       flagsUsed.add('has_multi_db_missing_response');
@@ -1571,15 +1628,31 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
         flags: Array.from(flagsUsed)
       });
     }
-    // Response present in every predictor database. Broadcast only when there is more than one —
-    // otherwise fall through to the normal single-DB path below.
+    // Response present in every predictor database — but a shared name does not guarantee shared
+    // categories. Flag the divergence so the UI can warn; the analyses themselves are left alone,
+    // each one being valid within its own database. Numeric responses are skipped: their distinct
+    // values are data, not categories.
+    if (predictorDbIds.size > 1) {
+      const dbIdList = [...predictorDbIds];
+      const isCategorical = dbIdList.every(dbId => (responseColByDb.get(dbId)?.col_type ?? 'q') !== 'n');
+      if (isCategorical) {
+        const levelSets = dbIdList.map(dbId => responseLevelKeys(dbs[/** @type {string} */ (dbId)], responseColByDb.get(dbId)));
+        const reference = levelSets[0];
+        const diverges = levelSets.some(set => set.size !== reference.size || [...set].some(key => !reference.has(key)));
+        if (diverges) flagsUsed.add('has_multi_db_level_mismatch');
+      }
+    }
+    // Broadcast only when there is more than one database — otherwise fall through to the normal
+    // single-DB path below.
     if (predictorDbIds.size > 1) {
       flagsUsed.add('has_multi_db_broadcast');
       /** @type {any[]} */
       const aggregatedEntries = [];
       for (const dbId of predictorDbIds) {
         const dbPredictors = predictors.filter((/** @type {any} */ p) => p.database_id === dbId);
-        const dbResponse = { ...response, database_id: dbId };
+        // Rebind BOTH fields: the match may have come from the normalized label, in which case
+        // this database stores the column under a different hash.
+        const dbResponse = { ...response, database_id: dbId, col_hash: responseColByDb.get(/** @type {string} */ (dbId)).col_hash };
         const subResult = ns.runAnalysis(
           dbPredictors.map((/** @type {any} */ p) => JSON.stringify(p)),
           [JSON.stringify(dbResponse)],
@@ -1608,9 +1681,10 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     // the same hash. A response picked from another database therefore passes the check above while
     // still resolving against ITS OWN table — pairing unrelated rows. Rebind it to the predictors'
     // database, the same rewrite the broadcast performs per database.
-    const soleDbId = predictorDbIds.values().next().value;
-    if (response.database_id !== soleDbId) {
-      responses[0] = { ...response, database_id: soleDbId };
+    const soleDbId = /** @type {string} */ (predictorDbIds.values().next().value);
+    const soleResponseCol = responseColByDb.get(soleDbId);
+    if (response.database_id !== soleDbId || response.col_hash !== soleResponseCol.col_hash) {
+      responses[0] = { ...response, database_id: soleDbId, col_hash: soleResponseCol.col_hash };
     }
   }
 

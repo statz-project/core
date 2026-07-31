@@ -13,7 +13,7 @@ const KNOWN_FLAGS = new Set([
   'has_qq', 'has_nq', 'has_qn', 'has_nn', 'has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll',
   'has_residuals', 'has_tukey', 'has_kruskal_sign',
   'has_paired', 'has_paired_n', 'has_paired_q',
-  'has_multi_db_broadcast', 'has_multi_db_missing_response',
+  'has_multi_db_broadcast', 'has_multi_db_missing_response', 'has_multi_db_level_mismatch',
   'has_likert_eligible'
 ]);
 

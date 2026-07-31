@@ -970,3 +970,78 @@ test("runAnalysis: Profile B with responses from different DBs → warning, no a
   assert.match(entry.table.warning, /database/i);
 });
 
+
+// ---------------------------------------------------------------------------
+// Multi-DB: response matching by normalized label + level-identity flag
+// ---------------------------------------------------------------------------
+
+const mdbCol = (hash, label, type, values) => ({
+  col_hash: hash, col_label: label, col_type: type, col_sep: '',
+  col_values: { col_compact: false, labels: null, codes: null, raw_values: values },
+  col_vars: []
+});
+const mdbSig = (db, hash, label) => JSON.stringify({ database_id: db, col_hash: hash, col_var_index: null, col_label: label });
+
+test("runAnalysis: a response spelled differently across DBs matches on the normalized label", () => {
+  // col_hash is the MD5 of the column NAME, so "sharedoutcome" and "SharedOutcome" hash apart and
+  // renaming col_label cannot repair it. The normalized-label fallback makes the pair work.
+  const dbC = { columns: [mdbCol('md5_P', 'P', 'q', ['x','y','x','y']), mdbCol('md5_lower', 'sharedoutcome', 'q', ['yes','no','yes','no'])] };
+  const dbD = { columns: [mdbCol('md5_P', 'P', 'q', ['x','y','x','y']), mdbCol('md5_camel', 'SharedOutcome', 'q', ['yes','no','yes','no'])] };
+  const predictors = [mdbSig('dbC', 'md5_P', 'PredC'), mdbSig('dbD', 'md5_P', 'PredD')];
+  const responses = [mdbSig('dbD', 'md5_camel', 'SharedOutcome')];
+
+  const { result, flags } = driver.runAnalysis(predictors, responses, { dbC, dbD }, {});
+  assert.ok(flags.includes('has_multi_db_broadcast'));
+  assert.equal(flags.includes('has_multi_db_missing_response'), false);
+  assert.equal(result.analysis.length, 2, 'one analysis per database');
+  result.analysis.forEach(entry => assert.ok(entry.table.test_used));
+});
+
+test("runAnalysis: an ambiguous label match is reported as missing, never guessed", () => {
+  const dbAmb = {
+    columns: [
+      mdbCol('md5_P', 'P', 'q', ['x','y']),
+      mdbCol('md5_a', 'Shared Outcome', 'q', ['yes','no']),
+      mdbCol('md5_b', 'shared-outcome', 'q', ['yes','no'])   // both normalize to 'sharedoutcome'
+    ]
+  };
+  const dbD = { columns: [mdbCol('md5_P', 'P', 'q', ['x','y']), mdbCol('md5_camel', 'SharedOutcome', 'q', ['yes','no'])] };
+  const predictors = [mdbSig('dbAmb', 'md5_P', 'PredA'), mdbSig('dbD', 'md5_P', 'PredD')];
+  const responses = [mdbSig('dbD', 'md5_camel', 'SharedOutcome')];
+
+  const { result, flags } = driver.runAnalysis(predictors, responses, { dbAmb, dbD }, {});
+  assert.ok(flags.includes('has_multi_db_missing_response'));
+  assert.ok(result.analysis[0].table.warning);
+});
+
+test("runAnalysis: diverging response levels across DBs raise has_multi_db_level_mismatch", () => {
+  const base = ['x','y','x','y'];
+  const dbSame = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','q',['yes','no','yes','no'])] };
+  const dbCase = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','q',['Yes','NO','yes','no'])] };
+  const dbDiff = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','q',['yes','no','other','other'])] };
+  const dbNum  = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','n',['9','8','7','6'])] };
+  const dbNum2 = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','n',['1','2','3','4'])] };
+  const run = (a, b, dbs) => driver.runAnalysis(
+    [mdbSig(a, 'md5_P', 'A'), mdbSig(b, 'md5_P', 'B')], [mdbSig(a, 'md5_S', 'S')], dbs, {}).flags;
+
+  // Case and punctuation differences are NOT a divergence — the comparison is normalized.
+  assert.equal(run('dbSame', 'dbCase', { dbSame, dbCase }).includes('has_multi_db_level_mismatch'), false);
+  // A genuinely extra category is.
+  assert.ok(run('dbSame', 'dbDiff', { dbSame, dbDiff }).includes('has_multi_db_level_mismatch'));
+  // Numeric responses are skipped: their distinct values are data, not categories.
+  assert.equal(run('dbNum2', 'dbNum', { dbNum2, dbNum }).includes('has_multi_db_level_mismatch'), false);
+});
+
+test("runAnalysis: the level-mismatch flag does not alter the analyses", () => {
+  const base = ['x','y','x','y'];
+  const dbSame = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','q',['yes','no','yes','no'])] };
+  const dbDiff = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','q',['yes','no','other','other'])] };
+  const { result } = driver.runAnalysis(
+    [mdbSig('dbSame','md5_P','A'), mdbSig('dbDiff','md5_P','B')], [mdbSig('dbSame','md5_S','S')], { dbSame, dbDiff }, {});
+  assert.equal(result.analysis.length, 2);
+  // Each section keeps its own level set — nothing is padded with zeros, which would imply the
+  // p-value had considered those columns.
+  assert.ok(result.analysis[0].table.columns.includes('yes'));
+  assert.equal(result.analysis[0].table.columns.includes('other'), false);
+  assert.ok(result.analysis[1].table.columns.includes('other'));
+});
