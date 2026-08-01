@@ -148,8 +148,8 @@ test("summarize_q_q 2×2: adds Odds Ratio + 95% CI columns; row 0 = Ref", () => 
   // Predictor: exposure (yes/no); response: outcome (sick/well). 2×2 setup.
   const pred = ["yes","yes","yes","yes","no","no","no","no","yes","no"];
   const resp = ["sick","sick","sick","well","well","well","well","well","sick","sick"];
-  const t = contingency.summarize_q_q(pred, resp, undefined, { lang: "en_us" });
-  // Default options: effect_size_type unset → OR. Columns include Odds Ratio + 95% CI.
+  const t = contingency.summarize_q_q(pred, resp, undefined, { lang: "en_us", with_effect_sizes: true });
+  // Opted in; effect_size_type unset → OR. Columns include Odds Ratio + 95% CI.
   assert.ok(t.columns.includes("Odds Ratio"), `columns: ${t.columns.join(", ")}`);
   assert.ok(t.columns.includes("95% CI"));
   // Row order is alphabetical: "no" first, then "yes"
@@ -164,7 +164,7 @@ test("summarize_q_q 2×2: adds Odds Ratio + 95% CI columns; row 0 = Ref", () => 
 test("summarize_q_q 2×2: effect_size_type='risk_ratio' switches column name", () => {
   const pred = ["yes","yes","yes","no","no","no","yes","no","yes","no"];
   const resp = ["sick","sick","well","well","well","sick","well","sick","sick","well"];
-  const t = contingency.summarize_q_q(pred, resp, undefined, { lang: "en_us", effect_size_type: "risk_ratio" });
+  const t = contingency.summarize_q_q(pred, resp, undefined, { lang: "en_us", with_effect_sizes: true, effect_size_type: "risk_ratio" });
   assert.ok(t.columns.includes("Risk Ratio"), `columns: ${t.columns.join(", ")}`);
   assert.ok(!t.columns.includes("Odds Ratio"));
   assert.equal(t.rows[0]["Risk Ratio"], "Ref");

@@ -123,10 +123,19 @@ ns.OPTION_METADATA = {
     appliesTo: ['has_qq', 'has_lq'], modeGate: 'table',
     labelKey: 'options.with_residuals.label', descriptionKey: 'options.with_residuals.description'
   },
+  // Effect sizes surface in every cell that routes through summarize_q_q and yields a 2×2 —
+  // including l × l, whose two decomposed binaries always form one. Both options therefore share
+  // the same flag set; `with_effect_sizes` gates the computation, `effect_size_type` picks which
+  // statistic is shown.
+  with_effect_sizes: {
+    category: 'table', type: 'boolean', default: false, enum: null,
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll'], modeGate: 'table',
+    labelKey: 'options.with_effect_sizes.label', descriptionKey: 'options.with_effect_sizes.description'
+  },
   effect_size_type: {
     category: 'table', type: 'enum', default: 'odds_ratio',
     enum: ['odds_ratio', 'risk_ratio'],
-    appliesTo: ['has_qq', 'has_lq', 'has_ql'], modeGate: 'table',
+    appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll'], modeGate: 'table',
     labelKey: 'options.effect_size_type.label', descriptionKey: 'options.effect_size_type.description'
   },
   residual_symbols: {

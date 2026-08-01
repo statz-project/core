@@ -258,3 +258,13 @@ test("getOptionLabel / getOptionDescription resolve all options in en_us, pt_br,
     }
   }
 });
+
+test("effect-size options surface for every flag whose tables can be 2x2", () => {
+  // l x l decomposes BOTH sides into binaries, so its per-pair tables are always 2x2 and do carry
+  // Odds Ratio columns — has_ll used to be missing from effect_size_type's appliesTo.
+  for (const flag of ['has_qq', 'has_lq', 'has_ql', 'has_ll']) {
+    const names = optionsMetadata.getAvailableOptions([flag], 'table').map(o => o.name);
+    assert.ok(names.includes('with_effect_sizes'), `with_effect_sizes missing for ${flag}`);
+    assert.ok(names.includes('effect_size_type'), `effect_size_type missing for ${flag}`);
+  }
+});

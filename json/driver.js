@@ -758,6 +758,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.include_missing = normalized.include_missing ?? true;
   normalized.label_list_with_column = normalized.label_list_with_column ?? true;
   normalized.with_residuals = normalized.with_residuals ?? true;
+  normalized.with_effect_sizes = normalized.with_effect_sizes === true;
   normalized.effect_size_type = (/** @type {any} */ (normalized).effect_size_type) === 'risk_ratio' ? 'risk_ratio' : 'odds_ratio';
   // Chart mode: defaults to 'table' for backward compatibility. When 'chart', the dispatcher
   // emits Plotly figure specs in `entry.chart` instead of cross-tab data in `entry.table`.

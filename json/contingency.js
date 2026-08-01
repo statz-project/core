@@ -105,6 +105,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
   const { rowLabels = null, colLabels = null } = labels;
   const lang = normalizeLanguage(options?.lang);
   const withResiduals = options?.with_residuals ?? true;
+  const withEffectSizes = options?.with_effect_sizes === true;
   const residualSymbols = options?.residual_symbols ?? {
     greater: translate('table.legends.residualGreaterSymbol', lang),
     lower: translate('table.legends.residualLowerSymbol', lang)
@@ -162,8 +163,11 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
         return '';
       }));
     }
-    // Effect sizes for 2×2 tables: odds ratio + risk ratio with 95% CI.
-    const effect_sizes = is2x2
+    // Effect sizes for 2×2 tables: odds ratio + risk ratio with 95% CI. OPT-IN — the columns are an
+    // extra analysis the reader asks for, not part of the baseline cross-tab. When off the
+    // computation is skipped outright, the same contract `with_residuals` has with
+    // `posthoc_residuals` (null rather than computed-and-hidden).
+    const effect_sizes = (is2x2 && withEffectSizes)
       ? ns.computeEffectSizes2x2(observed[0][0], observed[0][1], observed[1][0], observed[1][1])
       : null;
     return { method, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower, effect_sizes };

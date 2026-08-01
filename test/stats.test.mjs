@@ -179,8 +179,8 @@ test("summarize_q_q: emits OR/RR effect sizes for 2x2 tables", () => {
                      'B_unexposed','B_unexposed','B_unexposed','B_unexposed','B_unexposed','B_unexposed'];
   const response  = ['A_outcome','A_outcome','A_outcome','A_outcome','B_none','B_none',
                      'A_outcome','B_none','B_none','B_none','B_none','B_none'];
-  // 2x2: [[4,2],[1,5]] → OR = (4*5)/(2*1) = 10
-  const result = Statz.summarize_q_q(predictor, response);
+  // 2x2: [[4,2],[1,5]] → OR = (4*5)/(2*1) = 10. Effect sizes are opt-in.
+  const result = Statz.summarize_q_q(predictor, response, undefined, { with_effect_sizes: true });
 
   assert.ok(result.effect_sizes, "2x2 table must expose effect_sizes");
   assert.equal(result.effect_sizes.odds_ratio.value, 10);
@@ -202,7 +202,7 @@ test("summarize_q_q: applies Haldane–Anscombe correction when a cell is 0", ()
   const predictor = ['a','a','a','a','b','b','b','b'];
   const response  = ['x','x','x','y','x','x','x','x'];
   // 2x2: a [x=3, y=1], b [x=4, y=0] → without correction RR/OR have zero in denominator
-  const result = Statz.summarize_q_q(predictor, response);
+  const result = Statz.summarize_q_q(predictor, response, undefined, { with_effect_sizes: true });
   assert.ok(result.effect_sizes);
   assert.ok(Number.isFinite(result.effect_sizes.odds_ratio.value));
   assert.ok(Number.isFinite(result.effect_sizes.odds_ratio.ci_upper));
@@ -218,7 +218,7 @@ test("summarize_q_l: expands a list response into binary columns and runs q×q p
     predictor.rawValues,
     response.rawValues,
     null,
-    { lang: 'en_us' },
+    { lang: 'en_us', with_effect_sizes: true },
     { responseLabel: "Clinics", separator: ";" }
   );
 
@@ -1096,4 +1096,40 @@ test("getColumnTypeLabel: falls back to the raw code and tolerates blanks", () =
   assert.equal(Statz.getColumnTypeLabel('l', 'es_es'), 'lista');
   assert.equal(Statz.getColumnTypeLabel('zz', 'pt_br'), 'zz', 'unknown code passes through');
   assert.equal(Statz.getColumnTypeLabel(null, 'pt_br'), '');
+});
+
+test("summarize_q_q: effect sizes are opt-in; off by default and the computation is skipped", () => {
+  const predictor = ['a','a','a','a','b','b','b','b','a','b'];
+  const response  = ['x','x','x','y','y','y','y','y','x','x'];
+
+  const on = Statz.summarize_q_q(predictor, response, undefined, { lang: 'en_us', with_effect_sizes: true });
+  assert.ok(on.columns.includes('Odds Ratio'), 'opting in brings the columns');
+  assert.ok(on.effect_sizes, 'and returns them');
+
+  const off = Statz.summarize_q_q(predictor, response, undefined, { lang: 'en_us' });
+  assert.deepEqual(off.columns, ['Group', 'x', 'y', 'p-value']);
+  // Same contract as with_residuals: the option means "I don't want them", not "compute and hide".
+  assert.equal(off.effect_sizes, null);
+  // The test itself is untouched — only the effect-size columns go away.
+  assert.equal(off.p_value, on.p_value);
+  assert.equal(off.test_used, on.test_used);
+  off.rows.forEach(row => {
+    assert.equal(Object.prototype.hasOwnProperty.call(row, 'Odds Ratio'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(row, '95% CI'), false);
+  });
+});
+
+test("summarize_q_q: with_effect_sizes is independent of effect_size_type", () => {
+  const predictor = ['a','a','b','b','a','b'];
+  const response  = ['x','y','x','y','x','y'];
+  const rr = Statz.summarize_q_q(predictor, response, undefined, { lang: 'en_us', with_effect_sizes: true, effect_size_type: 'risk_ratio' });
+  assert.ok(rr.columns.includes('Risk Ratio'));
+  const offRr = Statz.summarize_q_q(predictor, response, undefined, { lang: 'en_us', effect_size_type: 'risk_ratio', with_effect_sizes: false });
+  assert.equal(offRr.columns.includes('Risk Ratio'), false);
+  assert.equal(offRr.effect_sizes, null);
+});
+
+test("getDefaultAnalysisOptions: with_effect_sizes defaults to false and is respected", () => {
+  assert.equal(driver.getDefaultAnalysisOptions({}).with_effect_sizes, false);
+  assert.equal(driver.getDefaultAnalysisOptions({ with_effect_sizes: true }).with_effect_sizes, true);
 });
