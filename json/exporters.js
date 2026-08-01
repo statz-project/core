@@ -367,11 +367,13 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = 
   if (symbolSegments.length) legendSegments.push(symbolSegments.join('; '));
   if (combined.percent_by === 'col') legendSegments.push(translate('table.legends.percentByColumn', lang));
   else if (combined.percent_by === 'row') legendSegments.push(translate('table.legends.percentByRow', lang));
+  else if (combined.percent_by === 'total') legendSegments.push(translate('table.legends.percentByTotal', lang));
   if (combined.percent_total_full) legendSegments.push(translate('table.legends.percentTotalFull', lang));
   let footerText = '';
+  // No "Legend:" prefix — the footer's position under the table and the content itself already
+  // identify it, so the word is pure overhead.
   if (legendSegments.length > 0) {
-    const legendHeading = translate('table.legends.heading', lang);
-    footerText = `${legendHeading} ${legendSegments.join('; ')}.`;
+    footerText = `${legendSegments.join('; ')}.`;
   }
   if (typeof footerFree === 'string') {
     const trimmed = footerFree.trim();
@@ -526,10 +528,11 @@ ns.exportCombinedAsMarkdown = function (combined, title) {
   if (combined.posthoc_legend?.length) combined.posthoc_legend.forEach(leg => legendLines.push(`- ${leg}`));
   if (combined.percent_by === 'col') legendLines.push(`- ${translate('table.legends.percentByColumn', lang)}`);
   else if (combined.percent_by === 'row') legendLines.push(`- ${translate('table.legends.percentByRow', lang)}`);
+  else if (combined.percent_by === 'total') legendLines.push(`- ${translate('table.legends.percentByTotal', lang)}`);
   if (combined.percent_total_full) legendLines.push(`- ${translate('table.legends.percentTotalFull', lang)}`);
   if (legendLines.length > 0) {
-    const legendHeading = translate('table.legends.heading', lang);
-    md.push(`\n\n**${legendHeading}**`);
+    // Blank line instead of a "Legend:" heading — the bullets speak for themselves.
+    md.push('');
     md.push(...legendLines);
   }
   return md.join('\n');

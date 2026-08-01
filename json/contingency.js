@@ -98,7 +98,7 @@ ns.convertContingencyObjectToMatrix = function (contingency) {
  * @param {string[]} predictorVals
  * @param {string[]} responseVals
  * @param {(ctx:{count:number,percent:number,rowTotal:number,colTotal:number})=>string=} formatFn
- * @param {{with_residuals?:boolean,residual_symbols?:{greater:string,lower:string},alpha?:number,percent_by?:'row'|'col',lang?:string,effect_size_type?:'odds_ratio'|'risk_ratio'}=} options
+ * @param {{with_residuals?:boolean,residual_symbols?:{greater:string,lower:string},alpha?:number,percent_by?:'row'|'col'|'total',lang?:string,effect_size_type?:'odds_ratio'|'risk_ratio'}=} options
  * @param {{rowLabels?:string[]|null,colLabels?:string[]|null}=} labels
  */
 ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}, labels = {}) {
@@ -111,7 +111,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     lower: translate('table.legends.residualLowerSymbol', lang)
   };
   const alpha = options?.alpha ?? 0.05;
-  const percentBy = options?.percent_by ?? 'row';
+  const percentBy = ['row', 'col', 'total'].includes(/** @type {any} */ (options?.percent_by)) ? options.percent_by : 'row';
   const groupLabel = translate('table.columns.group', lang);
   const pValueLabel = translate('table.columns.pValue', lang);
   const table = {}; const totalByRow = {}; const totalByCol = {};
@@ -124,6 +124,9 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     totalByRow[row] = (totalByRow[row] || 0) + 1;
     totalByCol[col] = (totalByCol[col] || 0) + 1;
   });
+  // Denominator for percent_by: 'total' — the complete-case pairs, i.e. the same population the
+  // row and column margins are built from.
+  const grandTotal = Object.values(totalByRow).reduce((sum, n) => sum + /** @type {number} */ (n), 0);
   const levelsOf = (vals) => [...new Set(vals.filter(v => !factors.isMissingValue(v)).map(v => String(v).trim()))].sort();
   const rowLevels = rowLabels ?? levelsOf(predictorVals);
   const colLevels = colLabels ?? levelsOf(responseVals);
@@ -186,10 +189,12 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     const result = { [groupLabel]: row };
     colLevels.forEach((col, j) => {
       const count = table[row]?.[col] || 0;
-      const totalRef = percentBy === 'col' ? totalByCol[col] : totalByRow[row];
+      const totalRef = percentBy === 'total' ? grandTotal
+        : percentBy === 'col' ? totalByCol[col]
+        : totalByRow[row];
       const percent = totalRef > 0 ? (count / totalRef) * 100 : 0;
       const percentFormatted = formatFn ? null : formatNumberLocale(percent, 1, lang);
-      const formatted = formatFn ? formatFn({ count, percent, rowTotal: totalByRow[row] ?? 0, colTotal: totalByCol[col] ?? 0 }) : `${count} (${percentFormatted}%)`;
+      const formatted = formatFn ? formatFn({ count, percent, rowTotal: totalByRow[row] ?? 0, colTotal: totalByCol[col] ?? 0, tableTotal: grandTotal }) : `${count} (${percentFormatted}%)`;
       const symbol = annotated[i]?.[j] ?? '';
       result[col] = `${formatted}${symbol}`;
     });

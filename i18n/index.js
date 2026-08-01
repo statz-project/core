@@ -33,13 +33,13 @@ const MESSAGES = {
       "missing": "Não informado",
       "missingValue": "—",
       "legends": {
-        "heading": "Legenda:",
         "residualGreaterSymbol": "†",
         "residualGreater": "Frequência maior que o esperado",
         "residualLowerSymbol": "*",
         "residualLower": "Frequência menor que o esperado",
         "percentByColumn": "Os percentuais referem-se ao total de cada coluna",
         "percentByRow": "Os percentuais referem-se ao total de cada linha",
+        "percentByTotal": "Os percentuais referem-se ao total da tabela",
         "percentTotalFull": "Os percentuais consideram todos os registros, incluindo ausentes"
       },
       "missmap": {
@@ -90,7 +90,7 @@ const MESSAGES = {
       "stat_options": { "label": "Estatísticas (genérico)", "description": "Fallback para casos não cobertos por numeric/by_group." },
       "include_missing": { "label": "Incluir ausentes", "description": "Mostrar valores ausentes (NA) como categoria nas tabelas descritivas." },
       "symbol_style": { "label": "Estilo dos símbolos", "description": "Numérico (¹²³) ou alfabético (ᵃᵇᶜ) para identificar testes na legenda." },
-      "percent_by": { "label": "Porcentagem por", "description": "Calcular percentuais por linha ou por coluna em tabelas de contingência." },
+      "percent_by": { "label": "Porcentagem por", "description": "Base dos percentuais em tabelas de contingência: total de cada coluna, de cada linha, ou da tabela inteira." },
       "label_list_with_column": { "label": "Contextualizar itens de lista", "description": "Prefixar cada item expandido com o rótulo da sua coluna e, quando a outra variável também distingue as seções, compôr o cabeçalho com as duas. Desligue quando os rótulos sozinhos já forem inequívocos." },
       "with_residuals": { "label": "Mostrar resíduos", "description": "Símbolos para células com resíduos padronizados |z|>1,96 em testes χ² significativos." },
       "with_effect_sizes": { "label": "Mostrar tamanho de efeito", "description": "Calcular e exibir Odds Ratio ou Risk Ratio com IC 95% nas tabelas 2×2." },
@@ -226,13 +226,13 @@ const MESSAGES = {
       "missing": "Not informed",
       "missingValue": "—",
       "legends": {
-        "heading": "Legend:",
         "residualGreaterSymbol": "†",
         "residualGreater": "Frequency higher than expected",
         "residualLowerSymbol": "*",
         "residualLower": "Frequency lower than expected",
         "percentByColumn": "Percentages refer to the total of each column",
         "percentByRow": "Percentages refer to the total of each row",
+        "percentByTotal": "Percentages refer to the table total",
         "percentTotalFull": "Percentages consider all records, including missing values"
       },
       "missmap": {
@@ -283,7 +283,7 @@ const MESSAGES = {
       "stat_options": { "label": "Statistics (generic)", "description": "Fallback for cases not covered by numeric/by_group." },
       "include_missing": { "label": "Include missing", "description": "Show missing values (NA) as a category in descriptive tables." },
       "symbol_style": { "label": "Symbol style", "description": "Numeric (¹²³) or alphabetic (ᵃᵇᶜ) for identifying tests in the legend." },
-      "percent_by": { "label": "Percent by", "description": "Compute percentages by row or by column in contingency tables." },
+      "percent_by": { "label": "Percent by", "description": "Denominator for percentages in contingency tables: each column total, each row total, or the table total." },
       "label_list_with_column": { "label": "Contextualize list items", "description": "Prefix each expanded item with its column label and, when the opposite variable also distinguishes the sections, compose the header from both. Turn it off when the bare labels are already unambiguous." },
       "with_residuals": { "label": "Show residuals", "description": "Symbols for cells with standardized residuals |z|>1.96 in significant χ² tests." },
       "with_effect_sizes": { "label": "Show effect size", "description": "Compute and display Odds Ratio or Risk Ratio with 95% CI in 2×2 tables." },
@@ -419,13 +419,13 @@ const MESSAGES = {
       "missing": "No informado",
       "missingValue": "—",
       "legends": {
-        "heading": "Leyenda:",
         "residualGreaterSymbol": "†",
         "residualGreater": "Frecuencia mayor de la esperada",
         "residualLowerSymbol": "*",
         "residualLower": "Frecuencia menor de la esperada",
         "percentByColumn": "Los porcentajes se refieren al total de cada columna",
         "percentByRow": "Los porcentajes se refieren al total de cada fila",
+        "percentByTotal": "Los porcentajes se refieren al total de la tabla",
         "percentTotalFull": "Los porcentajes consideran todos los registros, incluidos los ausentes"
       },
       "missmap": {
@@ -476,7 +476,7 @@ const MESSAGES = {
       "stat_options": { "label": "Estadísticas (genérico)", "description": "Respaldo para casos no cubiertos por numeric/by_group." },
       "include_missing": { "label": "Incluir ausentes", "description": "Mostrar valores ausentes (NA) como categoría en tablas descriptivas." },
       "symbol_style": { "label": "Estilo de símbolos", "description": "Numérico (¹²³) o alfabético (ᵃᵇᶜ) para identificar pruebas en la leyenda." },
-      "percent_by": { "label": "Porcentaje por", "description": "Calcular porcentajes por fila o por columna en tablas de contingencia." },
+      "percent_by": { "label": "Porcentaje por", "description": "Base de los porcentajes en tablas de contingencia: total de cada columna, de cada fila, o de la tabla entera." },
       "label_list_with_column": { "label": "Contextualizar ítems de lista", "description": "Prefijar cada ítem expandido con la etiqueta de su columna y, cuando la otra variable también distingue las secciones, componer el encabezado con ambas. Desactívelo cuando las etiquetas solas ya sean inequívocas." },
       "with_residuals": { "label": "Mostrar residuos", "description": "Símbolos para celdas con residuos estandarizados |z|>1,96 en pruebas χ² significativas." },
       "with_effect_sizes": { "label": "Mostrar tamaño de efecto", "description": "Calcular y mostrar Odds Ratio o Risk Ratio con IC 95% en tablas 2×2." },

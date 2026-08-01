@@ -110,7 +110,7 @@ ns.OPTION_METADATA = {
   },
   percent_by: {
     category: 'table', type: 'enum', default: 'col',
-    enum: ['col', 'row'], appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll'], modeGate: 'table',
+    enum: ['col', 'row', 'total'], appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll'], modeGate: 'table',
     labelKey: 'options.percent_by.label', descriptionKey: 'options.percent_by.description'
   },
   label_list_with_column: {

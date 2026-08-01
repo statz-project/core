@@ -880,3 +880,18 @@ test("crosstab i18n: the truncation note resolves in all three locales", () => {
     assert.match(value, /\bv\b/, "interpolates the variable label");
   });
 });
+
+test("exportCombinedAsHTML: the legend names the percentage base, including 'total'", () => {
+  const mk = (percent_by) => exporters.combineAnalysisAsSingleTable({
+    analysis: [entry('P', 'R', 'q', 'q', {
+      columns: ['Group', 'x'], rows: [{ Group: 'a', x: '1 (100.0%)' }],
+      test_used: 'Chi-square', test_symbol: '¹', p_value: 0.5, percent_by
+    })],
+    lang: 'en_us'
+  });
+  assert.match(exporters.exportCombinedAsHTML(mk('total'), 'T', false), /Percentages refer to the table total/);
+  assert.match(exporters.exportCombinedAsHTML(mk('row'), 'T', false), /total of each row/);
+  assert.match(exporters.exportCombinedAsHTML(mk('col'), 'T', false), /total of each column/);
+  // Markdown export carries the same legend line.
+  assert.match(exporters.exportCombinedAsMarkdown(mk('total'), 'T'), /Percentages refer to the table total/);
+});

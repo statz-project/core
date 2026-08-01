@@ -753,7 +753,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
     : groupedStats.slice();
   normalized.stat_options = statOptions;
 
-  normalized.percent_by = normalized.percent_by === 'row' ? 'row' : 'col';
+  normalized.percent_by = ['row', 'col', 'total'].includes(normalized.percent_by) ? normalized.percent_by : 'col';
   normalized.adjust_kruskal = normalized.adjust_kruskal ?? 'bonferroni';
   normalized.include_missing = normalized.include_missing ?? true;
   normalized.label_list_with_column = normalized.label_list_with_column ?? true;

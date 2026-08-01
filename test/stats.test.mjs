@@ -1133,3 +1133,40 @@ test("getDefaultAnalysisOptions: with_effect_sizes defaults to false and is resp
   assert.equal(driver.getDefaultAnalysisOptions({}).with_effect_sizes, false);
   assert.equal(driver.getDefaultAnalysisOptions({ with_effect_sizes: true }).with_effect_sizes, true);
 });
+
+test("summarize_q_q: percent_by picks the denominator — row, column or the whole table", () => {
+  // 2×3 with uneven margins: rows 6 and 4, columns 5/3/2, grand total 10.
+  const predictor = ['a','a','a','a','a','a','b','b','b','b'];
+  const response  = ['x','x','x','y','y','z','x','x','y','z'];
+  const pct = (mode) => Statz.summarize_q_q(predictor, response, undefined, { lang: 'en_us', percent_by: mode })
+    .rows.flatMap(row => ['x','y','z'].map(k => parseFloat(String(row[k]).match(/\(([\d.]+)%\)/)[1])));
+
+  // Row: each row sums to 100. Column: each column sums to 100. Total: the whole table sums to 100.
+  const byRow = pct('row');
+  assert.equal(byRow.slice(0, 3).reduce((a, b) => a + b, 0).toFixed(0), '100');
+  assert.equal(byRow.slice(3).reduce((a, b) => a + b, 0).toFixed(0), '100');
+
+  const byCol = pct('col');
+  assert.equal((byCol[0] + byCol[3]).toFixed(0), '100', 'column x');
+  assert.equal((byCol[1] + byCol[4]).toFixed(0), '100', 'column y');
+
+  const byTotal = pct('total');
+  assert.equal(byTotal.reduce((a, b) => a + b, 0).toFixed(0), '100', 'the whole table');
+  assert.deepEqual(byTotal, [30, 20, 10, 20, 10, 10]);
+});
+
+test("summarize_q_q: percent_by='total' uses the complete-case pairs as the denominator", () => {
+  // The row that is missing on one side is excluded from every margin, the grand total included.
+  const predictor = ['a','a','b','b',null];
+  const response  = ['x','y','x','y','x'];
+  const t = Statz.summarize_q_q(predictor, response, undefined, { lang: 'en_us', percent_by: 'total' });
+  // 4 complete pairs, one per cell → 25% each.
+  t.rows.forEach(row => ['x','y'].forEach(k => assert.match(String(row[k]), /\(25\.0%\)/)));
+});
+
+test("getDefaultAnalysisOptions: percent_by accepts 'total' and falls back to 'col'", () => {
+  assert.equal(driver.getDefaultAnalysisOptions({ percent_by: 'total' }).percent_by, 'total');
+  assert.equal(driver.getDefaultAnalysisOptions({ percent_by: 'row' }).percent_by, 'row');
+  assert.equal(driver.getDefaultAnalysisOptions({ percent_by: 'nonsense' }).percent_by, 'col');
+  assert.equal(driver.getDefaultAnalysisOptions({}).percent_by, 'col');
+});
