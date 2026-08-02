@@ -714,6 +714,40 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
 };
 
 /**
+ * Decide whether a set of qualitative columns can be treated as ONE shared binary factor,
+ * and return that factor's two levels.
+ *
+ * The rule is stricter than "each column is binary": every column must carry 1-2 distinct
+ * non-empty levels AND the union across all of them must be exactly 2. Two individually
+ * binary columns spelled differently (`yes/no` + `sim/não`) sum to 4 levels and are rejected,
+ * because there is no single pair of levels to pair them across.
+ *
+ * Extracted from `summarizePaired` so the Bubble popup can pre-validate a selection with the
+ * exact same rule the analysis will apply, instead of reimplementing it.
+ *
+ * @param {Array<string[]>} valueArrays One resolved value array per column.
+ * @returns {{ levels: string[]|null, observed: number }} `levels` is the sorted binary pair, or
+ *   `null` when the columns do not form one. `observed` is the level count worth reporting to
+ *   the user (the widest single column when one is not binary, otherwise the union's size) —
+ *   feeds the `{levels}` placeholder of `warnings.pairedNonBinaryQ`.
+ */
+ns.getPairedBinaryLevels = function (valueArrays) {
+  const arrays = Array.isArray(valueArrays) ? valueArrays : [];
+  const levelSets = arrays.map((vals) => new Set(
+    (Array.isArray(vals) ? vals : []).map((v) => v?.toString().trim()).filter(Boolean)
+  ));
+  if (levelSets.length === 0) return { levels: null, observed: 0 };
+  // Per-column check first: it pinpoints the offending column's width, which is more
+  // actionable than the union size when a single column is the problem.
+  if (!levelSets.every((s) => s.size <= 2 && s.size >= 1)) {
+    return { levels: null, observed: Math.max(...levelSets.map((s) => s.size)) };
+  }
+  const union = [...new Set(levelSets.flatMap((s) => [...s]))].sort();
+  if (union.length !== 2) return { levels: null, observed: union.length };
+  return { levels: union, observed: 2 };
+};
+
+/**
  * Convert row-wise JSON array into Stat-z column metadata JSON string.
  * @param {string} data JSON string (array of rows)
  * @param {string[]} hashes Column hashes

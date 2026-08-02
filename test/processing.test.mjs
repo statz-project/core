@@ -515,3 +515,46 @@ test("isMissingValue: unparseable numeric values are present-but-invalid, not mi
   assert.equal(factors.isMissingValue('abc', 'n'), false);
   assert.equal(factors.isMissingValue('', 'n'), true);
 });
+
+// ---------------------------------------------------------------------------
+// getPairedBinaryLevels — the shared-binary-factor rule behind paired q analysis
+// ---------------------------------------------------------------------------
+
+test("getPairedBinaryLevels: shared binary factor returns the sorted pair", () => {
+  const r = factors.getPairedBinaryLevels([['sim', 'nao', 'sim'], ['nao', 'sim', 'sim']]);
+  assert.deepEqual(r.levels, ['nao', 'sim']);
+  assert.equal(r.observed, 2);
+});
+
+test("getPairedBinaryLevels: values are trimmed and deduped before counting", () => {
+  const r = factors.getPairedBinaryLevels([[' sim ', 'nao', 'sim'], ['nao', 'sim']]);
+  assert.deepEqual(r.levels, ['nao', 'sim']);
+});
+
+test("getPairedBinaryLevels: individually binary but differently spelled is rejected", () => {
+  // The rule is stricter than "each column is binary" — there must be ONE pair of levels to
+  // pair across, so yes/no + sim/não (union of 4) has no shared factor.
+  const r = factors.getPairedBinaryLevels([['yes', 'no'], ['sim', 'nao']]);
+  assert.equal(r.levels, null);
+  assert.equal(r.observed, 4);
+});
+
+test("getPairedBinaryLevels: a non-binary column reports its own width, not the union", () => {
+  // Pinpointing the offending column is more actionable than the union size (which is also 3).
+  const r = factors.getPairedBinaryLevels([['a', 'b', 'c'], ['a', 'b']]);
+  assert.equal(r.levels, null);
+  assert.equal(r.observed, 3);
+});
+
+test("getPairedBinaryLevels: one level per column still pairs when they differ", () => {
+  assert.deepEqual(factors.getPairedBinaryLevels([['a', 'a'], ['b', 'b']]).levels, ['a', 'b']);
+  // ...but a constant across every column has no second level to pair against.
+  assert.equal(factors.getPairedBinaryLevels([['a', 'a'], ['a', 'a']]).levels, null);
+});
+
+test("getPairedBinaryLevels: empty and malformed inputs are rejected, not thrown", () => {
+  assert.deepEqual(factors.getPairedBinaryLevels([]), { levels: null, observed: 0 });
+  assert.equal(factors.getPairedBinaryLevels(null).levels, null);
+  // A column with no observed level (all blank) cannot carry the factor.
+  assert.equal(factors.getPairedBinaryLevels([['', ' ', null], ['a', 'b']]).levels, null);
+});

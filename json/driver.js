@@ -462,32 +462,20 @@ ns.summarizePaired = function (columns, responses, options, flagsUsed, lang) {
     };
   }
   if (firstType === 'q') {
-    // Binary check: all responses must have ≤ 2 distinct non-empty levels.
-    const levelSets = resolvedCols.map((c) => new Set((c.raw_values || []).map((v) => v?.toString().trim()).filter(Boolean)));
-    const allBinary = levelSets.every((s) => s.size <= 2 && s.size >= 1);
-    if (!allBinary) {
-      flagsUsed.add('has_paired');
-      const maxLevels = Math.max(...levelSets.map((s) => s.size));
-      return {
-        predictor: null,
-        response: responses[0]?.col_label || null,
-        predictor_type: null,
-        response_type: 'q',
-        table: { warning: translate('warnings.pairedNonBinaryQ', lang, { levels: maxLevels }) }
-      };
-    }
-    // Use the union of observed levels as the binary pair.
-    const unionLevels = [...new Set(levelSets.flatMap((s) => [...s]))].sort();
-    if (unionLevels.length !== 2) {
+    // Binary check: the responses must collectively form one shared binary factor. The
+    // resulting pair doubles as the level order handed to chart_paired_q below.
+    const binary = factors.getPairedBinaryLevels(resolvedCols.map((c) => c.raw_values || []));
+    if (!binary.levels) {
       flagsUsed.add('has_paired');
       return {
         predictor: null,
         response: responses[0]?.col_label || null,
         predictor_type: null,
         response_type: 'q',
-        table: { warning: translate('warnings.pairedNonBinaryQ', lang, { levels: unionLevels.length }) }
+        table: { warning: translate('warnings.pairedNonBinaryQ', lang, { levels: binary.observed }) }
       };
     }
+    const unionLevels = binary.levels;
     flagsUsed.add('has_paired_q');
     const arrays = resolvedCols.map((c) => c.raw_values || []);
     if (options?.mode === 'chart') {
