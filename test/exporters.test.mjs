@@ -895,3 +895,67 @@ test("exportCombinedAsHTML: the legend names the percentage base, including 'tot
   // Markdown export carries the same legend line.
   assert.match(exporters.exportCombinedAsMarkdown(mk('total'), 'T'), /Percentages refer to the table total/);
 });
+
+test("combineAnalysisAsSingleTable: the p-value column stays last after a level merge", () => {
+  // Two predictors whose responses resolve in different databases with different level sets.
+  // The second analysis introduces "other", which the merge appends after the columns already
+  // seen — including the p-value, which each individual analysis emits last.
+  const result = {
+    lang: 'pt_br',
+    analysis: [
+      {
+        predictor: 'Age', response: 'Outcome', predictor_type: 'n', response_type: 'q',
+        table: {
+          columns: ['Grupo', 'no', 'yes', 'p-valor'],
+          rows: [{ Grupo: 'Média ± DP', no: '5,0', yes: '2,0', 'p-valor': '' }],
+          test_used: 't de Student', p_value: 0.0213, posthoc: null, test_symbol: '¹'
+        }
+      },
+      {
+        predictor: 'Weight', response: 'Outcome', predictor_type: 'n', response_type: 'q',
+        table: {
+          columns: ['Grupo', 'no', 'other', 'yes', 'p-valor'],
+          rows: [{ Grupo: 'Média ± DP', no: '500,0', other: '800,0', yes: '200,0', 'p-valor': '' }],
+          test_used: 'ANOVA', p_value: 0.001, posthoc: null, test_symbol: '²'
+        }
+      }
+    ]
+  };
+  const combined = exporters.combineAnalysisAsSingleTable(result);
+  assert.deepEqual(combined.columns, ['Grupo', 'no', 'yes', 'other', 'p-valor']);
+  assert.equal(combined.columns.at(-1), 'p-valor');
+  // Reordering must not detach the values from their labels — rows are keyed, not positional.
+  const weightHeader = combined.rows.find(r => r.Grupo === '<b>Weight</b>');
+  assert.equal(weightHeader['p-valor'], '0,001²');
+  const ageHeader = combined.rows.find(r => r.Grupo === '<b>Age</b>');
+  assert.equal(ageHeader['p-valor'], '0,021¹');
+  // Every rendered row must still span exactly the declared column count.
+  const html = exporters.exportCombinedAsHTML(combined);
+  for (const tr of html.match(/<tr>.*?<\/tr>/g) || []) {
+    const width = (tr.match(/<t[hd][^>]*>/g) || [])
+      .reduce((sum, cell) => sum + Number((cell.match(/colspan="(\d+)"/) || [, 1])[1]), 0);
+    assert.equal(width, combined.columns.length);
+  }
+  // Both predictor header rows must merge identically. The Age row carries no "other" key at
+  // all — it was built before the second analysis introduced that column — and the colspan scan
+  // must read that absence as empty, exactly like the cell read does.
+  const headerColspans = (html.match(/<td colspan="(\d+)"><b>/g) || [])
+    .map(cell => Number(cell.match(/colspan="(\d+)"/)[1]));
+  assert.deepEqual(headerColspans, [4, 4]);
+});
+
+test("combineAnalysisAsSingleTable: a single analysis keeps its column order untouched", () => {
+  const result = {
+    lang: 'pt_br',
+    analysis: [{
+      predictor: 'Age', response: 'Outcome', predictor_type: 'n', response_type: 'q',
+      table: {
+        columns: ['Grupo', 'no', 'yes', 'p-valor'],
+        rows: [{ Grupo: 'Média ± DP', no: '5,0', yes: '2,0', 'p-valor': '' }],
+        test_used: 't de Student', p_value: 0.02, posthoc: null, test_symbol: '¹'
+      }
+    }]
+  };
+  assert.deepEqual(exporters.combineAnalysisAsSingleTable(result).columns,
+    ['Grupo', 'no', 'yes', 'p-valor']);
+});

@@ -296,6 +296,16 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
       }
     }
   });
+  // Pin the p-value last. Every individual analysis already emits it as its final column; only
+  // the merge breaks that, because a level introduced by a later analysis (a response resolved
+  // in another database with an extra level, say) is appended after the columns already seen.
+  // Rows are keyed by label and every renderer walks `combined.columns`, so reordering here is
+  // enough — no row rewriting needed.
+  const pValueIdx = combined.columns.indexOf(pValueLabel);
+  if (pValueIdx !== -1 && pValueIdx !== combined.columns.length - 1) {
+    combined.columns.splice(pValueIdx, 1);
+    combined.columns.push(pValueLabel);
+  }
   combined.test_legend = Array.from(legendMap.entries()).map(([method, symbol]) => ({ method, symbol }));
   if (posthocByPredictor.length > 0) combined.posthoc_legend = posthocByPredictor;
   const percentByFlags = resultArray.filter(r => r.table?.percent_by).map(r => r.table.percent_by);
@@ -338,7 +348,11 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = 
       if (i === 0 && ns.isPredictorHeaderRow(val)) {
         let colspan = 1;
         for (let j = i + 1; j < combined.columns.length; j++) {
-          const nextVal = row[combined.columns[j]];
+          // `?? ''` mirrors the cell read above: a row built before a later analysis introduced
+          // this column has no key for it, and that absence means "empty", not "content". Without
+          // the coalesce the scan stops short and the header row splits into a shorter colspan
+          // plus stray empty cells — same width, but an inconsistent rule between header rows.
+          const nextVal = row[combined.columns[j]] ?? '';
           if (nextVal !== '') break;
           colspan++;
         }

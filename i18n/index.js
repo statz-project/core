@@ -61,20 +61,20 @@ const MESSAGES = {
       "l": "lista"
     },
       "warnings": {
-        "summarizeFailure": "Erro ao resumir \"{label}\" em \"{context}\"",
+        "summarizeFailure": "Erro ao resumir “{label}” em “{context}”",
         "pairedMixedTypes": "Análise pareada requer respostas do mesmo tipo; obteve {types}.",
         "pairedNonBinaryQ": "Análise pareada qualitativa requer níveis binários; obteve {levels} níveis.",
         "pairedListNotSupported": "Análise pareada para respostas de tipo lista ainda não é suportada.",
         "pairedTooFewMomentos": "Análise pareada requer ao menos 2 momentos.",
         "llSubsetRequired": "Análise lista × lista requer um subconjunto de itens em ambos predictor e response.",
-        "multiDbMissingResponse": "A response \"{label}\" não está presente em todos os databases dos predictors.",
+        "multiDbMissingResponse": "A response “{label}” não está presente em todos os databases dos predictors.",
         "pairedMultiDbNotAllowed": "Análise pareada requer todas as responses do mesmo database."
       },
       "mapping": {
-        "invalid": "Mapeamento inválido para \"{label}\"",
-        "multiple": "Múltiplas correspondências para \"{label}\"",
-        "nomatch": "Nenhuma correspondência para \"{label}\"",
-        "old_dropped": "Coluna antiga \"{label}\" não mapeada e será removida"
+        "invalid": "Mapeamento inválido para “{label}”",
+        "multiple": "Múltiplas correspondências para “{label}”",
+        "nomatch": "Nenhuma correspondência para “{label}”",
+        "old_dropped": "Coluna antiga “{label}” não mapeada e será removida"
       },
       "errors": {
         "stdlibNotLoaded": "Erro: stdlib não carregado",
@@ -127,7 +127,7 @@ const MESSAGES = {
     },
     "posthoc": {
       "title": "Comparações múltiplas significativas",
-      "comparisonEntry": "Comparações significativas para \"{predictor}\": {comparisons}",
+      "comparisonEntry": "Comparações significativas para “{predictor}”: {comparisons}",
       "comparisonPair": "“{groupA}” <i>versus</i> “{groupB}” (p={pValue})",
       "significantSymbol": "✔"
     },
@@ -136,12 +136,12 @@ const MESSAGES = {
         "searchReplace": "Buscar e substituir: {details}",
         "numericCoercionReplacements": "Conversão numérica: substituições {details}{extra}",
         "numericCoercionRemovedRows": "Conversão numérica: linhas removidas {details}{extra}",
-        "transformSkipped": "Transformação \"{fn}\" ignorou linhas: {details}{extra}",
+        "transformSkipped": "Transformação “{fn}” ignorou linhas: {details}{extra}",
         "cutNoNumeric": "Classificação: nenhum valor numérico para agrupar.",
         "cutInvalidIntervals": "Classificação: não foi possível gerar intervalos válidos.",
         "cutOutsideValues": "Classificação: {count} valores fora dos intervalos definidos.",
         "moreSuffix": " (e mais {count})",
-        "cascadeDeleted": "Variante \"{label}\" também foi removida (cascade) porque dependia da variante deletada."
+        "cascadeDeleted": "Variante “{label}” também foi removida (cascade) porque dependia da variante deletada."
       },
       "templates": {
         "search_replace": {
@@ -254,20 +254,20 @@ const MESSAGES = {
       "l": "list"
     },
       "warnings": {
-        "summarizeFailure": "Error summarizing \"{label}\" in \"{context}\"",
+        "summarizeFailure": "Error summarizing “{label}” in “{context}”",
         "pairedMixedTypes": "Paired analysis requires responses of the same type; got {types}.",
         "pairedNonBinaryQ": "Qualitative paired analysis requires binary levels; got {levels} levels.",
         "pairedListNotSupported": "Paired analysis for list-type responses is not yet supported.",
         "pairedTooFewMomentos": "Paired analysis requires at least 2 momentos.",
         "llSubsetRequired": "List × list analysis requires a subset of items in both predictor and response.",
-        "multiDbMissingResponse": "Response \"{label}\" is not present in every database used by predictors.",
+        "multiDbMissingResponse": "Response “{label}” is not present in every database used by predictors.",
         "pairedMultiDbNotAllowed": "Paired analysis requires all responses from the same database."
       },
       "mapping": {
-        "invalid": "Invalid mapping for \"{label}\"",
-        "multiple": "Multiple matches for \"{label}\"",
-        "nomatch": "No match for \"{label}\"",
-        "old_dropped": "Old column \"{label}\" not mapped and will be dropped"
+        "invalid": "Invalid mapping for “{label}”",
+        "multiple": "Multiple matches for “{label}”",
+        "nomatch": "No match for “{label}”",
+        "old_dropped": "Old column “{label}” not mapped and will be dropped"
       },
       "errors": {
         "stdlibNotLoaded": "Error: stdlib not loaded",
@@ -320,7 +320,7 @@ const MESSAGES = {
     },
     "posthoc": {
       "title": "Significant multiple comparisons",
-      "comparisonEntry": "Significant comparisons for \"{predictor}\": {comparisons}",
+      "comparisonEntry": "Significant comparisons for “{predictor}”: {comparisons}",
       "comparisonPair": "“{groupA}” <i>versus</i> “{groupB}” (p={pValue})",
       "significantSymbol": "✔"
     },
@@ -329,12 +329,12 @@ const MESSAGES = {
         "searchReplace": "Search & replace: {details}",
         "numericCoercionReplacements": "Numeric coercion replacements: {details}{extra}",
         "numericCoercionRemovedRows": "Numeric coercion removed rows: {details}{extra}",
-        "transformSkipped": "Transform \"{fn}\" skipped rows: {details}{extra}",
+        "transformSkipped": "Transform “{fn}” skipped rows: {details}{extra}",
         "cutNoNumeric": "Cut: no numeric values to bin.",
         "cutInvalidIntervals": "Cut: unable to build valid intervals.",
         "cutOutsideValues": "Cut: {count} values outside defined breaks.",
         "moreSuffix": " (and {count} more)",
-        "cascadeDeleted": "Variant \"{label}\" was also removed (cascade) because it depended on the deleted variant."
+        "cascadeDeleted": "Variant “{label}” was also removed (cascade) because it depended on the deleted variant."
       },
       "templates": {
         "search_replace": {
@@ -447,20 +447,20 @@ const MESSAGES = {
       "l": "lista"
     },
       "warnings": {
-        "summarizeFailure": "Error al resumir \"{label}\" en \"{context}\"",
+        "summarizeFailure": "Error al resumir “{label}” en “{context}”",
         "pairedMixedTypes": "El análisis pareado requiere respuestas del mismo tipo; obtuvo {types}.",
         "pairedNonBinaryQ": "El análisis pareado cualitativo requiere niveles binarios; obtuvo {levels} niveles.",
         "pairedListNotSupported": "El análisis pareado para respuestas de tipo lista aún no es compatible.",
         "pairedTooFewMomentos": "El análisis pareado requiere al menos 2 momentos.",
         "llSubsetRequired": "El análisis lista × lista requiere un subconjunto de elementos en ambos predictor y response.",
-        "multiDbMissingResponse": "La response \"{label}\" no está presente en todas las bases de datos de los predictors.",
+        "multiDbMissingResponse": "La response “{label}” no está presente en todas las bases de datos de los predictors.",
         "pairedMultiDbNotAllowed": "El análisis pareado requiere todas las responses de la misma base de datos."
       },
       "mapping": {
-        "invalid": "Asignación no válida para \"{label}\"",
-        "multiple": "Múltiples coincidencias para \"{label}\"",
-        "nomatch": "Sin coincidencia para \"{label}\"",
-        "old_dropped": "La columna anterior \"{label}\" no está mapeada y se eliminará"
+        "invalid": "Asignación no válida para “{label}”",
+        "multiple": "Múltiples coincidencias para “{label}”",
+        "nomatch": "Sin coincidencia para “{label}”",
+        "old_dropped": "La columna anterior “{label}” no está mapeada y se eliminará"
       },
       "errors": {
         "stdlibNotLoaded": "Error: stdlib no cargada",
@@ -513,7 +513,7 @@ const MESSAGES = {
     },
     "posthoc": {
       "title": "Comparaciones múltiples significativas",
-      "comparisonEntry": "Comparaciones significativas para \"{predictor}\": {comparisons}",
+      "comparisonEntry": "Comparaciones significativas para “{predictor}”: {comparisons}",
       "comparisonPair": "“{groupA}” <i>versus</i> “{groupB}” (p={pValue})",
       "significantSymbol": "✔"
     },
@@ -522,12 +522,12 @@ const MESSAGES = {
         "searchReplace": "Buscar y reemplazar: {details}",
         "numericCoercionReplacements": "Conversión numérica: sustituciones {details}{extra}",
         "numericCoercionRemovedRows": "Conversión numérica: filas eliminadas {details}{extra}",
-        "transformSkipped": "Transformación \"{fn}\" omitió filas: {details}{extra}",
+        "transformSkipped": "Transformación “{fn}” omitió filas: {details}{extra}",
         "cutNoNumeric": "Clasificación: sin valores numéricos para agrupar.",
         "cutInvalidIntervals": "Clasificación: no se pudieron generar intervalos válidos.",
         "cutOutsideValues": "Clasificación: {count} valores fuera de los intervalos definidos.",
         "moreSuffix": " (y {count} más)",
-        "cascadeDeleted": "La variante \"{label}\" también fue eliminada (cascada) porque dependía de la variante eliminada."
+        "cascadeDeleted": "La variante “{label}” también fue eliminada (cascada) porque dependía de la variante eliminada."
       },
       "templates": {
         "search_replace": {
