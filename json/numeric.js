@@ -703,7 +703,12 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
     columns: [groupLabel, ...groupNames, pValueLabel],
     rows: summaryRows,
     test_used: method,
-    p_value: +(p_value?.toFixed?.(4) ?? null),
+    // Guard explicitly rather than coercing: `+(null?.toFixed?.(4) ?? null)` evaluates to 0 — a
+    // finite number that renders as "<0.001", i.e. the strongest possible significance for a
+    // comparison that never ran. Both paths reach here with p_value still null: a response with
+    // fewer than two groups carrying data (neither test branch above fires) and a computation
+    // that threw. Keeping null sends the exporter down its missing-value branch instead.
+    p_value: Number.isFinite(p_value) ? +p_value.toFixed(4) : null,
     posthoc
   };
 };

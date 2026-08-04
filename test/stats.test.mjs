@@ -1252,3 +1252,42 @@ test("Profile A: a variant index is resolved within its own database", () => {
   assert.equal(minOf(result.analysis[0]), '10.0');
   assert.equal(minOf(result.analysis[1]), '40.0');
 });
+
+test("summarize_n_q: a response with a single level reports no p-value, not p=0", () => {
+  // Fewer than two groups carrying data means neither test branch runs and p_value stays null.
+  // It used to be coerced to 0 by `+(null?.toFixed?.(4) ?? null)` — a finite number that the
+  // exporter renders as "<0.001", announcing the strongest possible significance for a
+  // comparison that never happened, with no test name and no footnote symbol to betray it.
+  const numeric = ['10', '20', '30', '40', '50', '60'];
+  const build = (responseValues) => ({
+    columns: [mdbCol('h_age', 'Age', 'n', numeric), mdbCol('h_out', 'Outcome', 'q', responseValues)]
+  });
+  const run = (responseValues) => driver.runAnalysis(
+    [mdbSig('dbA', 'h_age', 'Age')], [mdbSig('dbA', 'h_out', 'Outcome')],
+    { dbA: build(responseValues) }, { lang: 'en_us' });
+
+  const missingMarker = Statz.translate('table.missingValue', 'en_us');
+  for (const [name, values] of [
+    ['single level', ['yes', 'yes', 'yes', 'yes', 'yes', 'yes']],
+    ['single level plus blanks', ['yes', '', 'yes', '', 'yes', 'yes']],
+    ['no observed level at all', ['', '', '', '', '', '']]
+  ]) {
+    const { result } = run(values);
+    const table = result.analysis[0].table;
+    assert.equal(table.p_value, null, name);
+    assert.equal(table.test_used, null, name);
+    // What the reader actually sees. Also exercised after a JSON round-trip, because Bubble
+    // persists Result_json and re-parses it before rendering.
+    for (const payload of [result, JSON.parse(JSON.stringify(result))]) {
+      const cell = Statz.combineAnalysisAsSingleTable(payload).rows[0]['p-value'];
+      assert.equal(cell, missingMarker, name);
+    }
+    // Partial results still reach the user: the descriptive row for the one group survives.
+    assert.ok(table.rows.length > 0, name);
+  }
+
+  // Control: two groups still produce a real test and a real p-value.
+  const control = run(['no', 'yes', 'no', 'yes', 'no', 'yes']).result.analysis[0].table;
+  assert.ok(Number.isFinite(control.p_value));
+  assert.ok(control.test_used);
+});
