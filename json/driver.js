@@ -42,6 +42,38 @@ ns.getColumn = function (database, colHash) {
 };
 
 /**
+ * Locate an assembled analysis column by its variable signature.
+ *
+ * Scopes by `database_id` BEFORE matching the hash: `col_hash` is the MD5 of the column NAME, so
+ * it is unique only WITHIN a database — two uploads that each have an "Idade" column share the
+ * same hash. Matching on hash alone returns whichever database happens to come first in the
+ * merged `columns` array, silently analysing one database's data under another's label.
+ *
+ * Profile A (predictors only, no response) is the exposed path, because it is the only one where
+ * `columns` mixes databases: Profile C isolates each database into its own recursive `runAnalysis`
+ * call, and `summarizePaired` rejects multi-database responses before resolving anything.
+ *
+ * Two deliberate fallbacks:
+ *  - Within the scope, an exact `col_var_index` match is tried first, then hash-only, because
+ *    `resolveVariable` may have coerced an out-of-range index down to the base column.
+ *  - When no assembled column carries the signature's `database_id` at all, the whole array is
+ *    searched. That keeps callers passing hand-built column records (which have no
+ *    `database_id`) working exactly as before — the collision needs two databases to occur.
+ *
+ * @param {any[]} columns Assembled analysis columns (from `runAnalysis`).
+ * @param {any} signature Variable signature carrying `database_id` / `col_hash` / `col_var_index`.
+ * @returns {any|null}
+ */
+function findAnalysisColumn(columns, signature) {
+  if (!signature || !Array.isArray(columns)) return null;
+  const scoped = columns.filter((c) => c?.database_id === signature.database_id);
+  const pool = scoped.length > 0 ? scoped : columns;
+  return pool.find((c) => c.col_hash === signature.col_hash && c.col_var_index === (signature.col_var_index ?? null))
+    || pool.find((c) => c.col_hash === signature.col_hash)
+    || null;
+}
+
+/**
  * Retrieve a column by hash and decode its **stored** values.
  *
  * Deliberately does NOT apply `meta.replacements` / `meta.processing` — it is the "as stored" view.
@@ -413,10 +445,7 @@ ns.summarizePaired = function (columns, responses, options, flagsUsed, lang) {
       table: { warning: translate('warnings.pairedMultiDbNotAllowed', lang) }
     };
   }
-  const resolvedCols = responses.map((r) =>
-    columns.find((c) => c.col_hash === r.col_hash && c.col_var_index === (r.col_var_index ?? null))
-      || columns.find((c) => c.col_hash === r.col_hash)
-  );
+  const resolvedCols = responses.map((r) => findAnalysisColumn(columns, r));
   if (resolvedCols.some((c) => !c)) return null;
   /** @type {string[]} */
   const types = resolvedCols.map((c) => c.col_type);
@@ -1167,8 +1196,7 @@ const composeExpandedLabel = (contextLabel, itemLabel, includePrefix) =>
 ns.summarizePredictors = function (columns, predictors, responses, data, options, flagsUsed, formatFns = {}) {
   const response = responses.length > 0 ? responses[0] : null;
   const responseCol = response
-    ? columns.find(c => c.col_hash === response.col_hash && c.col_var_index === (response.col_var_index ?? null))
-      || columns.find(c => c.col_hash === response.col_hash)
+    ? findAnalysisColumn(columns, response)
     : null;
   const responseType = responseCol?.col_type || null; const responseVals = responseCol?.raw_values || null;
   const lang = normalizeLanguage(options?.lang);
@@ -1188,8 +1216,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
   let likertEligibility = null;
   if (predictors.length >= 2 && responses.length === 0) {
     const likertCols = predictors.map((/** @type {any} */ p) => {
-      const col = columns.find(c => c.col_hash === p.col_hash && c.col_var_index === (p.col_var_index ?? null))
-        || columns.find(c => c.col_hash === p.col_hash);
+      const col = findAnalysisColumn(columns, p);
       return col ? { pred: p, col } : null;
     }).filter(Boolean);
     const allQ = likertCols.length === predictors.length
@@ -1231,8 +1258,7 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
   }
 
   return predictors.map(pred => {
-    const predictorCol = columns.find(c => c.col_hash === pred.col_hash && c.col_var_index === (pred.col_var_index ?? null))
-      || columns.find(c => c.col_hash === pred.col_hash);
+    const predictorCol = findAnalysisColumn(columns, pred);
     if (!predictorCol) return null;
     const predictorVals = predictorCol.raw_values; const predictorType = predictorCol.col_type; const predictorSep = predictorCol.col_sep || ';'; const formatFn = formatFns[pred.col_label] || null;
     let table;
@@ -1694,6 +1720,9 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     const resolved = factors.resolveVariable(dbs[col.database_id], col.col_hash, col.col_var_index);
     if (!resolved) return null;
     return {
+      // Carried so findAnalysisColumn can scope by database: col_hash alone collides across
+      // databases that share a column name.
+      database_id: col.database_id,
       col_hash: resolved.column.col_hash,
       // The signature's label wins: it carries the user's current edit from the UI.
       col_label: col.col_label || resolved.label,

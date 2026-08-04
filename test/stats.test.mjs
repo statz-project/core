@@ -1056,6 +1056,33 @@ test("runAnalysis: diverging response levels across DBs raise has_multi_db_level
   assert.equal(run('dbNum2', 'dbNum', { dbNum2, dbNum }).includes('has_multi_db_level_mismatch'), false);
 });
 
+test("runAnalysis: a response pointing at a non-predictor database is a pointer, not a divergence", () => {
+  // The user picked the response from dbB, but every predictor lives in dbA, so the response is
+  // rebound to dbA's column of the same name and dbB's copy is never read. Its extra level
+  // therefore reaches no analysis, and flagging a mismatch here would warn about a divergence
+  // the reader cannot see. The flag is reserved for when two databases each contribute an
+  // analysis AND their level sets differ.
+  const base = ['x', 'y', 'x', 'y'];
+  const dbA = { columns: [mdbCol('md5_P', 'P', 'q', base), mdbCol('md5_S', 'S', 'q', ['yes', 'no', 'yes', 'no'])] };
+  const dbB = { columns: [mdbCol('md5_Q', 'Q', 'q', base), mdbCol('md5_S', 'S', 'q', ['yes', 'no', 'only_in_dbB', 'only_in_dbB'])] };
+  const response = mdbSig('dbB', 'md5_S', 'S');
+
+  const pointer = driver.runAnalysis([mdbSig('dbA', 'md5_P', 'A')], [response], { dbA, dbB }, {});
+  assert.equal(pointer.flags.includes('has_multi_db_level_mismatch'), false);
+  assert.equal(pointer.flags.includes('has_multi_db_broadcast'), false);
+  assert.equal(pointer.result.analysis.length, 1);
+  // The substantive half: dbB's copy contributed nothing, so its extra level is nowhere to be
+  // found. Asserting only the flag's absence would still pass if the wrong column were read.
+  assert.equal(JSON.stringify(pointer.result.analysis).includes('only_in_dbB'), false);
+
+  // Contrast: give dbB a predictor of its own and both databases now contribute an analysis, so
+  // the differing level sets DO reach the reader and must be flagged.
+  const contributing = driver.runAnalysis(
+    [mdbSig('dbA', 'md5_P', 'A'), mdbSig('dbB', 'md5_Q', 'B')], [response], { dbA, dbB }, {});
+  assert.ok(contributing.flags.includes('has_multi_db_level_mismatch'));
+  assert.ok(JSON.stringify(contributing.result.analysis).includes('only_in_dbB'));
+});
+
 test("runAnalysis: the level-mismatch flag does not alter the analyses", () => {
   const base = ['x','y','x','y'];
   const dbSame = { columns: [mdbCol('md5_P','P','q',base), mdbCol('md5_S','S','q',['yes','no','yes','no'])] };
@@ -1169,4 +1196,59 @@ test("getDefaultAnalysisOptions: percent_by accepts 'total' and falls back to 'c
   assert.equal(driver.getDefaultAnalysisOptions({ percent_by: 'row' }).percent_by, 'row');
   assert.equal(driver.getDefaultAnalysisOptions({ percent_by: 'nonsense' }).percent_by, 'col');
   assert.equal(driver.getDefaultAnalysisOptions({}).percent_by, 'col');
+});
+
+// ---------------------------------------------------------------------------
+// Profile A across databases — col_hash is the MD5 of the column NAME, so it is
+// unique only WITHIN a database. Two uploads sharing a column name share its hash.
+// ---------------------------------------------------------------------------
+
+const collidingCol = (colHash, label, values) => ({
+  col_hash: colHash, col_label: label, col_type: 'n', col_sep: '', col_del: false,
+  col_values: { col_compact: false, labels: [], codes: [], raw_values: values },
+  col_vars: [], meta: {}
+});
+
+test("Profile A: same-named predictors from two databases read their OWN data", () => {
+  // Both databases have an "Idade" column, so both store it under the same hash. Before the
+  // database_id scoping, the merged `columns` lookup matched on hash alone and returned dbA's
+  // record for BOTH predictors — dbB was silently analysed with dbA's numbers.
+  const HASH = 'md5_of_Idade';
+  const dbA = { database_id: 'dbA', columns: [collidingCol(HASH, 'Idade', ['1', '2', '3', '4', '5'])] };
+  const dbB = { database_id: 'dbB', columns: [collidingCol(HASH, 'Idade', ['100', '200', '300', '400', '500'])] };
+  const sig = (dbId) => JSON.stringify({ database_id: dbId, col_hash: HASH, col_label: 'Idade', col_var_index: null });
+
+  const { result } = Statz.runAnalysis([sig('dbA'), sig('dbB')], [], { dbA, dbB },
+    Statz.getDefaultAnalysisOptions({}));
+
+  assert.equal(result.analysis.length, 2);
+  const minOf = (entry) => entry.table.rows.find(r => r.Variable === 'Minimum').Description;
+  assert.equal(minOf(result.analysis[0]), '1.0');
+  assert.equal(minOf(result.analysis[1]), '100.0');
+  // The guard that would have caught the original bug: the two entries must not be identical.
+  assert.notDeepEqual(result.analysis[0].table.rows, result.analysis[1].table.rows);
+});
+
+test("Profile A: a variant index is resolved within its own database", () => {
+  // Same hash in both databases AND a variant at the same index — the scoping has to hold when
+  // the (hash, var_index) pair matches in more than one database too.
+  const HASH = 'md5_of_Escore';
+  const withVariant = (values, variantValues) => ({
+    ...collidingCol(HASH, 'Escore', values),
+    col_vars: [null, {
+      var_label: 'Escore (v1)', col_type: 'n', col_sep: '',
+      col_values: { col_compact: false, labels: [], codes: [], raw_values: variantValues },
+      meta: {}
+    }]
+  });
+  const dbA = { database_id: 'dbA', columns: [withVariant(['1', '2', '3'], ['10', '20', '30'])] };
+  const dbB = { database_id: 'dbB', columns: [withVariant(['4', '5', '6'], ['40', '50', '60'])] };
+  const sig = (dbId) => JSON.stringify({ database_id: dbId, col_hash: HASH, col_label: 'Escore (v1)', col_var_index: 1 });
+
+  const { result } = Statz.runAnalysis([sig('dbA'), sig('dbB')], [], { dbA, dbB },
+    Statz.getDefaultAnalysisOptions({}));
+
+  const minOf = (entry) => entry.table.rows.find(r => r.Variable === 'Minimum').Description;
+  assert.equal(minOf(result.analysis[0]), '10.0');
+  assert.equal(minOf(result.analysis[1]), '40.0');
 });
