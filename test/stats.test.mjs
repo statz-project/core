@@ -1291,3 +1291,44 @@ test("summarize_n_q: a response with a single level reports no p-value, not p=0"
   assert.ok(Number.isFinite(control.p_value));
   assert.ok(control.test_used);
 });
+
+test("summarize_q_q: a table with fewer than two rows or columns reports no test", () => {
+  // df = (rows-1)(cols-1), so 1×1, 2×1 and 1×2 tables admit no test. stdlib does not reject
+  // them: chi2test returns {statistic: 0, df: 0, pValue: 0} — the strongest possible
+  // significance attached to the weakest possible evidence, under the chi-square name.
+  const dbA = {
+    columns: [
+      mdbCol('h_s', 'Status', 'q', ['fixed', 'fixed', 'fixed']),   // 1 level
+      mdbCol('h_i', 'Income', 'q', ['high', 'high', 'low']),       // 2 levels
+      mdbCol('h_e', 'Empty', 'q', ['', '', '']),                   // no level at all
+      mdbCol('h_o', 'Outcome', 'q', ['other', 'other', 'other']),  // 1 level
+      mdbCol('h_x', 'Sex', 'q', ['m', 'f', 'm'])                   // 2 levels
+    ]
+  };
+  const run = (predHash, respHash) => driver.runAnalysis(
+    [mdbSig('dbA', predHash, 'P')], [mdbSig('dbA', respHash, 'R')], { dbA }, { lang: 'pt_br' });
+
+  for (const [name, predHash] of [['1x1', 'h_s'], ['2x1', 'h_i']]) {
+    const { result } = run(predHash, 'h_o');
+    const table = result.analysis[0].table;
+    assert.equal(table.p_value, null, name);
+    assert.equal(table.test_used, null, name);
+    // Counts and percentages are unaffected — only the inference is withheld.
+    assert.ok(table.rows.length > 0, name);
+    assert.ok(table.rows.every(row => Object.values(row).some(v => String(v).includes('%'))), name);
+    // No test means no footnote symbol and no legend entry claiming one was run.
+    const combined = Statz.combineAnalysisAsSingleTable(result);
+    assert.deepEqual(combined.test_legend, [], name);
+    assert.equal(combined.rows[0]['p-valor'], Statz.translate('table.missingValue', 'pt_br'), name);
+  }
+
+  // A predictor with no observed level leaves `observed` empty; reading observed[0].length used
+  // to throw before the dimension guard.
+  assert.doesNotThrow(() => run('h_e', 'h_x'));
+  assert.equal(run('h_e', 'h_x').result.analysis[0].table.p_value, null);
+
+  // Control: a genuine 2×2 still runs its test.
+  const control = run('h_i', 'h_x').result.analysis[0].table;
+  assert.ok(control.test_used);
+  assert.ok(Number.isFinite(control.p_value));
+});

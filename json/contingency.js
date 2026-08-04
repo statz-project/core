@@ -133,7 +133,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
   const stats = getStatsLib();
   const observed = rowLevels.map(r => colLevels.map(c => table[r]?.[c] || 0));
   const test = (() => {
-    const rows = observed.length; const cols = observed[0].length;
+    const rows = observed.length; const cols = observed[0]?.length ?? 0;
     const rowSums = observed.map(r => r.reduce((a, b) => a + b, 0));
     const colSums = Array(cols).fill(0);
     for (let j = 0; j < cols; j++) {
@@ -149,7 +149,15 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     let residualsAnnotated = null;
     let used_resid_greater = false;
     let used_resid_lower = false;
-    if (is2x2 && hasSmallExpected) {
+    // A contingency test needs at least two rows AND two columns: df = (rows-1)(cols-1), so a
+    // 1×1, 2×1 or 1×2 table has df = 0 and no test exists. stdlib does not reject these — it
+    // returns {statistic: 0, df: 0, pValue: 0}, reporting the strongest possible significance for
+    // the weakest possible evidence, with the chi-square name attached. Leave method and p_value
+    // null so the exporter prints the missing-value marker; the counts and percentages below are
+    // unaffected and still reach the reader.
+    if (rows < 2 || cols < 2) {
+      // No test: method and p_value stay null.
+    } else if (is2x2 && hasSmallExpected) {
       const p = ns.fisherExact2x2(observed[0][0], observed[0][1], observed[1][0], observed[1][1]);
       method = translate('tests.fisherExact', lang);
       p_value = +p.toFixed(4);
