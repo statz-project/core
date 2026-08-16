@@ -29,19 +29,19 @@ export function trimPunctuation(label) {
 }
 
 /**
- * Expand a comma- and dash-separated index range string into a sorted, deduplicated
- * array of positive integers. Useful for batch selection UIs ("pick items 1,3-6,15").
+ * Expand a semicolon- and dash-separated index range string into a sorted, deduplicated
+ * array of positive integers. Useful for batch selection UIs ("pick items 1;3-6;15").
  *
  * Examples:
- *   "1,3-6,15"     → [1, 3, 4, 5, 6, 15]
+ *   "1;3-6;15"     → [1, 3, 4, 5, 6, 15]
  *   "5"            → [5]
- *   "3,3,3"        → [3]
- *   "1-3,5,10-12"  → [1, 2, 3, 5, 10, 11, 12]
+ *   "3;3;3"        → [3]
+ *   "1-3;5;10-12"  → [1, 2, 3, 5, 10, 11, 12]
  *   "6-3"          → [3, 4, 5, 6]   (inverted range normalized)
  *   ""             → []
  *
- * Invalid tokens are silently dropped. Ranges expanding to more than 10000 indices
- * are dropped as a guard against accidental abuse (e.g., "1-1000000"). Non-string
+ * Invalid tokens are silently dropped. Ranges expanding to more than 1000 indices
+ * are dropped as a guard against accidental abuse (e.g., "1-100000"). Non-string
  * input returns `[]`.
  *
  * @param {string} input
@@ -49,7 +49,7 @@ export function trimPunctuation(label) {
  */
 export function expandIndexRange(input) {
   if (typeof input !== "string") return [];
-  const tokens = input.split(",").map(t => t.trim()).filter(Boolean);
+  const tokens = input.split(";").map(t => t.trim()).filter(Boolean);
   /** @type {Set<number>} */
   const result = new Set();
   for (const token of tokens) {
@@ -63,7 +63,7 @@ export function expandIndexRange(input) {
     const b = parseInt(m[2], 10);
     const lo = Math.min(a, b);
     const hi = Math.max(a, b);
-    if (hi - lo > 10000) continue;
+    if (hi - lo > 1000) continue;
     for (let i = lo; i <= hi; i++) result.add(i);
   }
   return [...result].sort((a, b) => a - b);

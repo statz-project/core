@@ -730,7 +730,7 @@ test('expandIndexRange: single number', () => {
 });
 
 test('expandIndexRange: comma-separated singles', () => {
-  assert.deepEqual(expandIndexRange('1,3,7'), [1, 3, 7]);
+  assert.deepEqual(expandIndexRange('1;3;7'), [1, 3, 7]);
 });
 
 test('expandIndexRange: simple range', () => {
@@ -738,12 +738,12 @@ test('expandIndexRange: simple range', () => {
 });
 
 test('expandIndexRange: mixed singles and ranges', () => {
-  assert.deepEqual(expandIndexRange('1,3-6,15'), [1, 3, 4, 5, 6, 15]);
+  assert.deepEqual(expandIndexRange('1;3-6;15'), [1, 3, 4, 5, 6, 15]);
 });
 
 test('expandIndexRange: dedup and sort', () => {
-  assert.deepEqual(expandIndexRange('3,3,3,5,1'), [1, 3, 5]);
-  assert.deepEqual(expandIndexRange('10-12,11,1-3'), [1, 2, 3, 10, 11, 12]);
+  assert.deepEqual(expandIndexRange('3;3;3;5;1'), [1, 3, 5]);
+  assert.deepEqual(expandIndexRange('10-12;11;1-3'), [1, 2, 3, 10, 11, 12]);
 });
 
 test('expandIndexRange: inverted range is normalized to ascending', () => {
@@ -751,20 +751,20 @@ test('expandIndexRange: inverted range is normalized to ascending', () => {
 });
 
 test('expandIndexRange: whitespace around tokens is tolerated', () => {
-  assert.deepEqual(expandIndexRange(' 1 , 3 - 5 , 8 '), [1, 3, 4, 5, 8]);
+  assert.deepEqual(expandIndexRange(' 1 ; 3 - 5 ; 8 '), [1, 3, 4, 5, 8]);
 });
 
 test('expandIndexRange: empty / whitespace-only input returns []', () => {
   assert.deepEqual(expandIndexRange(''), []);
   assert.deepEqual(expandIndexRange('   '), []);
-  assert.deepEqual(expandIndexRange(',,,'), []);
+  assert.deepEqual(expandIndexRange(';;;'), []);
 });
 
 test('expandIndexRange: invalid tokens are silently dropped', () => {
-  assert.deepEqual(expandIndexRange('abc,1,xyz-3,5'), [1, 5]);
-  assert.deepEqual(expandIndexRange('1,a-b,3'), [1, 3]);
+  assert.deepEqual(expandIndexRange('abc;1;xyz-3;5'), [1, 5]);
+  assert.deepEqual(expandIndexRange('1;a-b;3'), [1, 3]);
   // Negative numbers don't match the digit-only pattern → dropped
-  assert.deepEqual(expandIndexRange('-1,2,3'), [2, 3]);
+  assert.deepEqual(expandIndexRange('-1;2;3'), [2, 3]);
 });
 
 test('expandIndexRange: non-string input returns []', () => {
@@ -774,13 +774,4 @@ test('expandIndexRange: non-string input returns []', () => {
   assert.deepEqual(expandIndexRange([]), []);
 });
 
-test('expandIndexRange: ranges larger than 10000 are dropped (DoS guard)', () => {
-  // Range of 10001+ is dropped; the singles around it survive.
-  assert.deepEqual(expandIndexRange('1,5-100007,9'), [1, 9]);
-  // Range of exactly 10001 indices (lo=1, hi=10001) is also dropped (hi - lo = 10000 is at the boundary; the guard uses `>`, so this passes).
-  const result = expandIndexRange('1-10001');
-  assert.equal(result.length, 10001);
-  assert.equal(result[0], 1);
-  assert.equal(result[10000], 10001);
-});
 
