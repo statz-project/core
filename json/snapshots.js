@@ -17,6 +17,28 @@ function findColumn(db, colHash) {
   return db.columns.find((c) => c?.col_hash === colHash) ?? null;
 }
 
+/**
+ * Resolve a signature's `col_var_index` to a variant, or `null` when it points at the base column.
+ *
+ * Deliberately duplicates `normalizeVarIndex` from factors.js rather than importing it: factors.js
+ * imports THIS module (for refreshDatabaseHashes), so the dependency cannot be reversed without
+ * the ESM cycle this file's header warns about. Keep the coercion rules in step with
+ * `factors.resolveVariable` — blank strings, non-integers, negatives and out-of-range indices all
+ * mean "base column", and a numeric string like '1' is a valid index.
+ *
+ * @param {any} column
+ * @param {any} rawIndex
+ * @returns {any|null}
+ */
+function variantAt(column, rawIndex) {
+  const vars = Array.isArray(column?.col_vars) ? column.col_vars : [];
+  if (rawIndex === null || rawIndex === undefined) return null;
+  if (typeof rawIndex === 'string' && rawIndex.trim() === '') return null;
+  const n = Number(rawIndex);
+  if (!Number.isInteger(n) || n < 0 || n >= vars.length) return null;
+  return vars[n] ?? null;
+}
+
 const ns = {};
 
 /**
@@ -222,10 +244,14 @@ ns.computeElementSnapshot = function (predictors, responses, databases, analysis
     if (!db) return 'MISSING';
     const col = findColumn(db, sig.col_hash);
     if (!col) return 'MISSING';
-    const idx = sig.col_var_index;
-    if (idx == null) return col.col_content_hash ?? 'MISSING';
-    if (!Array.isArray(col.col_vars) || idx < 0 || idx >= col.col_vars.length) return 'MISSING';
-    return col.col_vars[idx]?.var_content_hash ?? 'MISSING';
+    const variant = variantAt(col, sig.col_var_index);
+    // A dangling index reads the BASE column at analysis time, so it must hash the base column
+    // here too. Returning a constant 'MISSING' instead used to FREEZE the Element: the analysis
+    // kept producing results that changed with the base column while the snapshot swore nothing
+    // had, so the Do-when never fired again. 'MISSING' is now reserved for what is genuinely
+    // unreachable — an absent database or column.
+    if (!variant) return col.col_content_hash ?? 'MISSING';
+    return variant.var_content_hash ?? col.col_content_hash ?? 'MISSING';
   };
 
   /** @type {Record<string, string>} */

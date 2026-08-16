@@ -714,6 +714,28 @@ ns.getIndividualItemsWithCount = function (column, options = {}) {
 };
 
 /**
+ * Return true when a variant is a pure POINTER to its parent column — it carries a label and
+ * nothing else, so it decodes to exactly the column's own values.
+ *
+ * `col_vars[0]` is conventionally this: `addVariant` creates it as `{var_label, meta:{kind:'original'}}`
+ * so the UI can offer "the original" alongside real variants. A pointer that acquires its own
+ * `col_values`, replacements or processing has stopped being redundant and is NOT one.
+ *
+ * Callers use it to decide whether the variant adds anything worth showing (the viewer and the
+ * missing map skip it) or worth keeping (`removeVariantAt` drops a lone leftover).
+ *
+ * @param {any} variant
+ * @returns {boolean}
+ */
+ns.isPointerVariant = function (variant) {
+  if (!variant || variant.col_values != null) return false;
+  const meta = variant.meta;
+  const hasReplacements = Array.isArray(meta?.replacements) && meta.replacements.length > 0;
+  const hasProcessing = meta?.processing && Object.keys(meta.processing).length > 0;
+  return !hasReplacements && !hasProcessing;
+};
+
+/**
  * Decide whether a set of qualitative columns can be treated as ONE shared binary factor,
  * and return that factor's two levels.
  *

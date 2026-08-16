@@ -641,7 +641,9 @@ test('removeVariantAt: leaf variant with no dependents is removed cleanly', () =
 
   const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
   assert.equal(warnings.length, 0);
-  assert.equal(col.col_vars.length, 1); // only base
+  // The lone pointer left behind is dropped too: it only ever resolved to the base column, and
+  // an empty col_vars is the state a freshly imported column is in. addVariant re-seeds it.
+  assert.equal(col.col_vars.length, 0);
 });
 
 test('removeVariantAt: cascade removes direct dependent + warning per cascade', () => {
@@ -657,7 +659,7 @@ test('removeVariantAt: cascade removes direct dependent + warning per cascade', 
   }));
 
   const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
-  assert.equal(col.col_vars.length, 1); // both removed
+  assert.equal(col.col_vars.length, 0); // both removed, and the leftover pointer with them
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /v2 \(relabel\)/);
   assert.match(warnings[0], /cascade/i);
@@ -679,7 +681,8 @@ test('removeVariantAt: deep chain v1 -> v2 -> v3 all cascade when v1 removed', (
   }));
 
   const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
-  assert.equal(col.col_vars.length, 1); // base only
+  // A cascade can land on the single-pointer state too — the cleanup is gated on the RESULT.
+  assert.equal(col.col_vars.length, 0);
   assert.equal(warnings.length, 2); // v2 + v3
   const joined = warnings.join('\n');
   assert.match(joined, /v2/);
@@ -734,7 +737,7 @@ test('removeVariantAt: branching dependents — A→B, A→C — both cascade wh
   }));
 
   const { warnings } = driver.removeVariantAt(database, 'h_score', 1);
-  assert.equal(col.col_vars.length, 1);
+  assert.equal(col.col_vars.length, 0);
   assert.equal(warnings.length, 2);
 });
 
@@ -863,4 +866,60 @@ test("createVariant: a derived source is read as stored, never re-resolved throu
     kind: "search_replace", var_label: "V2", sourceVarIndex: 1, replacements: [{ search: "Z", replace: "!" }]
   });
   assert.deepEqual(factors.decodeColumn(downstream), ["b", "!", "!"], "'b' is not re-mapped to 'c'");
+});
+
+test('removeVariantAt: a non-pointer variant at index 0 is never dropped', () => {
+  // The cleanup is gated on isPointerVariant, not on position. A variant sitting at index 0 that
+  // carries its own col_values (or its own replacements/processing) holds data the base column
+  // does not, so removing it would destroy work the user cannot recover.
+  const { database, col } = buildRemovalScenarioDb();
+  col.col_vars[0] = {
+    var_label: 'Score (rounded)', col_type: 'n', col_sep: '',
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: ['1','2','3','4','5','6','7','8','9','10'] },
+    meta: {}
+  };
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+
+  driver.removeVariantAt(database, 'h_score', 1);
+  assert.equal(col.col_vars.length, 1);
+  assert.equal(col.col_vars[0].var_label, 'Score (rounded)');
+
+  // Same protection for a pointer that grew its own processing: it inherits the column's
+  // replacements but adds rules on top, so its values genuinely differ from the base.
+  const second = buildRemovalScenarioDb();
+  second.col.col_vars[0] = { var_label: 'Score', meta: { kind: 'original', processing: { trim: true } } };
+  second.col.col_vars.push(driver.createVariant(second.col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  driver.removeVariantAt(second.database, 'h_score', 1);
+  assert.equal(second.col.col_vars.length, 1);
+});
+
+test('removeVariantAt: emptying col_vars leaves the column fully usable', () => {
+  const { database, col } = buildRemovalScenarioDb();
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  driver.removeVariantAt(database, 'h_score', 1);
+  assert.equal(col.col_vars.length, 0);
+
+  // The base column still resolves, including through a now-dangling index 0 signature.
+  assert.deepEqual(factors.resolveVariable(database, 'h_score', null).values,
+    ['1','2','3','4','5','6','7','8','9','10']);
+  const dangling = factors.resolveVariable(database, 'h_score', 0);
+  assert.equal(dangling.varIndex, null);
+  assert.deepEqual(dangling.values, ['1','2','3','4','5','6','7','8','9','10']);
+
+  // addVariant re-seeds the pointer, so the next variant lands at index 1 as before.
+  driver.addVariant(database, 'h_score', driver.createVariant(col, {
+    var_label: 'v2', kind: 'cut_intervals', sourceVarIndex: 0,
+    cut: { breaks: [0, 5, 10], includeLowest: true, right: true }
+  }));
+  assert.equal(col.col_vars.length, 2);
+  assert.equal(col.col_vars[1].var_label, 'v2');
 });

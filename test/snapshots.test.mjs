@@ -189,11 +189,30 @@ test("computeElementSnapshot: unknown col_hash → MISSING", () => {
   assert.equal(snap["db1#does_not_exist#null"], "MISSING");
 });
 
-test("computeElementSnapshot: out-of-range col_var_index → MISSING", () => {
+test("computeElementSnapshot: a dangling col_var_index tracks the base column, not MISSING", () => {
+  // factors.resolveVariable coerces any out-of-range index to the base column, so that is what
+  // the analysis reads and what the snapshot has to hash. Returning a constant "MISSING" froze
+  // the Element: edits to the base column changed the results while the snapshot claimed nothing
+  // had moved, so the Do-when never fired again.
   const db = makeFixtureDb(); snapshots.refreshDatabaseHashes(db);
-  const preds = [{ database_id: "db1", col_hash: "h_sex", col_var_index: 99 }];
-  const snap = snapshots.computeElementSnapshot(preds, [], { db1: db }, {});
-  assert.equal(snap["db1#h_sex#99"], "MISSING");
+  const column = db.columns.find(c => c.col_hash === "h_sex");
+  const dangling = [{ database_id: "db1", col_hash: "h_sex", col_var_index: 99 }];
+  const before = snapshots.computeElementSnapshot(dangling, [], { db1: db }, {});
+  assert.equal(before["db1#h_sex#99"], column.col_content_hash);
+  assert.notEqual(before["db1#h_sex#99"], "MISSING");
+
+  // The load-bearing property: editing the base column must still move the snapshot.
+  column.col_values.codes = column.col_values.codes.map(() => 2);
+  snapshots.refreshColumnHashes(db, "h_sex");
+  const after = snapshots.computeElementSnapshot(dangling, [], { db1: db }, {});
+  assert.notEqual(after["db1#h_sex#99"], before["db1#h_sex#99"]);
+
+  // MISSING stays reserved for what is genuinely unreachable.
+  const orphan = [{ database_id: "db1", col_hash: "no_such_column", col_var_index: null }];
+  assert.equal(
+    snapshots.computeElementSnapshot(orphan, [], { db1: db }, {})["db1#no_such_column#null"],
+    "MISSING"
+  );
 });
 
 test("computeElementSnapshot: reordering predictors flips __predictor_order only", () => {

@@ -281,7 +281,20 @@ ns.removeVariantAt = function (database, colHash, removeIndex, options = {}) {
     }
   }
 
-  // Step 5: warnings — only for cascade-removed dependents (not the explicitly removed one).
+  // Step 5: drop a leftover lone pointer. Once the last real variant is gone, `col_vars[0]` is a
+  // label pointing at the column it already is — the viewer and the missing map skip it, but the
+  // variant picker still offers it as a choice that resolves to the base column. Emptying the
+  // array is the state a freshly imported column is in, and `addVariant` re-seeds the pointer on
+  // its own, so nothing downstream has to know this happened.
+  //
+  // Gated on the RESULT, not on the original length: a cascade can remove several variants at
+  // once and land on the same single-pointer state. And gated on isPointerVariant, because a
+  // variant at index 0 that grew its own col_values/replacements/processing is real data.
+  if (column.col_vars.length === 1 && factors.isPointerVariant(column.col_vars[0])) {
+    column.col_vars = [];
+  }
+
+  // Step 6: warnings — only for cascade-removed dependents (not the explicitly removed one).
   /** @type {string[]} */
   const warnings = [];
   Array.from(dependentSet)

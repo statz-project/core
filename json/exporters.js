@@ -52,29 +52,6 @@ const parseMaxOption = (raw, fallback) => {
 };
 
 /**
- * True when a variant would render a row byte-identical to its own base column, making it pure
- * duplication in a table that already shows that column.
- *
- * A variant with no `col_values` of its own is a POINTER to its parent (`addVariant` seeds
- * `col_vars[0]` this way, labelled with the column's own label), so it decodes to the parent's
- * values. When it also declares no `replacements`/`processing`, it resolves through exactly the
- * column's meta too — same values, same everything.
- *
- * A pointer variant that DOES carry its own processing is kept: it inherits the column's
- * replacements but adds its own rules on top, so its values genuinely differ.
- *
- * @param {any} variant
- * @returns {boolean}
- */
-const isRedundantPointerVariant = (variant) => {
-  if (!variant || variant.col_values != null) return false;
-  const meta = variant.meta;
-  const hasReplacements = Array.isArray(meta?.replacements) && meta.replacements.length > 0;
-  const hasProcessing = meta?.processing && Object.keys(meta.processing).length > 0;
-  return !hasReplacements && !hasProcessing;
-};
-
-/**
  * Flatten a database payload into renderable column entries (base columns + their variants),
  * decoding values and optionally applying replacements + processing.
  * Shared by `exportDatabaseAsHTML` and `buildMissingMap`.
@@ -104,7 +81,8 @@ const collectDecodedColumns = function (db, options) {
     if (showVariants && Array.isArray(col.col_vars)) {
       col.col_vars.forEach((variant, idx) => {
         // Skipped, not renumbered: surviving variants keep their own `__var${idx}` hash.
-        if (isRedundantPointerVariant(variant)) return;
+        // A lone pointer variant duplicates the base column byte for byte; skip it.
+        if (factors.isPointerVariant(variant)) return;
         const resolved = factors.resolveVariable(db, col.col_hash, idx, resolveOpts);
         if (!resolved) return;
         const vRawLabel = variant?.var_label ?? `${baseRawLabel} (v${idx + 1})`;
