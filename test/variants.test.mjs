@@ -923,3 +923,104 @@ test('removeVariantAt: emptying col_vars leaves the column fully usable', () => 
   assert.equal(col.col_vars.length, 2);
   assert.equal(col.col_vars[1].var_label, 'v2');
 });
+
+// ---------------------------------------------------------------------------
+// Recipe sanitisation — level references that no longer resolve are pruned silently.
+// Recipes live in meta.recipe and are REPLAYED by removeVariantAt, so an orphan left
+// behind by an upstream edit would re-run on every downstream edit forever.
+// ---------------------------------------------------------------------------
+
+const sanitizeCol = (values = ['a', 'b', 'a', 'c', 'b']) => {
+  const col = factors.makeColumn(values, { col_type: 'q', var_label: 'X', includeBaseVariant: true });
+  col.col_hash = 'h_san';
+  col.col_label = 'X';
+  return col;
+};
+const decodeVariant = (v) => factors.decodeColValues(v.col_values, v.col_type, v.col_sep);
+
+test('createVariant: orphaned level references are pruned out of meta.recipe', () => {
+  const intact = ['a', 'b', 'a', 'c', 'b'];
+  const cases = [
+    ['merges', { merges: [{ label: 'A_B', levels: ['A', 'B'] }] }, undefined],
+    ['replacements', { replacements: [{ from: 'zzz', to: 'Q' }] }, undefined],
+    ['custom_order', { sort_mode: 'custom', custom_order: ['A', 'B'] }, undefined]
+  ];
+  for (const [key, recipe] of cases) {
+    const v = variants.createVariant(sanitizeCol(), { var_label: 'V', sourceVarIndex: 0, ...recipe });
+    assert.equal(v.meta.recipe[key], undefined, key);
+    // Pruning a reference that matched nothing cannot change the output.
+    assert.deepEqual(decodeVariant(v), intact, key);
+  }
+});
+
+test('createVariant: a partially orphaned merge keeps its surviving levels', () => {
+  const v = variants.createVariant(sanitizeCol(),
+    { var_label: 'V', sourceVarIndex: 0, merges: [{ label: 'aZ', levels: ['a', 'Z'] }] });
+  assert.deepEqual(v.meta.recipe.merges, [{ label: 'aZ', levels: ['a'] }]);
+  // The group survives because it still renames 'a' — dropping it would change the result.
+  assert.deepEqual(decodeVariant(v), ['aZ', 'b', 'aZ', 'c', 'b']);
+});
+
+test('createVariant: a fully orphaned subset stops nulling the column', () => {
+  // The one place sanitising changes the OUTPUT, deliberately: keeping levels that no longer
+  // exist nulls every row, while an empty subset is the no-op the template is born in.
+  const v = variants.createVariant(sanitizeCol(),
+    { var_label: 'V', sourceVarIndex: 0, subsetLevels: ['A', 'B'] });
+  assert.deepEqual(v.meta.recipe.subsetLevels, []);
+  assert.deepEqual(decodeVariant(v), ['a', 'b', 'a', 'c', 'b']);
+
+  // Partially orphaned: the surviving level still filters, exactly as before.
+  const partial = variants.createVariant(sanitizeCol(),
+    { var_label: 'V', sourceVarIndex: 0, subsetLevels: ['a', 'Z'] });
+  assert.deepEqual(partial.meta.recipe.subsetLevels, ['a']);
+  assert.deepEqual(decodeVariant(partial), ['a', null, 'a', null, null]);
+});
+
+test('createVariant: pruning is measured against the pipeline, not the source column', () => {
+  // 'A' does not exist in the source — it is CREATED by the upstream replacement. Pruning against
+  // the source column would wrongly delete the merge that depends on it.
+  const v = variants.createVariant(sanitizeCol(), {
+    var_label: 'V', sourceVarIndex: 0,
+    replacements: [{ from: 'a', to: 'A' }],
+    merges: [{ label: 'Ab', levels: ['A', 'b'] }]
+  });
+  assert.deepEqual(v.meta.recipe.merges, [{ label: 'Ab', levels: ['A', 'b'] }]);
+  assert.deepEqual(decodeVariant(v), ['Ab', 'Ab', 'Ab', 'c', 'Ab']);
+});
+
+test('createVariant: a healthy recipe is left untouched and the caller config is not mutated', () => {
+  const config = {
+    var_label: 'V', sourceVarIndex: 0,
+    replacements: [{ from: 'a', to: 'A' }],
+    merges: [{ label: 'Ab', levels: ['A', 'b'] }]
+  };
+  const before = JSON.stringify(config);
+  const v = variants.createVariant(sanitizeCol(), config);
+  assert.equal(JSON.stringify(config), before, 'caller config must not be mutated');
+  assert.deepEqual(v.meta.recipe.replacements, [{ from: 'a', to: 'A' }]);
+});
+
+test('replaceVariantAt: editing an upstream variant prunes the dependents it orphans', () => {
+  // The real staleness path. v2 merges 'A', a level v1 creates. Editing v1 so it produces 'Z'
+  // instead leaves v2 pointing at a level nobody makes any more; replaceVariantAt replays v2 from
+  // its stored recipe, and that recipe must come back pruned rather than carrying the orphan
+  // forward into every later edit.
+  const col = sanitizeCol();
+  const database = { columns: [col] };
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v1', kind: 'search_replace', sourceVarIndex: 0, replacements: [{ from: 'a', to: 'A' }]
+  }));
+  col.col_vars.push(driver.createVariant(col, {
+    var_label: 'v2', kind: 'merge_levels', sourceVarIndex: 1, merges: [{ label: 'Ab', levels: ['A', 'b'] }]
+  }));
+  assert.deepEqual(col.col_vars[2].meta.recipe.merges, [{ label: 'Ab', levels: ['A', 'b'] }]);
+
+  const editedV1 = driver.createVariant(col, {
+    var_label: 'v1', kind: 'search_replace', sourceVarIndex: 0, replacements: [{ from: 'a', to: 'Z' }]
+  });
+  driver.replaceVariantAt(database, 'h_san', 1, editedV1);
+
+  // 'A' is gone from the chain, so only 'b' survives in the merge — and the STORED recipe says so.
+  assert.deepEqual(col.col_vars[2].meta.recipe.merges, [{ label: 'Ab', levels: ['b'] }]);
+  assert.deepEqual(decodeVariant(col.col_vars[2]), ['Z', 'Ab', 'Z', 'c', 'Ab']);
+});

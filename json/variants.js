@@ -767,6 +767,49 @@ ns.normalizeRecipe = function (config = {}) {
 };
 
 /**
+ * Distinct non-empty values present in the pipeline at a given step.
+ *
+ * For list columns the units are the individual items, matching what `applyMerge`, `applySubset`
+ * and `applySearchReplace` compare against — a whole cell like "a;b" never resolves as a level.
+ *
+ * @param {string[]} values
+ * @param {boolean} isList
+ * @param {string} sep
+ * @returns {Set<string>}
+ */
+const presentLevels = (values, isList, sep) => {
+  /** @type {Set<string>} */
+  const out = new Set();
+  values.forEach((raw) => {
+    const text = toStringSafe(raw);
+    const units = isList ? text.split(sep) : [text];
+    units.forEach((unit) => {
+      const trimmed = unit.trim();
+      if (trimmed) out.add(trimmed);
+    });
+  });
+  return out;
+};
+
+/**
+ * Drop level references that no longer exist at this point in the pipeline.
+ *
+ * Recipes are persisted in `meta.recipe` and REPLAYED (`removeVariantAt` rebuilds every dependent
+ * variant from its recipe), so a reference orphaned by an upstream edit is not a one-off display
+ * problem — it re-runs on every downstream edit, forever. Pruning happens silently: the level is
+ * simply gone, and warning about it would only ask the user to confirm a cleanup they cannot act
+ * on any other way.
+ *
+ * @param {any} levels
+ * @param {Set<string>} present
+ * @returns {string[]}
+ */
+const pruneMissingLevels = (levels, present) =>
+  (Array.isArray(levels) ? levels : [])
+    .map((level) => toStringSafe(level).trim())
+    .filter((level) => level && present.has(level));
+
+/**
  * Create a column variant by applying the requested transformation pipeline.
  * @param {ColumnLike} baseCol
  * @param {VariantConfig} [config]
@@ -813,6 +856,12 @@ ns.createVariant = function (baseCol, config = {}) {
 
   const lang = normalizeLanguage(config.lang);
   const recipe = ns.normalizeRecipe(config);
+  // Level references pruned against the data actually present at each pipeline step. Collected
+  // here and folded back into `meta.recipe` at the end, so the STORED recipe is self-consistent —
+  // `removeVariantAt` replays it on every cascade, and an orphaned reference would otherwise
+  // survive forever.
+  /** @type {Record<string, any>} */
+  const sanitized = {};
   /** @type {VariantMeta} */
   const meta = {
     kind: config.kind ?? 'custom',
@@ -834,7 +883,15 @@ ns.createVariant = function (baseCol, config = {}) {
   }
   if (config.replacements || config.searchReplace) {
     /** @type {ReplaceSpec[]} */
-    const rawReplacements = config.replacements ?? config.searchReplace ?? [];
+    const requestedReplacements = config.replacements ?? config.searchReplace ?? [];
+    // A rule whose `from` no longer exists matches nothing; dropping it changes no output.
+    const present = presentLevels(workingValues, currentType === 'l', currentSep || sourceSep || DEFAULT_LIST_SEP);
+    const rawReplacements = (Array.isArray(requestedReplacements) ? requestedReplacements : [])
+      .filter((/** @type {any} */ item) => {
+        const from = toStringSafe(item?.search ?? item?.from ?? item?.value ?? item?.level ?? '').trim();
+        return from && present.has(from);
+      });
+    if (rawReplacements.length !== (requestedReplacements?.length ?? 0)) sanitized.replacements = rawReplacements;
     workingValues = applySearchReplace(workingValues, rawReplacements, getListContext());
     if (workingLabels && Array.isArray(rawReplacements)) {
       /** @type {Map<string,string>} */
@@ -860,11 +917,25 @@ ns.createVariant = function (baseCol, config = {}) {
     }
   }
   if (config.merges) {
-    workingValues = applyMerge(workingValues, config.merges, getListContext());
-    if (workingLabels && Array.isArray(config.merges)) {
+    // Prune vanished levels from each group but KEEP the group: a group reduced to one surviving
+    // level still renames it, which is what the un-pruned recipe already did. Only a group left
+    // with nothing is dropped, and that is a no-op either way.
+    const present = presentLevels(workingValues, currentType === 'l', currentSep || sourceSep || DEFAULT_LIST_SEP);
+    const requestedMerges = Array.isArray(config.merges) ? config.merges : [];
+    const mergeSpecs = requestedMerges
+      .map((/** @type {any} */ group) => {
+        if (!group) return null;
+        const raw = Array.isArray(group.levels) ? group.levels : Array.isArray(group.values) ? group.values : [];
+        const levels = pruneMissingLevels(raw, present);
+        return levels.length ? { ...group, levels } : null;
+      })
+      .filter(Boolean);
+    if (JSON.stringify(mergeSpecs) !== JSON.stringify(requestedMerges)) sanitized.merges = mergeSpecs;
+    workingValues = applyMerge(workingValues, mergeSpecs, getListContext());
+    if (workingLabels && Array.isArray(mergeSpecs)) {
       /** @type {Map<string,string>} */
       const mergeMap = new Map();
-      config.merges.forEach((/** @type {any} */ group) => {
+      mergeSpecs.forEach((/** @type {any} */ group) => {
         if (!group) return;
         const target = toStringSafe(group.label ?? group.target ?? group.name ?? '').trim();
         if (!target) return;
@@ -890,9 +961,16 @@ ns.createVariant = function (baseCol, config = {}) {
     }
   }
   if (config.subsetLevels) {
-    workingValues = applySubset(workingValues, config.subsetLevels, getListContext());
-    if (workingLabels && Array.isArray(config.subsetLevels)) {
-      const allowed = new Set(config.subsetLevels.map((/** @type {any} */ v) => toStringSafe(v).trim()).filter(Boolean));
+    // Pruning here is the one place sanitising changes the OUTPUT, and deliberately so: keeping a
+    // subset of levels that no longer exist nulls out every row. An empty list is exactly the
+    // state the template is born in (a no-op), so the column comes through intact instead.
+    const present = presentLevels(workingValues, currentType === 'l', currentSep || sourceSep || DEFAULT_LIST_SEP);
+    const requestedSubset = Array.isArray(config.subsetLevels) ? config.subsetLevels : [];
+    const subsetSpecs = pruneMissingLevels(requestedSubset, present);
+    if (subsetSpecs.length !== requestedSubset.length) sanitized.subsetLevels = subsetSpecs;
+    workingValues = applySubset(workingValues, subsetSpecs, getListContext());
+    if (workingLabels) {
+      const allowed = new Set(subsetSpecs);
       workingLabels = workingLabels.filter((l) => allowed.has(l));
     }
   }
@@ -927,9 +1005,22 @@ ns.createVariant = function (baseCol, config = {}) {
   // Post-encode: optional level reordering. `sort_mode` (modern API) takes precedence;
   // legacy `sortByFrequency: true` is accepted as a `freq_desc` alias.
   const sortMode = resolveVariantSortMode(config);
+  // custom_order names the levels that survive the WHOLE pipeline, so it is pruned last. Entries
+  // that no longer exist are ignored by sortLabels anyway; dropping them changes no output.
+  const requestedOrder = /** @type {Record<string,any>} */ (config).custom_order;
+  let orderSpecs = /** @type {string[]|undefined} */ (requestedOrder);
+  if (Array.isArray(requestedOrder)) {
+    const present = presentLevels(workingValues, currentType === 'l', currentSep || sourceSep || DEFAULT_LIST_SEP);
+    orderSpecs = pruneMissingLevels(requestedOrder, present);
+    if (orderSpecs.length !== requestedOrder.length) sanitized.custom_order = orderSpecs;
+  }
   const finalValues = sortMode === 'default'
     ? processed
-    : sortLabels(processed, workingValues, currentType, currentSep, sortMode, /** @type {string[]|undefined} */ (/** @type {Record<string,any>} */ (config).custom_order), meta);
+    : sortLabels(processed, workingValues, currentType, currentSep, sortMode, orderSpecs, meta);
+  // Fold the pruned references back into the stored recipe, re-normalised so it stays canonical.
+  if (Object.keys(sanitized).length > 0) {
+    meta.recipe = ns.normalizeRecipe({ ...config, ...sanitized });
+  }
   if (cutInfo?.breaks) {
     meta.breaks = cutInfo.breaks;
     meta.labels = cutInfo.labels;
