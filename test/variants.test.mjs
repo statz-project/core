@@ -940,10 +940,10 @@ const decodeVariant = (v) => factors.decodeColValues(v.col_values, v.col_type, v
 
 test('createVariant: orphaned level references are pruned out of meta.recipe', () => {
   const intact = ['a', 'b', 'a', 'c', 'b'];
+  // custom_order is deliberately absent here — see the self-healing test below.
   const cases = [
     ['merges', { merges: [{ label: 'A_B', levels: ['A', 'B'] }] }, undefined],
-    ['replacements', { replacements: [{ from: 'zzz', to: 'Q' }] }, undefined],
-    ['custom_order', { sort_mode: 'custom', custom_order: ['A', 'B'] }, undefined]
+    ['replacements', { replacements: [{ from: 'zzz', to: 'Q' }] }, undefined]
   ];
   for (const [key, recipe] of cases) {
     const v = variants.createVariant(sanitizeCol(), { var_label: 'V', sourceVarIndex: 0, ...recipe });
@@ -1023,4 +1023,61 @@ test('replaceVariantAt: editing an upstream variant prunes the dependents it orp
   // 'A' is gone from the chain, so only 'b' survives in the merge — and the STORED recipe says so.
   assert.deepEqual(col.col_vars[2].meta.recipe.merges, [{ label: 'Ab', levels: ['b'] }]);
   assert.deepEqual(decodeVariant(col.col_vars[2]), ['Z', 'Ab', 'Z', 'c', 'Ab']);
+});
+
+test('createVariant: blank cut labels fall through to the generated interval names', () => {
+  // The "toggle custom labels" UI seeds one input per interval, so every untouched slot arrives
+  // as "". Treating that as a real label made the interval's assigned value empty too — blanking
+  // the whole column and tripping the outside-the-breaks counter, which reads label truthiness.
+  const col = factors.makeColumn(['10', '30', '50', '70', '90'],
+    { col_type: 'n', var_label: 'X', includeBaseVariant: true });
+  col.col_hash = 'h_labels';
+  const cut = { breaks: [0, 50, 100], includeLowest: true, right: true };
+  const build = (labels) => variants.createVariant(col,
+    { var_label: 'V', sourceVarIndex: 0, cut: { ...cut, labels } });
+  const decode = (v) => factors.decodeColValues(v.col_values, v.col_type, v.col_sep);
+
+  const auto = decode(build(undefined));
+  assert.deepEqual(decode(build(['', ''])), auto, 'all-blank must match having no labels at all');
+  assert.deepEqual(decode(build(['  ', '  '])), auto, 'whitespace counts as blank');
+  assert.deepEqual(build(['', '']).meta.warnings, [], 'and must not claim values fell outside');
+
+  // Half-filled: the named interval wins, the blank one keeps its generated name.
+  assert.deepEqual(decode(build(['baixo', ''])),
+    ['baixo', 'baixo', 'baixo', '(50, 100]', '(50, 100]']);
+  // Fully named still overrides both.
+  assert.deepEqual(decode(build(['baixo', 'alto'])),
+    ['baixo', 'baixo', 'baixo', 'alto', 'alto']);
+});
+
+test('createVariant: custom_order is preserved, not pruned, so the ordering self-heals', () => {
+  // custom_order is an ordering PREFERENCE, not a data reference. sortLabels already filters it
+  // against the levels that exist, so a stale entry is inert — and keeping it means a level that
+  // comes back upstream reclaims its place instead of being appended at the end.
+  const col = () => {
+    const c = factors.makeColumn(['a', 'b', 'c', 'a', 'b'],
+      { col_type: 'q', var_label: 'X', includeBaseVariant: true });
+    c.col_hash = 'h_order';
+    return c;
+  };
+  const order = ['c', 'b', 'a'];
+  const run = (subsetLevels) => variants.createVariant(col(),
+    { var_label: 'V', sourceVarIndex: 0, sort_mode: 'custom', custom_order: order, subsetLevels });
+
+  // Narrowing the data must not rewrite the stored preference.
+  const narrowed = run(['a']);
+  assert.deepEqual(narrowed.col_values.labels, ['a']);
+  assert.deepEqual(narrowed.meta.recipe.custom_order, order, 'the preference survives intact');
+
+  // Re-adding a level restores its position instead of appending it.
+  assert.deepEqual(run(['a', 'b']).col_values.labels, ['b', 'a']);
+  assert.deepEqual(run(['a', 'b', 'c']).col_values.labels, ['c', 'b', 'a']);
+
+  // A level nobody ordered (created by a merge) lands after the ones that were ordered.
+  const merged = variants.createVariant(col(), {
+    var_label: 'V', sourceVarIndex: 0, sort_mode: 'custom', custom_order: order,
+    merges: [{ label: 'A_B', levels: ['a', 'b'] }]
+  });
+  assert.deepEqual(merged.col_values.labels, ['c', 'A_B']);
+  assert.deepEqual(merged.meta.recipe.custom_order, order);
 });

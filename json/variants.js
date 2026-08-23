@@ -177,6 +177,31 @@ const sanitizeNumericString = (value) => {
 };
 
 /**
+ * Parse a numeric-ish value the same way at every step of the variant pipeline.
+ *
+ * `Number()` runs first because it accepts the WHOLE string or nothing: it reads scientific
+ * notation ("-3.2e5" → -320000) that `sanitizeNumericString` mangles into -3.25, and it rejects
+ * "1,5" outright instead of silently reading it as 1 the way `Number.parseFloat` does. Only when
+ * the value is not already a well-formed number does it fall through to `sanitizeNumericString`,
+ * which knows comma-decimal and thousands separators.
+ *
+ * Before this existed, `coerceToNumeric` sanitised while `transformNumeric` and `cutNumeric` used
+ * bare `parseFloat` — so the same column produced different numbers depending on whether the user
+ * happened to enable `forceNumeric`, with no warning either way.
+ *
+ * @param {any} raw
+ * @returns {number} NaN when the value carries no usable number.
+ */
+const parseNumericSafe = (raw) => {
+  const text = toStringSafe(raw).trim();
+  if (!text) return NaN;
+  const direct = Number(text);
+  if (Number.isFinite(direct)) return direct;
+  const parsed = Number.parseFloat(sanitizeNumericString(text));
+  return Number.isFinite(parsed) ? parsed : NaN;
+};
+
+/**
  * Apply search-and-replace rules to discrete values, including list-style entries.
  * @param {string[]} values
  * @param {ReplaceSpec[]} replacements
@@ -337,14 +362,16 @@ const coerceToNumeric = (values, options, meta) => {
   const coerced = values.map((value, index) => {
     const original = toStringSafe(value);
     if (!original.trim()) return '';
-    const normalized = sanitizeNumericString(original);
-    const parsed = Number.parseFloat(normalized);
+    const parsed = parseNumericSafe(original);
     if (!Number.isFinite(parsed)) {
       totalDropped += 1;
       if (dropped.length < MAX_WARNINGS) dropped.push(index + 1);
       return '';
     }
-    if (normalized !== original.trim()) {
+    // Report the value as CHANGED by comparing the parsed number against the original text, not
+    // against an intermediate sanitised string: "-3.2e5" parses to -320000 losslessly, and calling
+    // that a "replacement" would be noise, while "1,5" -> 1.5 genuinely is one.
+    if (parsed.toString() !== original.trim()) {
       totalReplacements += 1;
       if (replacements.length < MAX_WARNINGS) replacements.push(`"${original}"->${parsed}`);
     }
@@ -378,7 +405,7 @@ const transformNumeric = (values, options, meta) => {
   const skipped = [];
   let totalSkipped = 0;
   const transformed = values.map((value, index) => {
-    const numeric = Number.parseFloat(toStringSafe(value));
+    const numeric = parseNumericSafe(value);
     if (!Number.isFinite(numeric)) return '';
     let result;
     switch (fn) {
@@ -482,7 +509,7 @@ const inInterval = (value, lower, upper, idx, total, right, includeLowest) => {
  * @returns {{values:string[], breaks:Array<[number, number]>, labels:string[]}}
  */
 const cutNumeric = (values, options, meta) => {
-  const numericValues = values.map((value) => Number.parseFloat(toStringSafe(value)));
+  const numericValues = values.map((value) => parseNumericSafe(value));
   const observed = numericValues.filter((num) => Number.isFinite(num));
   if (!observed.length) {
     pushWarning(meta, 'variants.warnings.cutNoNumeric');
@@ -518,7 +545,13 @@ const cutNumeric = (values, options, meta) => {
     const lower = breaks[i];
     const upper = breaks[i + 1];
     if (!(upper > lower)) continue;
-    const label = labelsInput?.[i] ?? formatInterval(lower, upper, right, includeLowest, i, intervalCount);
+    // A blank entry means "not filled in yet", not "this interval has no name". A UI that lets the
+    // user rename intervals seeds one input per interval, so every untouched slot arrives as "" —
+    // and an empty label made the interval's assigned value empty too, blanking the whole column
+    // and tripping the outside-the-breaks counter below, which reads label truthiness. Falling
+    // through to the generated label keeps a half-filled form showing real data.
+    const custom = toStringSafe(labelsInput?.[i]).trim();
+    const label = custom || formatInterval(lower, upper, right, includeLowest, i, intervalCount);
     intervals.push({ lower, upper, label });
   }
   if (!intervals.length) {
@@ -1005,15 +1038,12 @@ ns.createVariant = function (baseCol, config = {}) {
   // Post-encode: optional level reordering. `sort_mode` (modern API) takes precedence;
   // legacy `sortByFrequency: true` is accepted as a `freq_desc` alias.
   const sortMode = resolveVariantSortMode(config);
-  // custom_order names the levels that survive the WHOLE pipeline, so it is pruned last. Entries
-  // that no longer exist are ignored by sortLabels anyway; dropping them changes no output.
-  const requestedOrder = /** @type {Record<string,any>} */ (config).custom_order;
-  let orderSpecs = /** @type {string[]|undefined} */ (requestedOrder);
-  if (Array.isArray(requestedOrder)) {
-    const present = presentLevels(workingValues, currentType === 'l', currentSep || sourceSep || DEFAULT_LIST_SEP);
-    orderSpecs = pruneMissingLevels(requestedOrder, present);
-    if (orderSpecs.length !== requestedOrder.length) sanitized.custom_order = orderSpecs;
-  }
+  // custom_order is deliberately NOT pruned, unlike the other level references. It is an ordering
+  // PREFERENCE, not a data reference: `sortLabels` already filters it against the levels that
+  // actually exist, so a stale entry is inert — and keeping it makes the preference self-healing.
+  // A user who orders [c, b, a], subsets down to [a], then re-adds b gets [b, a] back; pruning to
+  // [a] would have lost that intent for good, with no way to recover it.
+  const orderSpecs = /** @type {string[]|undefined} */ (/** @type {Record<string,any>} */ (config).custom_order);
   const finalValues = sortMode === 'default'
     ? processed
     : sortLabels(processed, workingValues, currentType, currentSep, sortMode, orderSpecs, meta);
@@ -1151,6 +1181,9 @@ ns.OPERATION_DEFAULTS = {
 
 ns.cloneColValues = cloneColValues;
 ns.sanitizeNumericString = sanitizeNumericString;
+// Exposed so UI code seeding numeric inputs (the Popup_variant cut prefill) reads values exactly
+// the way the pipeline will, instead of approximating it with its own parseFloat.
+ns.parseNumericSafe = parseNumericSafe;
 
 export default ns;
 
