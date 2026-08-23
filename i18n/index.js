@@ -156,6 +156,7 @@ const MESSAGES = {
         "fill_missing": "Preencher células vazias",
         "sort_frequency": "Ordenar por frequência",
         "sort_levels": "Ordenar níveis",
+        "ordinal_scores": "Forçar para numérico",
         "coerce_numeric": "Forçar numérico",
         "cut_intervals": "Dividir em intervalos",
         "transform": "Aplicar transformação"
@@ -349,6 +350,7 @@ const MESSAGES = {
         "fill_missing": "Fill empty cells",
         "sort_frequency": "Sort by frequency",
         "sort_levels": "Sort levels",
+        "ordinal_scores": "Force to numeric",
         "coerce_numeric": "Force numeric",
         "cut_intervals": "Cut into intervals",
         "transform": "Apply transform"
@@ -542,6 +544,7 @@ const MESSAGES = {
         "fill_missing": "Rellenar celdas vacías",
         "sort_frequency": "Ordenar por frecuencia",
         "sort_levels": "Ordenar niveles",
+        "ordinal_scores": "Forzar a numérico",
         "coerce_numeric": "Forzar numérico",
         "cut_intervals": "Dividir en intervalos",
         "transform": "Aplicar transformación"

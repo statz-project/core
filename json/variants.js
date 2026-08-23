@@ -98,6 +98,7 @@ const ns = {};
  * @property {ReplaceSpec[]} [searchReplace]
  * @property {MergeSpec[]} [merges]
  * @property {string[]} [subsetLevels]
+ * @property {Array<{level:string, score:number}>} [scores]
  * @property {Record<string, any>} [forceNumeric]
  * @property {TransformConfig} [transform]
  * @property {CutConfig} [cut]
@@ -388,6 +389,47 @@ const coerceToNumeric = (values, options, meta) => {
     pushWarning(meta, 'variants.warnings.numericCoercionRemovedRows', { details: listed, extra });
   }
   return coerced;
+};
+
+/**
+ * Map each qualitative level to a number, turning an ordinal column into a numeric one.
+ *
+ * Deliberately composed from the two operations it is equivalent to — `applySearchReplace` rewrites
+ * every level as its score, `coerceToNumeric` parses the result — rather than reimplementing the
+ * mapping. The warnings, the comma-decimal handling and the "removed rows" report for levels the
+ * user left unscored therefore come from the code that already produces them everywhere else. The
+ * dedicated operation exists because assigning scores is ONE thing to the user, not because the
+ * transformation is new: `{scores: […]}` and `{replacements: […], forceNumeric: true}` are
+ * interchangeable, and a test holds them to that.
+ *
+ * A level with no score falls through the replacement untouched, so `coerceToNumeric` cannot parse
+ * it and reports the row as removed — the same treatment any unparseable value gets.
+ *
+ * @param {string[]} values
+ * @param {any[]} scores Entries shaped `{level, score}`; `from`/`value` accepted as level aliases.
+ * @param {ListContext} ctx
+ * @param {VariantMeta} meta
+ * @returns {string[]|null} `null` when no entry is usable — the caller then leaves the column alone.
+ */
+const applyOrdinalScores = (values, scores, ctx, meta) => {
+  const list = Array.isArray(scores) ? scores : [];
+  /** @type {ReplaceSpec[]} */
+  const replacements = [];
+  list.forEach((/** @type {any} */ entry) => {
+    if (!entry) return;
+    const level = toStringSafe(entry.level ?? entry.from ?? entry.value ?? '').trim();
+    const score = Number(entry.score);
+    if (!level || !Number.isFinite(score)) return;
+    replacements.push({ from: level, to: String(score) });
+  });
+  // Nothing scored yet is the state a freshly enabled operation is in, not an instruction to
+  // convert a column of words into numbers — which would blank every row. Every other operation's
+  // empty default is a no-op too; this one has to be as well, or enabling the panel destroys the
+  // column before the user has typed anything.
+  if (replacements.length === 0) return null;
+  const mapped = applySearchReplace(values, replacements, ctx);
+  meta.actions.push({ type: 'ordinal_scores', count: replacements.length });
+  return coerceToNumeric(mapped, {}, meta);
 };
 
 /**
@@ -725,7 +767,7 @@ ns.normalizeRecipe = function (config = {}) {
   /** @type {Record<string, any>} */
   const cfg = config || {};
   const skip = new Set([
-    'var_label', 'label', 'replacements', 'searchReplace', 'merges', 'cut', 'transform',
+    'var_label', 'label', 'replacements', 'searchReplace', 'merges', 'scores', 'cut', 'transform',
     // Sort fields handled in a dedicated block below (canonicalizes legacy sortByFrequency
     // into modern sort_mode + drops defaults).
     'sort_mode', 'custom_order', 'sortByFrequency'
@@ -763,6 +805,19 @@ ns.normalizeRecipe = function (config = {}) {
       normalized.push({ label, levels });
     });
     if (normalized.length) recipe.merges = normalized;
+  }
+  if (Array.isArray(cfg.scores)) {
+    /** @type {Array<{level:string,score:number}>} */
+    const normalized = [];
+    cfg.scores.forEach((/** @type {any} */ entry) => {
+      if (!entry) return;
+      const level = toStringSafe(entry.level ?? entry.from ?? entry.value ?? '').trim();
+      if (!level) return;
+      const score = Number(entry.score);
+      if (!Number.isFinite(score)) return;
+      normalized.push({ level, score });
+    });
+    if (normalized.length) recipe.scores = normalized;
   }
   if (cfg.cut && typeof cfg.cut === 'object') {
     /** @type {Record<string, any>} */
@@ -1007,6 +1062,20 @@ ns.createVariant = function (baseCol, config = {}) {
       workingLabels = workingLabels.filter((l) => allowed.has(l));
     }
   }
+  // Ordinal scoring sits AFTER the level-shaping steps, so the levels it names are the final ones,
+  // and BEFORE coerce_numeric, so enabling both cannot null the column: with the scores already
+  // applied the values are numeric and forceNumeric becomes a harmless no-op.
+  if (config.scores) {
+    const scored = applyOrdinalScores(workingValues, /** @type {any} */ (config).scores, getListContext(), meta);
+    // Skipped entirely while nothing is scored, so the column stays qualitative until it means
+    // something to convert it.
+    if (scored) {
+      workingValues = scored;
+      currentType = 'n';
+      currentSep = '';
+      workingLabels = null;
+    }
+  }
   if (config.forceNumeric) {
     workingValues = coerceToNumeric(workingValues, config.forceNumeric, meta);
     currentType = 'n';
@@ -1085,6 +1154,10 @@ ns.VARIANT_TEMPLATES = {
     { id: 'merge_levels', labelKey: 'variants.templates.merge_levels.q', label: 'Merge levels', options: ['merges'] },
     { id: 'subset', labelKey: 'variants.templates.subset', label: 'Keep subset', options: ['subsetLevels'] },
     { id: 'fill_missing', labelKey: 'variants.templates.fill_missing', label: 'Fill empty cells', options: ['fillEmpty'] },
+    // Ordinal columns analysed as numbers (a Likert run through Mann-Whitney): the user supplies
+    // one score per level. Offered for `q` only — `n` is already numeric, and scoring the items of
+    // a list has no defined aggregation.
+    { id: 'ordinal_scores', labelKey: 'variants.templates.ordinal_scores', label: 'Force to numeric', options: ['scores'] },
     { id: 'sort_levels', labelKey: 'variants.templates.sort_levels', label: 'Sort levels', options: ['sort_mode', 'custom_order'] }
   ],
   n: [
@@ -1139,6 +1212,7 @@ ns.TRANSFORM_ORDER = [
   'search_replace',
   'merge_levels',
   'subset',
+  'ordinal_scores',
   'coerce_numeric',
   'transform',
   'cut_intervals',
@@ -1168,6 +1242,7 @@ ns.OPERATION_DEFAULTS = {
   replacements: [],
   merges: [],
   subsetLevels: [],
+  scores: [],
   forceNumeric: true,
   transform: { fn: 'log10', base: NaN },
   cut: { breaks: [], labels: [], right: true, includeLowest: true },

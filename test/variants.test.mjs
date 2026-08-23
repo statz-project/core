@@ -1081,3 +1081,112 @@ test('createVariant: custom_order is preserved, not pruned, so the ordering self
   assert.deepEqual(merged.col_values.labels, ['c', 'A_B']);
   assert.deepEqual(merged.meta.recipe.custom_order, order);
 });
+
+// ---------------------------------------------------------------------------
+// ordinal_scores — an ordinal q column analysed as numbers
+// ---------------------------------------------------------------------------
+
+const likertCol = () => {
+  const col = factors.makeColumn(
+    ['discordo', 'discordo totalmente', 'neutro', 'concordo', 'concordo totalmente', 'neutro', 'concordo', 'discordo'],
+    { col_type: 'q', var_label: 'Satisfação', includeBaseVariant: true }
+  );
+  col.col_hash = 'h_likert';
+  col.col_label = 'Satisfação';
+  return col;
+};
+const LIKERT_SCORES = [
+  { level: 'discordo totalmente', score: 1 }, { level: 'discordo', score: 2 },
+  { level: 'neutro', score: 3 }, { level: 'concordo', score: 4 },
+  { level: 'concordo totalmente', score: 5 }
+];
+const decodeVar = (v) => factors.decodeColValues(v.col_values, v.col_type, v.col_sep);
+const buildScored = (config) => variants.createVariant(likertCol(), { var_label: 'V', sourceVarIndex: 0, ...config });
+
+test('createVariant: ordinal scores turn a q column into a numeric one', () => {
+  const v = buildScored({ scores: LIKERT_SCORES });
+  assert.equal(v.col_type, 'n');
+  assert.equal(v.col_sep, '');
+  assert.deepEqual(decodeVar(v), ['2', '1', '3', '4', '5', '3', '4', '2']);
+  assert.deepEqual(v.meta.recipe.scores, LIKERT_SCORES);
+});
+
+test('createVariant: ordinal scores are interchangeable with replacements + forceNumeric', () => {
+  // The operation is composed from those two rather than reimplementing the mapping; this is the
+  // assertion that keeps the composition honest if either half is ever changed.
+  const viaScores = buildScored({ scores: LIKERT_SCORES });
+  const viaManual = buildScored({
+    replacements: LIKERT_SCORES.map((s) => ({ from: s.level, to: String(s.score) })),
+    forceNumeric: true
+  });
+  assert.deepEqual(decodeVar(viaScores), decodeVar(viaManual));
+  assert.equal(viaScores.col_type, viaManual.col_type);
+});
+
+test('createVariant: a level left unscored becomes missing and is reported', () => {
+  const v = buildScored({ scores: LIKERT_SCORES.filter((s) => s.level !== 'neutro') });
+  assert.deepEqual(decodeVar(v), ['2', '1', null, '4', '5', null, '4', '2']);
+  assert.ok(v.meta.warnings.some((w) => /removed rows|linhas removidas/i.test(w)),
+    'the unscored rows must be named, not dropped in silence');
+});
+
+test('createVariant: ordinal scores run after the level-shaping steps and before coercion', () => {
+  // After subset only the kept levels remain, so those are the ones the scores name.
+  const subset = buildScored({ subsetLevels: ['neutro', 'concordo'], scores: LIKERT_SCORES });
+  assert.deepEqual(decodeVar(subset), [null, null, '3', '4', null, '3', '4', null]);
+
+  // Enabling forceNumeric on top must not null the column: the values are already numeric by then.
+  assert.deepEqual(
+    decodeVar(buildScored({ scores: LIKERT_SCORES, forceNumeric: true })),
+    decodeVar(buildScored({ scores: LIKERT_SCORES }))
+  );
+});
+
+test('createVariant: a score for a level an upstream merge removed stays put and reapplies', () => {
+  // Same treatment as custom_order: the entry matches nothing while the level is gone, so it is
+  // inert — and keeping it means undoing the merge restores the scale instead of losing it.
+  const merged = buildScored({
+    merges: [{ label: 'discorda', levels: ['discordo', 'discordo totalmente'] }],
+    scores: LIKERT_SCORES
+  });
+  assert.deepEqual(merged.meta.recipe.scores, LIKERT_SCORES, 'nothing is pruned');
+  // 'discorda' has no score, so those rows drop; the untouched levels keep theirs.
+  assert.deepEqual(decodeVar(merged), [null, null, '3', '4', '5', '3', '4', null]);
+
+  // Undo the merge and the full scale is back, no re-entry needed.
+  assert.deepEqual(decodeVar(buildScored({ scores: merged.meta.recipe.scores })),
+    ['2', '1', '3', '4', '5', '3', '4', '2']);
+});
+
+test('normalizeRecipe: score entries are canonicalised and invalid ones dropped', () => {
+  const recipe = variants.normalizeRecipe({
+    scores: [
+      { level: '  neutro  ', score: '3' },      // trimmed, numeric string coerced
+      { level: 'concordo', score: 4 },
+      { level: '', score: 9 },                   // no level
+      { level: 'discordo', score: 'abc' },       // unparseable score
+      null
+    ]
+  });
+  assert.deepEqual(recipe.scores, [{ level: 'neutro', score: 3 }, { level: 'concordo', score: 4 }]);
+  // An entirely invalid list leaves no key behind.
+  assert.equal(variants.normalizeRecipe({ scores: [{ level: '', score: 1 }] }).scores, undefined);
+});
+
+test('createVariant: an unscored ordinal_scores operation leaves the column alone', () => {
+  // The state a freshly enabled panel is in. Converting a column of words to numbers with nothing
+  // mapped blanks every row, so the empty list has to be a no-op like every other operation's
+  // default — otherwise enabling the panel destroys the data before the user types anything.
+  const base = decodeVar(variants.createVariant(likertCol(), { var_label: 'V', sourceVarIndex: 0 }));
+
+  for (const scores of [[], [{ level: '', score: 1 }], [{ level: 'neutro', score: 'abc' }], [null]]) {
+    const v = buildScored({ scores });
+    assert.equal(v.col_type, 'q', JSON.stringify(scores));
+    assert.deepEqual(decodeVar(v), base, JSON.stringify(scores));
+    assert.deepEqual(v.meta.warnings, [], 'and nothing to warn about yet');
+  }
+
+  // One usable entry is enough to convert; the rest of the levels then go missing as documented.
+  const partial = buildScored({ scores: [{ level: 'neutro', score: 3 }] });
+  assert.equal(partial.col_type, 'n');
+});
