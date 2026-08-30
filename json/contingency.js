@@ -366,9 +366,11 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
   }
   rowsByLevel[0][pValueLabel] = '';
   rowsByLevel[1][pValueLabel] = '';
-  rowsByLevel[2][pValueLabel] = Number.isFinite(p_value)
-    ? (p_value < 0.0001 ? '<0.0001' : fmt(p_value))
-    : '';
+  // Left empty like every other summarizer: the p-value belongs to the TABLE, not to a row, and
+  // `combineAnalysisAsSingleTable` renders it once on the predictor header row — localised through
+  // formatPValue and carrying the test symbol that ties it to the footer legend. Writing it here
+  // too printed the same number twice in one table, the second copy raw.
+  rowsByLevel[2][pValueLabel] = '';
 
   return {
     columns: [groupLabel, ...labels, pValueLabel],

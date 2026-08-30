@@ -1332,3 +1332,40 @@ test("summarize_q_q: a table with fewer than two rows or columns reports no test
   assert.ok(control.test_used);
   assert.ok(Number.isFinite(control.p_value));
 });
+
+test("paired summaries carry the p-value on the table, never duplicated into a row", () => {
+  // The p-value belongs to the table. combineAnalysisAsSingleTable renders it once on the
+  // predictor header row — localised and carrying the test symbol that ties it to the footer
+  // legend. The two paired summarisers also wrote it into their "n" row, so the same number
+  // appeared twice, the second copy raw: "0,001¹" in the header and "0.0010" below it.
+  const mkCol = (hash, label, type, values) => {
+    const col = Statz.makeColumn(values, { col_type: type, var_label: label, includeBaseVariant: true });
+    col.col_hash = hash; col.col_label = label;
+    return col;
+  };
+  const sig = (hash, label) => JSON.stringify({ database_id: 'dbA', col_hash: hash, col_label: label, col_var_index: null });
+  const paired = (columns, responses) => Statz.runAnalysis([], responses, { dbA: { columns } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br' }));
+
+  // Qualitative (McNemar) — the reported case.
+  const t1 = ['no', 'no', 'no', 'yes', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'yes', 'yes', 'yes', 'no', 'yes'];
+  const t2 = ['yes', 'yes', 'yes', 'yes', 'no', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'no', 'no', 'no', 'yes', 'yes', 'yes', 'yes', 'yes'];
+  const q = paired([mkCol('h1', 'time 1', 'q', t1), mkCol('h2', 'time 2', 'q', t2)],
+    [sig('h1', 'time 1'), sig('h2', 'time 2')]);
+  assert.equal(q.result.analysis[0].table.test_used, 'McNemar');
+  assert.ok(Number.isFinite(q.result.analysis[0].table.p_value), 'still reported on the table');
+  assert.deepEqual(q.result.analysis[0].table.rows.map((r) => r['p-valor']), ['', '', '']);
+
+  // Numeric paired takes the same path.
+  const n = paired([mkCol('n1', 'antes', 'n', ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']),
+                    mkCol('n2', 'depois', 'n', ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12'])],
+    [sig('n1', 'antes'), sig('n2', 'depois')]);
+  assert.deepEqual(n.result.analysis[0].table.rows.map((r) => r['p-valor']), ['', '', '']);
+
+  // End to end: exactly one cell in the p-value column, on the header row, with the symbol.
+  for (const result of [q.result, n.result]) {
+    const cells = Statz.combineAnalysisAsSingleTable(result).rows.map((r) => r['p-valor']);
+    assert.equal(cells.filter(Boolean).length, 1, 'one p-value per analysis');
+    assert.match(cells[0], /^\d+,\d+¹$/, 'localised, and tied to the footer legend');
+  }
+});
