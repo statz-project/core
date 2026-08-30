@@ -40,6 +40,16 @@ const ALL_INFERENTIAL = [
   'has_paired_n', 'has_paired_q'
 ];
 const ALL_LIST_EXPAND = ['has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll'];
+// Charts whose x-axis carries CATEGORICAL tick labels, i.e. the ones where wrapping long level
+// names changes anything. Verified per chart type rather than assumed: `has_n` / `has_nn` put
+// numbers on that axis, and the list-EXPANDED profiles (`has_lq`, `has_ln`, `has_nl`, `has_ll`)
+// draw one chart per item whose x-axis is the short yes/no pair — the item name goes in the title.
+// `has_ql` is the exception among the list profiles: there the list is the RESPONSE, so the
+// predictor's levels are what the axis shows.
+const CATEGORICAL_X_AXIS = [
+  'has_q', 'has_l', 'has_qq', 'has_nq', 'has_qn', 'has_ql', 'has_paired_q', 'has_paired_n'
+];
+
 // Qualitative-shape flags — cells that render a "Not informed" bucket / missing category.
 // Numeric analyses express missing counts via stat_options_* with `n_missing`, not via
 // include_missing / missing_label, so `has_n` is deliberately excluded.
@@ -103,9 +113,13 @@ ns.OPTION_METADATA = {
   },
 
   // ----- table styling / contingency formatting -----
+  // Footnote symbols exist to tie a p-value to the test named in the legend, so the option is only
+  // meaningful where a test ran. An empty appliesTo means "universal" (see `lang`, `mode`), which
+  // surfaced this in Profile A — descriptive summaries have no test_used, generateTestSymbolMap
+  // gets an empty method list, and the style has nothing to style.
   symbol_style: {
     category: 'table', type: 'enum', default: 'numeric',
-    enum: ['numeric', 'alpha'], appliesTo: [], modeGate: 'table',
+    enum: ['numeric', 'alpha'], appliesTo: ALL_INFERENTIAL, modeGate: 'table',
     labelKey: 'options.symbol_style.label', descriptionKey: 'options.symbol_style.description'
   },
   percent_by: {
@@ -227,7 +241,7 @@ ns.OPTION_METADATA = {
   },
   chart_x_label_wrap: {
     category: 'chart', type: 'number', default: 3, enum: null,
-    appliesTo: [], modeGate: 'chart',
+    appliesTo: CATEGORICAL_X_AXIS, modeGate: 'chart',
     labelKey: 'options.chart_x_label_wrap.label', descriptionKey: 'options.chart_x_label_wrap.description'
   },
   chart_include_zero: {

@@ -268,3 +268,49 @@ test("effect-size options surface for every flag whose tables can be 2x2", () =>
     assert.ok(names.includes('effect_size_type'), `effect_size_type missing for ${flag}`);
   }
 });
+
+test("symbol_style is offered only where a test actually runs", () => {
+  // Footnote symbols tie a p-value to the test named in the legend. It used to carry an empty
+  // appliesTo, which the resolver reads as "universal" (the convention `lang` and `mode` rely on),
+  // so a Profile A element offered a style for symbols it would never print.
+  const has = (flags) => optionsMetadata.getAvailableOptions(flags, 'table').some((o) => o.name === 'symbol_style');
+
+  assert.equal(has(['has_q', 'has_n']), false, 'Profile A is descriptive — no test, no symbol');
+  assert.equal(has(['has_paired']), false, 'a rejected paired analysis carries only a warning');
+
+  // Every shape that produces a test keeps it, paired included.
+  for (const flag of ['has_qq', 'has_nq', 'has_qn', 'has_nn', 'has_lq', 'has_ql',
+                      'has_ln', 'has_nl', 'has_ll', 'has_paired_n', 'has_paired_q']) {
+    assert.equal(has([flag]), true, flag);
+  }
+});
+
+test("chart_x_label_wrap is offered only where the x-axis carries categorical labels", () => {
+  // Measured per chart type, not assumed: toggling the option between 1 and 99 either changes the
+  // chart spec or it does not. Numeric axes put numbers on x, and the list-EXPANDED profiles draw
+  // one chart per item whose x-axis is the short yes/no pair — the item name sits in the title.
+  const offered = (flag) =>
+    getAvailableOptions([flag], 'chart').some((o) => o.name === 'chart_x_label_wrap');
+
+  for (const flag of ['has_q', 'has_l', 'has_qq', 'has_nq', 'has_qn', 'has_ql',
+                      'has_paired_q', 'has_paired_n']) {
+    assert.equal(offered(flag), true, `${flag} shows categorical tick labels`);
+  }
+  for (const flag of ['has_n', 'has_nn', 'has_lq', 'has_ln', 'has_nl', 'has_ll']) {
+    assert.equal(offered(flag), false, `${flag} has nothing to wrap`);
+  }
+});
+
+test("the remaining empty appliesTo options are genuinely universal", () => {
+  // `appliesTo: []` reads as "always available", so it is a claim worth pinning: each of these
+  // either has no analysis shape at all (lang, mode) or was verified to affect every chart type.
+  const universal = Object.entries(OPTION_METADATA)
+    .filter(([, meta]) => meta.appliesTo.length === 0)
+    .map(([name]) => name)
+    .sort();
+
+  assert.deepEqual(universal, [
+    'chart_interactive', 'chart_show_title', 'chart_show_xaxis_title', 'chart_show_yaxis_title',
+    'chart_theme', 'lang', 'mode'
+  ], 'a new universal option needs the same per-shape check symbol_style and x_label_wrap got');
+});
