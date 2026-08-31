@@ -810,6 +810,9 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   normalized.chart_likert_enabled = (/** @type {any} */ (normalized).chart_likert_enabled) === true;
   normalized.chart_x_label_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_x_label_wrap)))
     ? Number((/** @type {any} */ (normalized).chart_x_label_wrap)) : 3;
+  // Axis titles get their own number: they span the plot width, category ticks get one slot each.
+  normalized.chart_title_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_title_wrap)))
+    ? Number((/** @type {any} */ (normalized).chart_title_wrap)) : 8;
   normalized.chart_include_zero = (/** @type {any} */ (normalized).chart_include_zero) !== false;
   // Static by default: charts render without hover crosshair / zoom / pan. Opt-in via
   // `chart_interactive: true` surfaces Plotly's native interactive gestures.

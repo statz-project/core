@@ -2448,3 +2448,40 @@ test("startAutoRender: MutationObserver disconnects ResizeObservers on removedNo
     loader._resetAutoRenderForTests();
   }
 });
+
+test("chart_title_wrap breaks the variable label in axis titles, on every chart shape", () => {
+  // The reported case: a long variable label rendered on one line. chart_x_label_wrap only ever
+  // touched the CATEGORY tick labels, so a chart whose levels are short ("female"/"male") showed
+  // no effect however the option was set — the long text lives in layout.*.title.text.
+  const LONG = 'Internacao por doenca relacionada ao tabagismo com agravo sanitario de ultima urgencia';
+  const sig = (hash) => JSON.stringify({ database_id: 'dbA', col_hash: hash, col_label: LONG, col_var_index: null });
+  const spec = (type, values, sep, options) => {
+    const col = Statz.makeColumn(values, { col_type: type, col_sep: sep, var_label: LONG, includeBaseVariant: true });
+    col.col_hash = 'h'; col.col_label = LONG;
+    return Statz.runAnalysis([sig('h')], [], { dbA: { columns: [col] } },
+      Statz.getDefaultAnalysisOptions({ mode: 'chart', ...options })).result.analysis[0].chart.spec;
+  };
+  // Wherever the variable label lands — x title, y title, or n's ticktext — it must be wrapped.
+  const labelText = (s) => [s.layout.xaxis?.title?.text, s.layout.yaxis?.title?.text, s.layout.xaxis?.ticktext?.[0]]
+    .find((t) => String(t ?? '').includes('Internacao')) ?? '';
+
+  const shapes = [
+    ['q, few levels (vertical bar)', 'q', Array.from({ length: 8 }, (_, i) => ['sim', 'nao'][i % 2]), undefined],
+    ['q, many levels (horizontal)', 'q', Array.from({ length: 30 }, (_, i) => `n${i % 10}`), undefined],
+    ['l', 'l', Array.from({ length: 8 }, () => 'a;b;c'), ';'],
+    ['n (label sits in ticktext)', 'n', Array.from({ length: 8 }, (_, i) => String(i + 1)), undefined]
+  ];
+  for (const [name, type, values, sep] of shapes) {
+    assert.ok(labelText(spec(type, values, sep, {})).includes('<br>'), `${name}: wrapped by default`);
+    assert.equal(labelText(spec(type, values, sep, { chart_title_wrap: 0 })).includes('<br>'), false,
+      `${name}: 0 disables wrapping`);
+  }
+
+  // Independent knobs: the title wrap must not disturb the category ticks, and vice versa.
+  const multiWordLevels = Array.from({ length: 8 }, (_, i) => ['dor de cabeca forte', 'febre alta continua'][i % 2]);
+  const ticks = (options) => spec('q', multiWordLevels, undefined, options).data[0].x[0];
+  assert.equal(ticks({ chart_title_wrap: 0 }).includes('<br>'), true, 'ticks follow chart_x_label_wrap alone');
+  assert.equal(ticks({ chart_x_label_wrap: 0 }).includes('<br>'), false);
+  assert.ok(labelText(spec('q', multiWordLevels, undefined, { chart_x_label_wrap: 0 })).includes('<br>'),
+    'and the title still wraps when the category wrap is off');
+});

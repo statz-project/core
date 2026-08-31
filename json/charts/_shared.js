@@ -180,6 +180,25 @@ export function getLegendLabelsWrap(options) {
 }
 
 /**
+ * Wrap an AXIS TITLE — the variable's own label — at `chart_title_wrap` words.
+ *
+ * Separate from `chart_x_label_wrap`, which wraps the CATEGORY tick labels, because the two sit in
+ * very different amounts of room: an axis title spans the whole plot width, a category tick only
+ * its own slot. One number for both would be wrong for one of them. Defaults to 8 words, generous
+ * enough that ordinary labels never wrap and only genuinely long ones break.
+ *
+ * Auto-generated titles ("Count", "Value", "%") pass through untouched — they are one word.
+ *
+ * @param {any} text
+ * @param {Record<string, any>} options
+ * @returns {string}
+ */
+export function wrapTitle(text, options) {
+  const n = Number.isFinite(Number(options?.chart_title_wrap)) ? Number(options.chart_title_wrap) : 8;
+  return wrapText(text, n);
+}
+
+/**
  * Compute the central tendency of a numeric array. Used as the crossbar y-position in
  * chart_n, chart_n_q, and chart_paired_n (per-group / per-moment). Median avoids
  * simple-statistics — the sort + midpoint is inline to keep _shared.js dependency-free.
@@ -224,7 +243,7 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
     return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat));
   });
   const wrappedLabels = labels.map((l) => wrapText(l, labelWrap));
-  const varLabel = meta.varLabel ?? '';
+  const varLabel = wrapTitle(meta.varLabel ?? '', options);
   // Numeric axis title mirrors the per-bar label format (Count/%/n(%)). Previously the
   // numeric axis was untitled — leaving the reader to infer the quantity from bar-text.
   const numericAxisLabel = resolveNumericAxisLabel(options);

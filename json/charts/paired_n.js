@@ -6,7 +6,7 @@
 //
 // Mirrors r.plot.individual_values(paired=TRUE).
 import variants from '../variants.js';
-import { resolveTheme, wrapText, computeCenter } from './_shared.js';
+import { resolveTheme, wrapText, wrapTitle, computeCenter } from './_shared.js';
 
 /** @param {number} i */
 function deterministicJitter(i) {
@@ -156,7 +156,7 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
       showgrid: false
     },
     yaxis: {
-      title: { text: meta.numericLabel ?? '' },
+      title: { text: wrapTitle(meta.numericLabel ?? '', options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})
     },

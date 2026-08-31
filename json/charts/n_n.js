@@ -2,7 +2,7 @@
 // Scatter plot for two numeric variables (n × n). Mirrors r.plot.scatter from the R
 // reference: points + linear-fit overlay, with optional zero-anchor on axes.
 import variants from '../variants.js';
-import { resolveTheme } from './_shared.js';
+import { resolveTheme, wrapTitle } from './_shared.js';
 
 /** @param {number[]} xs @param {number[]} ys @returns {{slope:number, intercept:number}|null} */
 function leastSquares(xs, ys) {
@@ -72,12 +72,12 @@ export function chart_n_n(predictorVals, responseVals, options = {}, meta = {}) 
 
   const layout = {
     xaxis: {
-      title: { text: meta.predictorLabel ?? '' },
+      title: { text: wrapTitle(meta.predictorLabel ?? '', options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})
     },
     yaxis: {
-      title: { text: meta.responseLabel ?? '' },
+      title: { text: wrapTitle(meta.responseLabel ?? '', options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})
     },

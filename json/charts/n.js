@@ -3,7 +3,7 @@
 // All points are drawn at the same x position (single category) with horizontal jitter,
 // a horizontal crossbar marks the mean, and an optional boxplot can overlay the points.
 import variants from '../variants.js';
-import { resolveTheme, resolveValueAxisLabel, computeCenter } from './_shared.js';
+import { resolveTheme, resolveValueAxisLabel, wrapTitle, computeCenter } from './_shared.js';
 
 /**
  * Deterministic pseudo-random in [-0.5, 0.5) keyed by index. Allows tests to assert
@@ -91,7 +91,8 @@ export function chart_n(values, options = {}, meta = {}) {
     xaxis: {
       tickmode: 'array',
       tickvals: [1],
-      ticktext: [varLabel],
+      // The variable label IS the tick here, so it wraps as a title, not as a category.
+      ticktext: [wrapTitle(varLabel, options)],
       range: [0.4, 1.6],
       zeroline: false,
       showgrid: false

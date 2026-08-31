@@ -311,6 +311,6 @@ test("the remaining empty appliesTo options are genuinely universal", () => {
 
   assert.deepEqual(universal, [
     'chart_interactive', 'chart_show_title', 'chart_show_xaxis_title', 'chart_show_yaxis_title',
-    'chart_theme', 'lang', 'mode'
+    'chart_theme', 'chart_title_wrap', 'lang', 'mode'
   ], 'a new universal option needs the same per-shape check symbol_style and x_label_wrap got');
 });

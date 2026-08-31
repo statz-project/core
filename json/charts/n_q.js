@@ -4,7 +4,7 @@
 // optional box overlay per group.
 import variants from '../variants.js';
 import factors from '../factors.js';
-import { resolveTheme, wrapText, computeCenter } from './_shared.js';
+import { resolveTheme, wrapText, wrapTitle, computeCenter } from './_shared.js';
 
 /**
  * Deterministic pseudo-random in [-0.5, 0.5) keyed by index. Allows tests to assert
@@ -104,7 +104,7 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
   const tickvals = groups.map((_, i) => i + 1);
   const layout = {
     xaxis: {
-      title: { text: meta.groupLabel ?? '' },
+      title: { text: wrapTitle(meta.groupLabel ?? '', options) },
       tickmode: 'array',
       tickvals,
       ticktext,
@@ -113,7 +113,7 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
       showgrid: false
     },
     yaxis: {
-      title: { text: meta.numericLabel ?? '' },
+      title: { text: wrapTitle(meta.numericLabel ?? '', options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})
     },

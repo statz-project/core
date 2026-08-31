@@ -239,6 +239,15 @@ ns.OPTION_METADATA = {
     appliesTo: ['has_likert_eligible'], modeGate: 'chart',
     labelKey: 'options.chart_likert_enabled.label', descriptionKey: 'options.chart_likert_enabled.description'
   },
+  // Axis TITLES — the variable's own label. Universal: every chart has axis titles, and a long
+  // variable label overflows regardless of shape. Kept apart from chart_x_label_wrap because a
+  // title spans the whole plot width while a category tick gets only its own slot, so the two want
+  // different numbers.
+  chart_title_wrap: {
+    category: 'chart', type: 'number', default: 8, enum: null,
+    appliesTo: [], modeGate: 'chart',
+    labelKey: 'options.chart_title_wrap.label', descriptionKey: 'options.chart_title_wrap.description'
+  },
   chart_x_label_wrap: {
     category: 'chart', type: 'number', default: 3, enum: null,
     appliesTo: CATEGORICAL_X_AXIS, modeGate: 'chart',
