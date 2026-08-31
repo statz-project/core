@@ -2529,3 +2529,100 @@ test("chart_width_mode: normalised and carried on result.chart_options", () => {
     Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_width_mode: 'full' }));
   assert.equal(result.chart_options.width_mode, 'full', 'the exporter reads it from here');
 });
+
+test("bar orientation follows the WRAPPED label width, not the raw one", () => {
+  // The two features used to fight: chart_x_label_wrap broke a long level into short lines, and
+  // the orientation heuristic still measured the unwrapped string and flipped horizontal anyway —
+  // ignoring the wrap it had just applied. The width that matters is the one the label renders at.
+  const levels = ['female - At vero eos et accusamus et iusto odio', 'male - Nam libero tempore, cum soluta'];
+  const col = Statz.makeColumn(Array.from({ length: 20 }, (_, i) => levels[i % 2]),
+    { col_type: 'q', var_label: 'sex', includeBaseVariant: true });
+  col.col_hash = 'h'; col.col_label = 'sex';
+  const sig = JSON.stringify({ database_id: 'dbA', col_hash: 'h', col_label: 'sex', col_var_index: null });
+  const orientation = (chart_x_label_wrap) => Statz.runAnalysis([sig], [], { dbA: { columns: [col] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_x_label_wrap }))
+    .result.analysis[0].chart.spec.data[0].orientation;
+
+  // Wrapped to 4 words or fewer per line, the labels fit side by side.
+  for (const wrap of [1, 3, 4]) assert.equal(orientation(wrap), 'v', `wrap=${wrap}`);
+  // Above the threshold the flip is still correct — the lines really are too wide.
+  for (const wrap of [5, 99]) assert.equal(orientation(wrap), 'h', `wrap=${wrap}`);
+  // Wrap disabled: nothing is broken up, so the raw 10-word width is the honest measure.
+  assert.equal(orientation(0), 'h', 'a disabled wrap must not read as "zero words per line"');
+
+  // The category-count arm is untouched: 10 short levels still flip regardless of the wrap.
+  const many = Statz.makeColumn(Array.from({ length: 30 }, (_, i) => `n${i % 10}`),
+    { col_type: 'q', var_label: 'm', includeBaseVariant: true });
+  many.col_hash = 'h2'; many.col_label = 'm';
+  assert.equal(Statz.runAnalysis(
+    [JSON.stringify({ database_id: 'dbA', col_hash: 'h2', col_label: 'm', col_var_index: null })], [],
+    { dbA: { columns: [many] } }, Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_x_label_wrap: 3 }))
+    .result.analysis[0].chart.spec.data[0].orientation, 'h');
+});
+
+test("chart_bar_orientation drives every bar chart, and auto means one thing everywhere", () => {
+  // The option exists because the heuristic cannot know the reader's intent. `auto` had to be
+  // unified first: it used to mean "measure the labels" in the univariate builder and "always
+  // vertical" in the grouped ones, so the same word described two behaviours.
+  const N = 24;
+  const mkCol = (hash, label, type, values, sep) => {
+    const col = Statz.makeColumn(values, { col_type: type, col_sep: sep, var_label: label, includeBaseVariant: true });
+    col.col_hash = hash; col.col_label = label;
+    return col;
+  };
+  const sig = (hash, label) => JSON.stringify({ database_id: 'dbA', col_hash: hash, col_label: label, col_var_index: null });
+  const alternating = (a, b) => Array.from({ length: N }, (_, i) => [a, b][i % 2]);
+  const db = { columns: [
+    mkCol('f', 'Few', 'q', alternating('sim', 'nao')),
+    mkCol('m', 'Many', 'q', Array.from({ length: N }, (_, i) => `nivel${i % 9}`)),
+    mkCol('r', 'Resp', 'q', alternating('a', 'b')),
+    mkCol('l', 'List', 'l', Array.from({ length: N }, () => 'x;y'), ';'),
+    mkCol('t1', 'T1', 'q', alternating('sim', 'nao')),
+    mkCol('t2', 'T2', 'q', alternating('nao', 'sim'))
+  ] };
+  const orientation = (preds, resps, chart_bar_orientation) => Statz.runAnalysis(preds, resps, { dbA: db },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', ...(chart_bar_orientation ? { chart_bar_orientation } : {}) }))
+    .result.analysis[0].chart.spec.data[0].orientation ?? 'v';
+
+  const shapes = [
+    ['q univariate, 2 levels', [sig('f', 'Few')], [], 'v'],
+    ['q univariate, 9 levels', [sig('m', 'Many')], [], 'h'],
+    ['q x q, 2 predictor levels', [sig('f', 'Few')], [sig('r', 'Resp')], 'v'],
+    ['q x q, 9 predictor levels', [sig('m', 'Many')], [sig('r', 'Resp')], 'h'],
+    ['l x q (delegates to q_q)', [sig('l', 'List')], [sig('r', 'Resp')], 'v'],
+    ['paired q', [], [sig('t1', 'T1'), sig('t2', 'T2')], 'v']
+  ];
+  for (const [name, preds, resps, expectedAuto] of shapes) {
+    assert.equal(orientation(preds, resps), expectedAuto, `${name}: auto`);
+    assert.equal(orientation(preds, resps, 'vertical'), 'v', `${name}: forced vertical`);
+    assert.equal(orientation(preds, resps, 'horizontal'), 'h', `${name}: forced horizontal`);
+  }
+
+  // Forcing horizontal must move the axis titles with the bars, not leave them on the old axis.
+  const spec = Statz.runAnalysis([sig('f', 'Few')], [sig('r', 'Resp')], { dbA: db },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_bar_orientation: 'horizontal' }))
+    .result.analysis[0].chart.spec;
+  assert.equal(spec.layout.yaxis.title.text, 'Few', 'the category label follows to the y axis');
+  assert.ok(spec.layout.xaxis.title.text, 'and the count label takes the x axis');
+});
+
+test("chart_bar_orientation: normalised, and Likert stays horizontal by definition", () => {
+  assert.equal(Statz.getDefaultAnalysisOptions({}).chart_bar_orientation, 'auto');
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_bar_orientation: 'nonsense' }).chart_bar_orientation, 'auto');
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_bar_orientation: 'horizontal' }).chart_bar_orientation, 'horizontal');
+
+  // A 100% stacked Likert bar is horizontal by construction; `vertical` must not break it.
+  const levels = ['discordo', 'neutro', 'concordo'];
+  const cols = ['A', 'B'].map((name, k) => {
+    const col = Statz.makeColumn(Array.from({ length: 12 }, (_, i) => levels[(i + k) % 3]),
+      { col_type: 'q', var_label: name, includeBaseVariant: true });
+    col.col_hash = `h${k}`; col.col_label = name;
+    return col;
+  });
+  const sigs = cols.map((c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null }));
+  const likert = (chart_bar_orientation) => Statz.runAnalysis(sigs, [], { dbA: { columns: cols } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_likert_enabled: true, chart_bar_orientation }))
+    .result.analysis[0].chart;
+  assert.equal(likert('auto').type, 'likert');
+  assert.equal(likert('vertical').spec.data[0].orientation, 'h', 'Likert ignores the option');
+});

@@ -1,7 +1,7 @@
 // @ts-check
 // Grouped bar chart for two qualitative variables (q × q). Mirrors r.plot.grouped_bar.
 // x-axis: predictor levels. One bar per response level inside each group (barmode='group').
-import { getThemePalette, wrapText, wrapTitle, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap } from './_shared.js';
+import { getThemePalette, wrapText, wrapTitle, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
 import factors from '../factors.js';
 
 /**
@@ -40,6 +40,9 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
   const legendWrap = getLegendLabelsWrap(options);
   const palette = getThemePalette(options.chart_theme, respLevels.length);
   const predTicks = predLevels.map((l) => wrapText(l, labelWrap));
+  // Same `auto` as every other bar chart: too many predictor levels, or labels too wide to sit
+  // side by side once wrapped. `chart_bar_orientation` overrides it either way.
+  const horizontal = resolveBarOrientation(predLevels, options) === 'h';
 
   /** @type {any[]} */
   const data = respLevels.map((resp, ri) => {
@@ -54,25 +57,30 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
       // Trace name = legend entry — wrap per chart_legend_wrap so long response levels
       // don't blow up the legend width.
       name: wrapText(resp, legendWrap),
-      x: predTicks,
-      y: ys,
+      orientation: horizontal ? 'h' : 'v',
+      x: horizontal ? ys : predTicks,
+      y: horizontal ? predTicks : ys,
       text,
       textposition: 'outside',
       cliponaxis: false,
       marker: { color: palette[ri] },
-      hovertemplate: `${resp}: %{y}<extra></extra>`
+      hovertemplate: `${resp}: %{${horizontal ? 'x' : 'y'}}<extra></extra>`
     };
   });
 
   const layout = {
     barmode: 'group',
-    xaxis: { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true },
-    // Numeric axis (bar height) labeled per chart_label_format — matches the per-bar
-    // value labels above each bar. Previously untitled — reader had to infer the quantity.
-    yaxis: { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
-    // margin.t 60: gives room for `textposition: outside` count/percent labels above
-    // the tallest bar (30px default clips them in ~400px containers).
-    margin: { t: 60, r: 30, b: 80, l: 60 },
+    // The categorical axis carries the predictor label and needs automargin for the wrapped
+    // ticks; the numeric one is labelled per chart_label_format, matching the per-bar values.
+    xaxis: horizontal
+      ? { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' }
+      : { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true },
+    yaxis: horizontal
+      ? { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true }
+      : { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
+    // margin.t 60 gives `textposition: outside` room above the tallest bar; horizontal moves that
+    // need to the right edge and widens the left for the category ticks.
+    margin: horizontal ? { t: 60, r: 60, b: 50, l: 100 } : { t: 60, r: 30, b: 80, l: 60 },
     // Legend layout: position (top/right/bottom), title visibility, and wrapping all
     // resolved by the shared helper from Analysis_options. Fixes the "legend takes
     // half the plot width" issue by defaulting to horizontal top orientation.

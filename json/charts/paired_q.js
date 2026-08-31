@@ -2,7 +2,7 @@
 // Paired binary qualitative chart (Profile B): K moments × 2 binary levels.
 // Grouped bar with moments on the x-axis and one trace per binary level.
 // Mirrors r.plot.grouped_bar applied to a paired dataset.
-import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap } from './_shared.js';
+import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
 
 /**
  * @param {Array<Array<string|null|undefined>>} responses K arrays of binary values; one per moment.
@@ -43,6 +43,8 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
   const legendWrap = getLegendLabelsWrap(options);
   const palette = getThemePalette(options.chart_theme, 2);
   const momentTicks = labels.map((l) => wrapText(l, labelWrap));
+  // Moments are the categories here, so they drive the same `auto` heuristic as any other bar.
+  const horizontal = resolveBarOrientation(labels, options) === 'h';
 
   /** @type {any[]} */
   const data = binaryLevels.map((level, li) => {
@@ -55,24 +57,28 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
     return {
       type: 'bar',
       name: wrapText(level, legendWrap),
-      x: momentTicks,
-      y: ys,
+      orientation: horizontal ? 'h' : 'v',
+      x: horizontal ? ys : momentTicks,
+      y: horizontal ? momentTicks : ys,
       text,
       textposition: 'outside',
       cliponaxis: false,
       marker: { color: palette[li] },
-      hovertemplate: `${level}: %{y}<extra></extra>`
+      hovertemplate: `${level}: %{${horizontal ? 'x' : 'y'}}<extra></extra>`
     };
   });
 
   const layout = {
     barmode: 'group',
-    // x-axis: moments (already visible as tick labels — no title needed).
-    xaxis: { title: { text: '' }, automargin: true },
-    // Numeric axis (bar height) labeled per chart_label_format — matches per-bar values.
-    yaxis: { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
-    // margin.t 60: room for `textposition: outside` labels above the tallest bar.
-    margin: { t: 60, r: 30, b: 80, l: 60 },
+    // The moments are already legible as tick labels, so their axis stays untitled whichever
+    // way round it sits; the other axis carries the count/percent label.
+    xaxis: horizontal
+      ? { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' }
+      : { title: { text: '' }, automargin: true },
+    yaxis: horizontal
+      ? { title: { text: '' }, automargin: true }
+      : { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
+    margin: horizontal ? { t: 60, r: 60, b: 50, l: 100 } : { t: 60, r: 30, b: 80, l: 60 },
     legend: buildLegendLayout(options, { title: meta.qualitativeLabel ?? '' }),
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff'

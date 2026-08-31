@@ -180,6 +180,50 @@ export function getLegendLabelsWrap(options) {
 }
 
 /**
+ * Decide whether a bar chart should render horizontally.
+ *
+ * Mirrors the r.plot.barplot heuristic — too many categories, or labels too wide to sit side by
+ * side — but measures the width the label will ACTUALLY have. `chart_x_label_wrap` caps every line
+ * at N words, so a ten-word level wrapped at 3 occupies three words of horizontal room, not ten.
+ * Reading the raw count made the two features fight: the user widened the wrap to make long labels
+ * fit vertically and the chart flipped horizontal anyway, ignoring the wrap it had just applied.
+ *
+ * A disabled wrap (0 or less) leaves labels whole, so there the raw count is the honest measure.
+ *
+ * @param {string[]} labels Category labels, unwrapped.
+ * @param {Record<string, any>} options
+ * @returns {boolean}
+ */
+export function shouldRenderHorizontal(labels, options) {
+  const list = Array.isArray(labels) ? labels : [];
+  if (list.length > 6) return true;
+  const wrapN = Number.isFinite(Number(options?.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
+  const maxWords = list.reduce(
+    (m, l) => Math.max(m, String(l ?? '').split(/\s+/).filter(Boolean).length), 0);
+  const effectiveWords = wrapN > 0 ? Math.min(wrapN, maxWords) : maxWords;
+  return effectiveWords > 4;
+}
+
+/**
+ * Resolve a bar chart's orientation from `chart_bar_orientation`, falling back to the automatic
+ * heuristic. Returns Plotly's axis code so callers can drop it straight into the trace.
+ *
+ * `auto` means the SAME thing in every bar chart — the heuristic above. Letting it mean "always
+ * vertical" in the grouped-bar builders and "measure the labels" in the univariate one is the kind
+ * of split that made `chart_x_label_wrap` confusing: one word in the UI, two behaviours underneath.
+ *
+ * @param {string[]} labels Category labels, unwrapped.
+ * @param {Record<string, any>} options
+ * @returns {'h'|'v'}
+ */
+export function resolveBarOrientation(labels, options) {
+  const mode = options?.chart_bar_orientation;
+  if (mode === 'horizontal') return 'h';
+  if (mode === 'vertical') return 'v';
+  return shouldRenderHorizontal(labels, options) ? 'h' : 'v';
+}
+
+/**
  * Wrap an AXIS TITLE — the variable's own label — at `chart_title_wrap` words.
  *
  * Separate from `chart_x_label_wrap`, which wraps the CATEGORY tick labels, because the two sit in
@@ -235,9 +279,7 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
   const theme = resolveTheme(options.chart_theme);
   const labelFormat = ['n', 'p', 'np'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
-  // Match r.plot.barplot heuristic: horizontal if > 6 categories or any label > 4 words.
-  const maxWords = labels.reduce((m, l) => Math.max(m, String(l ?? '').split(/\s+/).filter(Boolean).length), 0);
-  const horizontal = labels.length > 6 || maxWords > 4;
+  const horizontal = resolveBarOrientation(labels, options) === 'h';
   const text = counts.map((c) => {
     const pct = total > 0 ? (c / total) * 100 : 0;
     return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat));

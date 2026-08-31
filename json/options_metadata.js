@@ -252,6 +252,17 @@ ns.OPTION_METADATA = {
   // grid, not about any particular analysis shape. `auto` keeps the two-column grid, capping a
   // trailing odd cell by aspect; `full` gives every chart the element's whole width, for the
   // occasional chart that genuinely needs it (many categories, long level names).
+  // Bar-family only. `auto` is the shared heuristic (more than 6 categories, or labels still wider
+  // than 4 words after chart_x_label_wrap); the other two force it. Likert is excluded on purpose —
+  // a 100% stacked bar is horizontal by definition — so the option can be visible for a
+  // likert-eligible element and simply not affect that chart.
+  chart_bar_orientation: {
+    category: 'chart', type: 'enum', default: 'auto',
+    enum: ['auto', 'vertical', 'horizontal'],
+    appliesTo: ['has_q', 'has_l', 'has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_paired_q'],
+    modeGate: 'chart',
+    labelKey: 'options.chart_bar_orientation.label', descriptionKey: 'options.chart_bar_orientation.description'
+  },
   chart_width_mode: {
     category: 'chart', type: 'enum', default: 'auto',
     enum: ['auto', 'full'], appliesTo: [], modeGate: 'chart',

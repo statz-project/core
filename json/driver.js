@@ -815,6 +815,8 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
     ? Number((/** @type {any} */ (normalized).chart_title_wrap)) : 8;
   normalized.chart_width_mode = ['auto', 'full'].includes((/** @type {any} */ (normalized).chart_width_mode))
     ? (/** @type {any} */ (normalized).chart_width_mode) : 'auto';
+  normalized.chart_bar_orientation = ['auto', 'vertical', 'horizontal'].includes((/** @type {any} */ (normalized).chart_bar_orientation))
+    ? (/** @type {any} */ (normalized).chart_bar_orientation) : 'auto';
   normalized.chart_include_zero = (/** @type {any} */ (normalized).chart_include_zero) !== false;
   // Static by default: charts render without hover crosshair / zoom / pan. Opt-in via
   // `chart_interactive: true` surfaces Plotly's native interactive gestures.
