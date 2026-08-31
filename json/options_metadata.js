@@ -248,6 +248,15 @@ ns.OPTION_METADATA = {
     appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_title_wrap.label', descriptionKey: 'options.chart_title_wrap.description'
   },
+  // One chart per row instead of two. Universal in chart mode: it is a layout choice about the
+  // grid, not about any particular analysis shape. `auto` keeps the two-column grid, capping a
+  // trailing odd cell by aspect; `full` gives every chart the element's whole width, for the
+  // occasional chart that genuinely needs it (many categories, long level names).
+  chart_width_mode: {
+    category: 'chart', type: 'enum', default: 'auto',
+    enum: ['auto', 'full'], appliesTo: [], modeGate: 'chart',
+    labelKey: 'options.chart_width_mode.label', descriptionKey: 'options.chart_width_mode.description'
+  },
   chart_x_label_wrap: {
     category: 'chart', type: 'number', default: 3, enum: null,
     appliesTo: CATEGORICAL_X_AXIS, modeGate: 'chart',

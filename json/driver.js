@@ -813,6 +813,8 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   // Axis titles get their own number: they span the plot width, category ticks get one slot each.
   normalized.chart_title_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_title_wrap)))
     ? Number((/** @type {any} */ (normalized).chart_title_wrap)) : 8;
+  normalized.chart_width_mode = ['auto', 'full'].includes((/** @type {any} */ (normalized).chart_width_mode))
+    ? (/** @type {any} */ (normalized).chart_width_mode) : 'auto';
   normalized.chart_include_zero = (/** @type {any} */ (normalized).chart_include_zero) !== false;
   // Static by default: charts render without hover crosshair / zoom / pan. Opt-in via
   // `chart_interactive: true` surfaces Plotly's native interactive gestures.
@@ -1797,7 +1799,8 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   /** @type {any} */
   const finalResult = { analysis: result, test_legend, lang };
   finalResult.chart_options = {
-    show_title: (/** @type {any} */ (mergedOptions).chart_show_title) === true
+    show_title: (/** @type {any} */ (mergedOptions).chart_show_title) === true,
+    width_mode: (/** @type {any} */ (mergedOptions).chart_width_mode) === 'full' ? 'full' : 'auto'
   };
   return { result: finalResult, flags: Array.from(flagsUsed) };
 };

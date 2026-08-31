@@ -413,7 +413,7 @@ ns.isWarningRow = function (row) { return !!(row && typeof row._warning_text ===
  * `table.warning` are rendered as a flagged amber banner. The browser-side `Statz.renderCharts`
  * helper (see core/loader.js) sweeps the grid and invokes `Plotly.newPlot` per cell.
  *
- * @param {{ analysis: Array<{ predictor?: string|null, response?: string|null, chart?: { type:string, spec:any }, table?: { warning?: string } }>, lang?: string, chart_options?: { show_title?: boolean } }} resultObj
+ * @param {{ analysis: Array<{ predictor?: string|null, response?: string|null, chart?: { type:string, spec:any }, table?: { warning?: string } }>, lang?: string, chart_options?: { show_title?: boolean, width_mode?: 'auto'|'full' } }} resultObj
  * @param {string=} title Optional document title (used only when `wrap=true`).
  * @param {boolean=} wrap When true, emit a full HTML document; otherwise emit the grid fragment.
  * @param {string=} footerFree Optional user-provided footer suffix (parity with exportCombinedAsHTML).
@@ -451,11 +451,25 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
 @media (max-width:768px){.statz-chart-grid{grid-template-columns:1fr;}}
 .statz-chart-cell{background:#ffffff;border:1px solid rgba(48,50,61,0.10);border-radius:6px;padding:12px;display:flex;flex-direction:column;}
 .statz-chart-cell--warning{background:transparent;border-color:rgba(133,100,4,0.25);}
-/* Trailing-odd cell (1 chart total, or 3rd/5th/7th trailing an odd count): span both columns
-   and center at the sibling column width — eliminates the empty right cell without making
-   the trailing chart visibly larger than its siblings. Mobile (1-col) resets max-width. */
-.statz-chart-cell:last-child:nth-child(odd){grid-column:1 / -1;justify-self:center;max-width:calc(50% - 8px);width:100%;}
+/* Trailing-odd cell (1 chart total, or 3rd/5th/7th trailing an odd count): span both columns,
+   centred. The cap is set by ASPECT, not by matching the siblings: cell height is fixed at 400px,
+   so on a 1200px element a full-bleed chart would render around 3.2:1 — stretched. 760px lands at
+   roughly 2:1, the usual chart proportion, and still reclaims most of the empty right cell that
+   matching the sibling width (~590px) left behind.
+
+   The 75% floor is what keeps the two width modes apart. An absolute cap alone degenerates to
+   full width on any element narrower than it — an 800px element rendered the orphan at 800px,
+   making 'auto' indistinguishable from 'full'. The percentage scales the cap down with the
+   container, so the orphan stays visibly wider than a sibling column and visibly narrower than
+   the row. Below 768px the grid is single-column and every cell is full width, so the cap is
+   lifted there: 75% of a lone column would shrink the last chart below its siblings. */
+.statz-chart-cell:last-child:nth-child(odd){grid-column:1 / -1;justify-self:center;max-width:min(75%, 760px);width:100%;}
 @media (max-width:768px){.statz-chart-cell:last-child:nth-child(odd){max-width:none;}}
+/* chart_width_mode: 'full' — one chart per row, each taking the element's whole width. The
+   trailing-odd rule has to be undone here or the last cell would end up NARROWER than its
+   siblings, which is the opposite of what this mode is for. */
+.statz-chart-grid--full{grid-template-columns:1fr;}
+.statz-chart-grid--full .statz-chart-cell:last-child:nth-child(odd){justify-self:stretch;max-width:none;}
 .statz-chart-title{font-weight:600;font-size:13px;color:#30323d;margin:0 0 8px;text-align:center;}
 /* Fixed height (not min-height): Plotly's default fallback of 700x450 kicks in when
    newPlot runs on a container with clientWidth=0 (page-load race before layout settles);
@@ -483,7 +497,10 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
   // is swept and rendered. No inline <script> emitted here: browsers don't execute
   // scripts injected via innerHTML (HTML security rule), and the MutationObserver path
   // covers every mount pattern uniformly.
-  const grid = `<div class="statz-chart-grid">${cells.join('')}</div>${footerHtml}`;
+  const gridClass = resultObj?.chart_options?.width_mode === 'full'
+    ? 'statz-chart-grid statz-chart-grid--full'
+    : 'statz-chart-grid';
+  const grid = `<div class="${gridClass}">${cells.join('')}</div>${footerHtml}`;
   const html = `${styles}${grid}`;
   if (!wrap) return html;
   return `<!DOCTYPE html>

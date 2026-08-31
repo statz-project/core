@@ -2103,18 +2103,24 @@ test("exportCombinedAsChartHTML: chart container has fixed height (not min-heigh
   assert.equal(html.includes('min-height:320px'), false, 'no min-height on .statz-chart');
 });
 
-test("exportCombinedAsChartHTML: emits CSS to center a trailing-odd chart cell at sibling width", () => {
-  // Fixes the visual asymmetry when 1 chart (or an odd count) leaves the trailing row
-  // half-empty. The rule uses :last-child:nth-child(odd) — pure CSS, no JS branching.
+test("exportCombinedAsChartHTML: the trailing-odd chart cell is centred and capped by aspect", () => {
+  // An odd count leaves the last row half-empty. The cell spans both columns and centres, but the
+  // cap comes from PROPORTION rather than from matching the siblings: cell height is fixed at
+  // 400px, so a full-bleed chart on a wide element renders near 3:1 — stretched. 760px lands
+  // around 2:1 while still reclaiming most of the empty half. Pure CSS, no JS branching.
   const html = exporters.exportCombinedAsChartHTML({ analysis: [] });
-  // Selector must be present with grid-column span + justify-self center + max-width
-  // clamp to the sibling-column width. Mobile override resets max-width.
   assert.match(html, /\.statz-chart-cell:last-child:nth-child\(odd\)/);
   assert.match(html, /grid-column:1 \/ -1/);
   assert.match(html, /justify-self:center/);
-  assert.match(html, /max-width:calc\(50% - 8px\)/);
-  // Mobile override — trailing-odd cell should not be clamped in single-column layout.
+  assert.match(html, /max-width:min\(75%, 760px\)/);
+  // The 75% floor is load-bearing: an absolute cap alone collapses to full width on any element
+  // narrower than it, which made 'auto' indistinguishable from 'full' on an 800px element.
+  assert.equal(html.includes('max-width:min(100%, 760px)'), false);
+  // Single-column layout lifts the cap — 75% of a lone column would leave the last chart
+  // narrower than its siblings.
   assert.match(html, /@media \(max-width:768px\)\{\.statz-chart-cell:last-child:nth-child\(odd\)\{max-width:none;\}\}/);
+  // The cell must not be pinned to the sibling column width any more.
+  assert.equal(html.includes('max-width:calc(50% - 8px)'), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -2484,4 +2490,42 @@ test("chart_title_wrap breaks the variable label in axis titles, on every chart 
   assert.equal(ticks({ chart_x_label_wrap: 0 }).includes('<br>'), false);
   assert.ok(labelText(spec('q', multiWordLevels, undefined, { chart_x_label_wrap: 0 })).includes('<br>'),
     'and the title still wraps when the category wrap is off');
+});
+
+test("chart_width_mode: 'full' gives every chart a row of its own", () => {
+  // A proportion-based cap covers the ordinary case, but a chart with many categories or long
+  // level names sometimes wants the whole element. Layout choice about the grid, not about any
+  // analysis shape — hence a container modifier rather than per-cell logic.
+  const chart = (i) => ({ predictor: `V${i}`, response: null, chart: { type: 'bar', spec: { data: [], layout: {} } } });
+  const html = (mode, n) => exporters.exportCombinedAsChartHTML({
+    analysis: Array.from({ length: n }, (_, i) => chart(i)),
+    lang: 'pt_br', chart_options: { show_title: false, width_mode: mode }
+  });
+
+  assert.match(html('full', 3), /<div class="statz-chart-grid statz-chart-grid--full"/);
+  assert.match(html('auto', 3), /<div class="statz-chart-grid"/);
+  // Absent or unknown values fall back to the two-column grid, so legacy payloads keep working.
+  assert.match(exporters.exportCombinedAsChartHTML({ analysis: [chart(0)], chart_options: {} }),
+    /<div class="statz-chart-grid"/);
+  assert.match(exporters.exportCombinedAsChartHTML({ analysis: [chart(0)] }), /<div class="statz-chart-grid"/);
+
+  // The modifier must undo the trailing-odd cap, or the last chart would come out NARROWER than
+  // its siblings — the opposite of what this mode is for.
+  const css = html('full', 3);
+  assert.match(css, /\.statz-chart-grid--full\{grid-template-columns:1fr;\}/);
+  assert.match(css, /\.statz-chart-grid--full \.statz-chart-cell:last-child:nth-child\(odd\)\{justify-self:stretch;max-width:none;\}/);
+});
+
+test("chart_width_mode: normalised and carried on result.chart_options", () => {
+  assert.equal(Statz.getDefaultAnalysisOptions({}).chart_width_mode, 'auto');
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_width_mode: 'full' }).chart_width_mode, 'full');
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_width_mode: 'nonsense' }).chart_width_mode, 'auto');
+
+  const col = Statz.makeColumn(['a', 'b', 'a'], { col_type: 'q', var_label: 'V', includeBaseVariant: true });
+  col.col_hash = 'h'; col.col_label = 'V';
+  const { result } = Statz.runAnalysis(
+    [JSON.stringify({ database_id: 'dbA', col_hash: 'h', col_label: 'V', col_var_index: null })], [],
+    { dbA: { columns: [col] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_width_mode: 'full' }));
+  assert.equal(result.chart_options.width_mode, 'full', 'the exporter reads it from here');
 });
