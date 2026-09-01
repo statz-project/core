@@ -314,3 +314,32 @@ test("the remaining empty appliesTo options are genuinely universal", () => {
     'chart_theme', 'chart_title_wrap', 'chart_width_mode', 'lang', 'mode'
   ], 'a new universal option needs the same per-shape check symbol_style and x_label_wrap got');
 });
+
+test("alpha and adjust_kruskal are table-only, and only where a gate reads them", () => {
+  // Both decide which results count as significant — residual symbols and post-hoc pairs — and
+  // both live entirely in the table. Neither appears in any chart builder, so offering them in
+  // chart mode asked the user to set a threshold that changes nothing they can see.
+  const offered = (flag, mode, name) => getAvailableOptions([flag], mode).some((o) => o.name === name);
+  const everyFlag = ['has_q', 'has_n', 'has_l', 'has_qq', 'has_nq', 'has_qn', 'has_nn', 'has_lq',
+    'has_ql', 'has_ln', 'has_nl', 'has_ll', 'has_paired_n', 'has_paired_q', 'has_kruskal_sign'];
+  for (const flag of everyFlag) {
+    assert.equal(offered(flag, 'chart', 'alpha'), false, `alpha in chart mode (${flag})`);
+    assert.equal(offered(flag, 'chart', 'adjust_kruskal'), false, `adjust_kruskal in chart mode (${flag})`);
+  }
+
+  // alpha: the cells routing to summarize_q_q (residuals) or summarize_n_q (post-hoc).
+  for (const flag of ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_nq', 'has_qn', 'has_ln', 'has_nl']) {
+    assert.equal(offered(flag, 'table', 'alpha'), true, flag);
+  }
+  // Correlation has no threshold to set, and McNemar / Cochran have neither residuals nor post-hoc.
+  for (const flag of ['has_nn', 'has_paired_n', 'has_paired_q', 'has_q']) {
+    assert.equal(offered(flag, 'table', 'alpha'), false, flag);
+  }
+
+  // adjust_kruskal is a summarize_n_q concern only — including the list-expanded cells that
+  // delegate to it, which the list used to omit.
+  for (const flag of ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_kruskal_sign']) {
+    assert.equal(offered(flag, 'table', 'adjust_kruskal'), true, flag);
+  }
+  assert.equal(offered('has_qq', 'table', 'adjust_kruskal'), false, 'chi-square has no Dunn step');
+});

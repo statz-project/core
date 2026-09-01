@@ -53,6 +53,15 @@ const CATEGORICAL_X_AXIS = [
 // Qualitative-shape flags — cells that render a "Not informed" bucket / missing category.
 // Numeric analyses express missing counts via stat_options_* with `n_missing`, not via
 // include_missing / missing_label, so `has_n` is deliberately excluded.
+// Cells whose table routes through `summarize_q_q` (residual gate) or `summarize_n_q` (post-hoc
+// gate) — the only two summarisers that read `alpha`. Verified by counting its occurrences:
+// summarize_n_n, summarize_n_paired and summarize_q_paired never touch it, so a correlation or a
+// McNemar/Cochran element has no threshold to set.
+const ALPHA_GATED = ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_nq', 'has_qn', 'has_ln', 'has_nl'];
+// Dunn's adjustment is a `summarize_n_q` concern only — including the list-expanded cells that
+// delegate to it.
+const KRUSKAL_ADJUSTED = ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_kruskal_sign'];
+
 const QL_MISSING_BUCKET = ['has_q', 'has_l'];
 
 /** @type {Record<string, OptionMetadata>} */
@@ -70,14 +79,19 @@ ns.OPTION_METADATA = {
   },
 
   // ----- inferential thresholds -----
+  // modeGate 'table': alpha decides which residuals get a symbol and which post-hoc pairs count as
+  // significant, both of which live in the table. No chart builder reads it, so offering it in
+  // chart mode asked the user to set a threshold that changes nothing they can see.
   alpha: {
     category: 'inferential', type: 'number', default: 0.05, enum: null,
-    appliesTo: ALL_INFERENTIAL, modeGate: null,
+    appliesTo: ALPHA_GATED, modeGate: 'table',
     labelKey: 'options.alpha.label', descriptionKey: 'options.alpha.description'
   },
+  // Same reasoning as alpha: it only reshapes Dunn's pairwise table. The list-expanded cells were
+  // missing from the list even though they delegate to summarize_n_q.
   adjust_kruskal: {
     category: 'inferential', type: 'string', default: 'bonferroni', enum: null,
-    appliesTo: ['has_nq', 'has_qn', 'has_kruskal_sign'], modeGate: null,
+    appliesTo: KRUSKAL_ADJUSTED, modeGate: 'table',
     labelKey: 'options.adjust_kruskal.label', descriptionKey: 'options.adjust_kruskal.description'
   },
 
