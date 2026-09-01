@@ -79,7 +79,8 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
       ? { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' }
       : { title: { text: resolveMomentAxisLabel(options) }, automargin: true },
     yaxis: horizontal
-      ? { title: { text: resolveMomentAxisLabel(options) }, automargin: true }
+      // Reversed so the moments read top-down in order, not bottom-up — see buildBarSpec.
+      ? { title: { text: resolveMomentAxisLabel(options) }, automargin: true, autorange: 'reversed' }
       : { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
     margin: horizontal ? { t: 60, r: 60, b: 50, l: 100 } : { t: 60, r: 30, b: 80, l: 60 },
     legend: buildLegendLayout(options, { title: meta.qualitativeLabel ?? '' }),

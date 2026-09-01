@@ -2827,3 +2827,45 @@ test("a bottom legend reserves room for everything stacked above it", () => {
     assert.equal(plain.legend.yref, undefined, `${position} legend keeps Plotly's paper default`);
   }
 });
+
+test("horizontal bars read top-down: the categorical axis is reversed, the data order is not", () => {
+  // Plotly draws a categorical axis bottom-up, so turning the bars horizontal silently inverted
+  // whatever ordering the chart had just computed — chart_l's frequency-desc came out
+  // least-frequent-first, and a factor's level order came out backwards. The fix is the axis
+  // direction, not the data: chart_likert (always horizontal) has always set this.
+  const N = 24;
+  const qv = Array.from({ length: N }, (_, i) => ['baixo', 'medio', 'alto'][i % 3]);
+  const lv = Array.from({ length: N }, (_, i) => (i < 12 ? 'a' : i < 18 ? 'b;c' : i < 22 ? 'c' : ''));
+  const resp = Array.from({ length: N }, (_, i) => ['sim', 'nao'][i % 2]);
+  const t1 = Array.from({ length: N }, (_, i) => (i < 18 ? 'no' : 'yes'));
+  const t2 = Array.from({ length: N }, (_, i) => (i < 6 ? 'no' : 'yes'));
+  const at = (chart_bar_orientation) => ({
+    q: chart_q(qv, { chart_bar_orientation, lang: 'pt_br' }, {}),
+    l: chart_l(lv, ';', { chart_bar_orientation, lang: 'pt_br' }, {}),
+    qq: chart_q_q(qv, resp, { chart_bar_orientation }, {}),
+    paired: chart_paired_q([t1, t2], ['Time 1', 'Time 2'], { chart_bar_orientation }, {})
+  });
+  const v = at('vertical'), h = at('horizontal');
+
+  for (const shape of ['q', 'l', 'qq', 'paired']) {
+    assert.equal(v[shape].spec.data[0].orientation, 'v', `${shape}: vertical`);
+    assert.equal(h[shape].spec.data[0].orientation, 'h', `${shape}: horizontal`);
+    // Horizontal reverses the axis the categories sit on; vertical leaves both alone.
+    assert.equal(h[shape].spec.layout.yaxis.autorange, 'reversed', `${shape}: y reversed when horizontal`);
+    assert.equal(v[shape].spec.layout.xaxis.autorange, undefined, `${shape}: x untouched when vertical`);
+    assert.equal(v[shape].spec.layout.yaxis.autorange, undefined, `${shape}: the numeric y is never reversed`);
+    // The categories themselves keep the order the chart computed — only the drawing direction flips.
+    assert.deepEqual(h[shape].spec.data[0].y, v[shape].spec.data[0].x, `${shape}: same order, different axis`);
+  }
+
+  // The orderings this protects, spelled out.
+  assert.deepEqual(h.l.spec.data[0].y.slice(0, 3), ['a', 'c', 'b'], 'frequency desc, most frequent first');
+  assert.equal(h.l.spec.data[0].y.at(-1), Statz.getDefaultMissingLabel('pt_br'), 'missing stays last');
+  assert.deepEqual(h.paired.spec.data[0].y, ['Time 1', 'Time 2'], 'moments in sequence');
+
+  // Likert is horizontal by construction and already relied on this; it must not regress.
+  const lk = ['discordo', 'neutro', 'concordo'];
+  const likert = chart_likert(['Item A', 'Item B'].map((label, k) => ({
+    label, values: Array.from({ length: 9 }, (_, i) => lk[(i + k) % 3]) })), {}, {});
+  assert.equal(likert.spec.layout.yaxis.autorange, 'reversed');
+});

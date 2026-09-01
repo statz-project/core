@@ -76,7 +76,8 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
       ? { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' }
       : { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true },
     yaxis: horizontal
-      ? { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true }
+      // Reversed so the first predictor level is the TOP bar — see buildBarSpec for why.
+      ? { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true, autorange: 'reversed' }
       : { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
     // margin.t 60 gives `textposition: outside` room above the tallest bar; horizontal moves that
     // need to the right edge and widens the left for the category ticks.

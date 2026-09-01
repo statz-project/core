@@ -338,7 +338,12 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
     ? {
         // Horizontal orientation: x-axis is numeric (bar length), y-axis is categorical.
         xaxis: { title: { text: numericAxisLabel }, zeroline: false },
-        yaxis: { title: { text: varLabel }, automargin: true },
+        // `autorange: 'reversed'` so the first category sits at the TOP. Plotly draws a categorical
+        // axis bottom-up, which silently inverts the ordering the chart just computed — frequency-
+        // desc reads least-frequent-first, and a factor's level order reads backwards — the moment
+        // the bars turn horizontal. Same correction `chart_likert` has always applied, and the same
+        // one a spreadsheet needs on its category axis.
+        yaxis: { title: { text: varLabel }, automargin: true, autorange: 'reversed' },
         // margin.t 60 (not the Plotly default ~30): with `textposition: outside` the
         // count/percent label sits above the tallest bar; a 30px top pad clips it in
         // ~400px containers. 60px gives it room without shrinking the plot noticeably.
