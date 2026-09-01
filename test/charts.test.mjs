@@ -1752,7 +1752,11 @@ test("chart_q_q chart_legend_position='bottom' → horizontal below plot", () =>
   const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart", chart_legend_position: "bottom" });
   const legend = result.analysis[0].chart.spec.layout.legend;
   assert.equal(legend.orientation, "h");
-  assert.ok(legend.y < 0, "bottom position → y below the plot area");
+  // Anchored to the figure's bottom edge, not offset below the plot area — see the bottom-legend
+  // clearance test for why a paper-referenced offset cannot hold.
+  assert.equal(legend.yref, "container");
+  assert.equal(legend.y, 0);
+  assert.equal(legend.yanchor, "bottom");
 });
 
 test("chart_q_q chart_show_legend_title=false blanks the legend title text", () => {
@@ -2713,5 +2717,67 @@ test("hiding an axis title reclaims margin only where a title was actually drawn
         assert.ok(shrank, `${name}: ${axis} title hidden but margin.${side} kept its space`);
       }
     }
+  }
+});
+
+test("a bottom legend reserves room for everything stacked above it", () => {
+  // Reported in two rounds. First: chart_show_xaxis_title drew the title on top of the legend.
+  // Then, after an offset that grew per title line: more wrapped CATEGORY labels pushed the
+  // title down into the legend again, and a heavily wrapped title (5+ lines) re-collided
+  // because the legend "moved down more slowly" than the stack grew.
+  //
+  // Both follow from `legend.y` being a fraction of PLOT HEIGHT: every extra line makes Plotly
+  // grow the bottom margin, which shrinks the plot area, which shrinks that same fraction. The
+  // legend is now anchored to the figure instead, and the room above it is reserved in margin.b.
+  const N = 12;
+  const col = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'q', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const LONG = 'Internacao por doenca relacionada ao tabagismo com agravo sanitario de ultima urgencia grave';
+  const WIDE = ['grupo controle sem intervencao alguma', 'grupo tratado com protocolo completo'];
+  const r = col('hr', 'Desfecho', Array.from({ length: N }, (_, i) => ['sim', 'nao'][i % 2]));
+  const layout = (label, cats, extra) => {
+    const g = col('hg', label, Array.from({ length: N }, (_, i) => cats[i % cats.length]));
+    return Statz.runAnalysis([sig(g)], [sig(r)], { dbA: { columns: [g, r] } },
+      Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_legend_position: 'bottom', ...extra }))
+      .result.analysis[0].chart.spec.layout;
+  };
+
+  // Anchored to the figure, so the offset no longer has to track anything.
+  const base = layout('Grupo', ['a', 'b'], {});
+  assert.equal(base.legend.yref, 'container');
+  assert.equal(base.legend.y, 0);
+  assert.equal(base.legend.yanchor, 'bottom');
+
+  // Reserved room grows with the x-axis title's line count, and keeps growing past the point
+  // where the previous per-line offset had stopped keeping up.
+  const t2 = layout(LONG, ['a', 'b'], {});
+  const t4 = layout(LONG, ['a', 'b'], { chart_title_wrap: 4 });
+  const t7 = layout(LONG, ['a', 'b'], { chart_title_wrap: 2 });
+  assert.equal(t2.xaxis.title.text.split('<br>').length, 2);
+  assert.equal(t7.xaxis.title.text.split('<br>').length, 7);
+  assert.ok(base.margin.b <= t2.margin.b && t2.margin.b < t4.margin.b && t4.margin.b < t7.margin.b,
+    'more title lines reserve more room');
+
+  // ...and with the CATEGORY labels, which sit between the plot and the title and push it down.
+  // This is the source the earlier fix ignored entirely.
+  const wide = layout('Grupo', WIDE, {});
+  assert.ok(wide.margin.b > base.margin.b, 'wrapped category ticks reserve room too');
+  assert.ok(layout(LONG, WIDE, { chart_title_wrap: 2 }).margin.b > t7.margin.b,
+    'and the two sources add up rather than one masking the other');
+
+  // A hidden title costs nothing: counted after the hide pass, so the room is given back.
+  const hidden = layout(LONG, WIDE, { chart_show_xaxis_title: false });
+  assert.equal(hidden.xaxis.title.text, '');
+  assert.ok(hidden.margin.b < wide.margin.b, 'hiding the title returns its reserved room');
+
+  // Only a bottom legend competes for this band; the other positions must not pay for it.
+  for (const position of ['top', 'right']) {
+    const plain = layout('Grupo', ['a', 'b'], { chart_legend_position: position });
+    const wrapped = layout(LONG, WIDE, { chart_legend_position: position, chart_title_wrap: 2 });
+    assert.equal(plain.margin.b, wrapped.margin.b, `${position} legend reserves no extra room`);
+    assert.equal(plain.legend.yref, undefined, `${position} legend keeps Plotly's paper default`);
   }
 });

@@ -133,7 +133,14 @@ export function resolveMomentAxisLabel(options) {
  * Behavior:
  *   - `chart_legend_position` = 'top' (default) | 'right' | 'bottom' — top/bottom use
  *     horizontal orientation so the plot area recovers full width. Right keeps Plotly's
- *     vertical default and consumes horizontal space (previous behavior).
+ *     vertical default and consumes horizontal space (previous behavior). The bottom
+ *     position also has to clear the x-axis title, so its offset depends on
+ *     `chart_show_xaxis_title` (see below).
+ *   - `title.side` is deliberately NOT set: Plotly defaults it to 'left' for horizontal
+ *     legends and 'top' for vertical ones (`p('title.side', isHorizontal ? 'left' : 'top')`
+ *     in the legend defaults), which is the right call both times. Forcing the title above
+ *     the entries everywhere buys tidier alignment against a wrapped title at the cost of
+ *     legend height, and height is exactly what the plot area cannot spare.
  *   - `chart_show_legend_title` toggles the legend heading. When false, `title.text=''`
  *     (Plotly still reserves no vertical space when text is empty).
  *   - `chart_legend_title_wrap` (default 4) wraps the title only (the title has more
@@ -172,8 +179,16 @@ export function buildLegendLayout(options, meta = {}) {
     legend.orientation = 'h';
     legend.x = 0.5;
     legend.xanchor = 'center';
-    legend.y = -0.2;
-    legend.yanchor = 'top';
+    // Pinned to the bottom of the FIGURE (`yref: 'container'`), not offset below the plot area.
+    // A paper-referenced offset cannot work here: it is a fraction of the plot height, and every
+    // extra line of tick text or axis title makes Plotly grow the bottom margin, which shrinks
+    // the plot area, which shrinks that same fraction. The gap therefore grows more slowly than
+    // the stack it has to clear, and the two meet again a few line-breaks later. Anchored to the
+    // container the legend simply stays put, and the room for the axis stack above it is
+    // reserved by `margin.b` in `runAnalysis`, where the line counts are known.
+    legend.yref = 'container';
+    legend.y = 0;
+    legend.yanchor = 'bottom';
   } else {
     // 'right' — Plotly vertical default; no explicit anchors needed.
     legend.orientation = 'v';

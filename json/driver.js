@@ -1780,6 +1780,33 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const TITLE_MARGIN_RECLAIM = 25;
   const MIN_MARGIN_B = 25;
   const MIN_MARGIN_L = 40;
+  // A bottom legend is pinned to the figure's bottom edge (`yref: 'container'`, set in
+  // `buildLegendLayout`). What still has to be arranged here is the room ABOVE it, because
+  // everything under the plot competes for the same band: wrapped category ticks, then the
+  // x-axis title below them, then the legend. Plotly's automargin does not stack these — each
+  // component requests a bottom margin for itself and the largest request wins — so the axis
+  // stack and the legend are both drawn inside one margin that only fits the taller of them.
+  // Reserving `margin.b` for their SUM is what keeps them apart.
+  //
+  // Counting lines is why this lives here rather than in `buildLegendLayout`: the wraps are
+  // applied by `chart_title_wrap` / `chart_x_label_wrap` / `chart_legend_labels_wrap` to labels
+  // that helper never receives, and the title must be counted AFTER the hide pass above so a
+  // hidden title costs nothing. Pixel figures are estimates of rendered text at the chart's
+  // font sizes; they are deliberately a little generous, since over-reserving costs plot height
+  // while under-reserving puts text back on top of the legend.
+  const AXIS_LINE_PX = 16;        // one line of tick or axis-title text
+  const AXIS_TITLE_GAP_PX = 14;   // Plotly's standoff between the ticks and the axis title
+  const LEGEND_LINE_PX = 18;      // one line of legend text at font.size 11
+  const LEGEND_PAD_PX = 14;       // legend's own padding plus its gap from the axis title
+  const isBottomLegend = (/** @type {any} */ (mergedOptions).chart_legend_position) === 'bottom';
+  /** Rendered line count of a `<br>`-wrapped label. */
+  const lineCount = (/** @type {any} */ text) => {
+    const str = String(text ?? '');
+    return str === '' ? 0 : str.split('<br>').length;
+  };
+  /** Tallest `<br>`-wrapped string in a list, floored at 1 (a bare numeric axis still has ticks). */
+  const maxLines = (/** @type {any[]} */ values) => values.reduce(
+    (acc, v) => (typeof v === 'string' ? Math.max(acc, lineCount(v)) : acc), 1);
   const hasTitleText = (/** @type {any} */ axis) => String(axis?.title?.text ?? '') !== '';
   result.forEach((/** @type {any} */ r) => {
     if (!r.chart?.spec) return;
@@ -1797,6 +1824,27 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
       if (typeof layout.margin.l === 'number') {
         layout.margin.l = Math.max(MIN_MARGIN_L, layout.margin.l - TITLE_MARGIN_RECLAIM);
       }
+    }
+    if (isBottomLegend && layout.legend) {
+      const traces = Array.isArray(r.chart.spec.data) ? r.chart.spec.data : [];
+      // Category ticks: charts that place them explicitly expose `ticktext`; the bar family
+      // carries them as the categorical trace coordinate, which is `x` only when the bars run
+      // vertically. Horizontally the x axis is numeric, so its ticks are a single line.
+      const ticks = Array.isArray(layout.xaxis?.ticktext)
+        ? layout.xaxis.ticktext
+        : traces.flatMap((/** @type {any} */ t) => (Array.isArray(t?.x) ? t.x : []));
+      const titleLines = lineCount(layout.xaxis?.title?.text);
+      const axisStack = (maxLines(ticks) * AXIS_LINE_PX)
+        + (titleLines > 0 ? AXIS_TITLE_GAP_PX + (titleLines * AXIS_LINE_PX) : 0);
+      // A horizontal legend is as tall as its tallest element. With the title beside the
+      // entries (Plotly's default for this orientation) that is whichever of the two wraps
+      // more, not their sum.
+      const legendLines = Math.max(
+        maxLines(traces.map((/** @type {any} */ t) => t?.name)),
+        lineCount(layout.legend.title?.text)
+      );
+      const legendBand = LEGEND_PAD_PX + (legendLines * LEGEND_LINE_PX);
+      layout.margin.b = Math.max(layout.margin.b ?? 0, axisStack + legendBand);
     }
   });
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
