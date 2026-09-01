@@ -254,10 +254,56 @@ test("chart_l: percent labels compute over row count (can exceed 100% combined)"
   assert.deepEqual(out.spec.data[0].text, ["100.0%", "66.7%"]);
 });
 
-test("chart_l: empty rows and empty items dropped; returns null when no items", () => {
-  assert.equal(chart_l([null, "", "   "], ";", {}, {}), null);
+test("chart_l: empty items dropped; returns null when there is nothing left to draw", () => {
+  // An all-empty column is not nothing when include_missing is on — it is one missing bar,
+  // which is what summarize_l renders for the same input. Only an actually empty result
+  // (no items and no missing bar to draw) yields null, matching chart_q.
+  assert.equal(chart_l([], ";", {}, {}), null);
+  assert.equal(chart_l([null, "", "   "], ";", { include_missing: false }, {}), null);
+  // The same all-empty column WITH include_missing on still has a bar to draw, so the emptiness
+  // check has to run after the missing category is appended, not before.
+  const allEmpty = chart_l([null, "", "   "], ";", { lang: "en_us" }, {});
+  assert.ok(allEmpty, 'an all-missing column still charts its missing bar');
+  assert.deepEqual(allEmpty.spec.data[0].x, [Statz.getDefaultMissingLabel("en_us")]);
+  assert.deepEqual(allEmpty.spec.data[0].y, [3]);
   const out = chart_l(["a"], ";", {}, {});
   assert.deepEqual(out.spec.data[0].x, ["a"]);
+});
+
+test("chart_l honours include_missing, like its table counterpart and like chart_q", () => {
+  // Reported: getAvailableOptions offers include_missing for has_l in both modes, and the
+  // TABLE rendered the missing category, but chart_l discarded empty rows outright — so the
+  // option was inert on the chart. A blank cell and a separator-only one ("; ") both count,
+  // since chart_l and summarize_l share the same `isMissingValue(v, 'l', sep)` guard.
+  const values = ["a;b", "a", null, "", " ; ", "b;c"];
+  const opts = { lang: "en_us" };
+
+  const chart = chart_l(values, ";", opts, {});
+  const bars = Object.fromEntries(chart.spec.data[0].x.map((label, i) => [label, chart.spec.data[0].y[i]]));
+  const table = driver.summarize_l(values, ";", null, opts);
+  const rows = Object.fromEntries(table.rows.map((r) => [r[table.columns[0]], r[table.columns[1]]]));
+
+  // Same missing label, same count, in both renderings.
+  const missingLabel = Statz.getDefaultMissingLabel("en_us");
+  assert.equal(bars[missingLabel], 3, "null, empty and separator-only rows all count as missing");
+  assert.match(rows[missingLabel], /^3 /, "and the table agrees");
+  assert.deepEqual(Object.keys(bars), Object.keys(rows), "chart bars and table rows line up");
+
+  // The missing bar goes last, after the frequency sort — never ranked among real items.
+  assert.equal(chart.spec.data[0].x.at(-1), missingLabel);
+  assert.deepEqual(chart.spec.data[0].x.slice(0, -1), ["a", "b", "c"]);
+
+  // Turning it off drops the bar without disturbing the items.
+  const off = chart_l(values, ";", { ...opts, include_missing: false }, {});
+  assert.deepEqual(off.spec.data[0].x, ["a", "b", "c"]);
+
+  // A custom label reaches the chart too.
+  const custom = chart_l(values, ";", { ...opts, missing_label: "Sem resposta" }, {});
+  assert.equal(custom.spec.data[0].x.at(-1), "Sem resposta");
+
+  // Percentages stay over the row total (items may co-occur), so the missing share is honest.
+  const pct = chart_l(values, ";", { ...opts, chart_label_format: "p" }, {});
+  assert.equal(pct.spec.data[0].text.at(-1), "50.0%", "3 missing of 6 rows");
 });
 
 // ---------------------------------------------------------------------------
