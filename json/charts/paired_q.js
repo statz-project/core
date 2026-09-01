@@ -2,7 +2,7 @@
 // Paired binary qualitative chart (Profile B): K moments × 2 binary levels.
 // Grouped bar with moments on the x-axis and one trace per binary level.
 // Mirrors r.plot.grouped_bar applied to a paired dataset.
-import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
+import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel, resolveMomentAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
 
 /**
  * @param {Array<Array<string|null|undefined>>} responses K arrays of binary values; one per moment.
@@ -70,13 +70,16 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
 
   const layout = {
     barmode: 'group',
-    // The moments are already legible as tick labels, so their axis stays untitled whichever
-    // way round it sits; the other axis carries the count/percent label.
+    // Whichever way round it sits, the categorical axis is named for what the categories are
+    // (the moments) and the other carries the count/percent label. It used to emit an EMPTY
+    // title here: `chart_show_xaxis_title` then had nothing to hide, yet the driver still
+    // reclaimed 25px of margin when switched off — so the ON state showed a band of blank
+    // space below the ticks that the OFF state did not.
     xaxis: horizontal
       ? { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' }
-      : { title: { text: '' }, automargin: true },
+      : { title: { text: resolveMomentAxisLabel(options) }, automargin: true },
     yaxis: horizontal
-      ? { title: { text: '' }, automargin: true }
+      ? { title: { text: resolveMomentAxisLabel(options) }, automargin: true }
       : { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
     margin: horizontal ? { t: 60, r: 60, b: 50, l: 100 } : { t: 60, r: 30, b: 80, l: 60 },
     legend: buildLegendLayout(options, { title: meta.qualitativeLabel ?? '' }),

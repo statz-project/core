@@ -112,6 +112,21 @@ export function resolveValueAxisLabel(options) {
 }
 
 /**
+ * Resolve the label for the axis that carries the paired moments (Profile B).
+ *
+ * The moment names are already the tick text, so this axis was left untitled — but "untitled"
+ * cost more than it saved: the axis had no name at all, and `chart_show_xaxis_title` had nothing
+ * to toggle while the layout still reserved title-sized margin for it. A generic i18n noun names
+ * what the categories ARE ("Momento" / "Moment"), which the individual tick labels ("Time 1",
+ * "Pre-op") never state on their own.
+ * @param {Record<string,any>} options Normalized Analysis_options (must carry `lang`).
+ * @returns {string}
+ */
+export function resolveMomentAxisLabel(options) {
+  return translate('chart.axisLabels.moment', options?.lang);
+}
+
+/**
  * Build a Plotly `legend` layout object from Analysis_options + a meta.title.
  * Used by charts with multi-trace legends (grouped_bar, paired_grouped_bar, likert).
  *

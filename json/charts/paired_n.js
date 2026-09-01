@@ -6,7 +6,7 @@
 //
 // Mirrors r.plot.individual_values(paired=TRUE).
 import variants from '../variants.js';
-import { resolveTheme, wrapText, wrapTitle, computeCenter } from './_shared.js';
+import { resolveTheme, wrapText, wrapTitle, computeCenter, resolveMomentAxisLabel } from './_shared.js';
 
 /** @param {number} i */
 function deterministicJitter(i) {
@@ -148,6 +148,10 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
   const tickvals = labels.map((_, i) => i + 1);
   const layout = {
     xaxis: {
+      // Named for what the categories are, like its paired_q counterpart: the tick text gives
+      // the individual moments, not the fact that the axis IS a sequence of moments. Without a
+      // title key at all, `chart_show_xaxis_title` was silently inert on this shape.
+      title: { text: resolveMomentAxisLabel(options) },
       tickmode: 'array',
       tickvals,
       ticktext,

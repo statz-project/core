@@ -2626,3 +2626,92 @@ test("chart_bar_orientation: normalised, and Likert stays horizontal by definiti
   assert.equal(likert('auto').type, 'likert');
   assert.equal(likert('vertical').spec.data[0].orientation, 'h', 'Likert ignores the option');
 });
+
+test("Profile B names the moments axis, so the axis-title toggle has something to toggle", () => {
+  // Reported: switching chart_show_xaxis_title on a has_paired_q element added a band of blank
+  // space under the X axis. The chart shipped `title: { text: '' }` there, so the ON state
+  // reserved title-sized margin for a title that never drew, while the OFF state reclaimed it.
+  const N = 12;
+  const col = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values, { col_type: type, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const pairedChart = (type, v0, v1, options) => {
+    const a = col('h0', 'Time 1', type, v0), b = col('h1', 'Time 2', type, v1);
+    return Statz.runAnalysis([], [a, b].map(sig), { dbA: { columns: [a, b] } },
+      Statz.getDefaultAnalysisOptions({ mode: 'chart', ...options })).result.analysis[0].chart;
+  };
+  const qA = Array.from({ length: N }, (_, i) => (i < 9 ? 'no' : 'yes'));
+  const qB = Array.from({ length: N }, (_, i) => (i < 3 ? 'no' : 'yes'));
+  const nA = Array.from({ length: N }, (_, i) => String(i + 1));
+  const nB = Array.from({ length: N }, (_, i) => String(i + 3));
+
+  const q = pairedChart('q', qA, qB, { lang: 'pt_br' });
+  assert.equal(q.type, 'paired_grouped_bar');
+  assert.equal(q.spec.layout.xaxis.title.text, 'Momento', 'moments are named, and translated');
+
+  // Forced horizontal: the moments move to the y axis and the label must follow them there.
+  const qh = pairedChart('q', qA, qB, { lang: 'pt_br', chart_bar_orientation: 'horizontal' });
+  assert.equal(qh.spec.layout.yaxis.title.text, 'Momento');
+  assert.ok(qh.spec.layout.xaxis.title.text, 'and the count label takes the x axis');
+
+  // paired_n set no title key at all, which left chart_show_xaxis_title silently inert on it.
+  const n = pairedChart('n', nA, nB, { lang: 'pt_br' });
+  assert.equal(n.type, 'paired_individual_values');
+  assert.equal(n.spec.layout.xaxis.title.text, 'Momento');
+  const nOff = pairedChart('n', nA, nB, { lang: 'pt_br', chart_show_xaxis_title: false });
+  assert.equal(nOff.spec.layout.xaxis.title.text, '', 'and the toggle now reaches it');
+});
+
+test("hiding an axis title reclaims margin only where a title was actually drawn", () => {
+  // The general form of the paired_q defect: the driver keyed its 25px reclaim on a `title`
+  // OBJECT existing, so any axis shipping `title: { text: '' }` shifted the plot on a toggle
+  // that changed nothing visible. Likert's y axis (variable names live in the ticks) is the
+  // remaining case. Assert the invariant across every shape rather than that one chart.
+  const N = 16;
+  const col = (hash, label, type, values, sep) => {
+    const c = Statz.makeColumn(values, { col_type: type, col_sep: sep, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const q = col('hq', 'Sexo', 'q', Array.from({ length: N }, (_, i) => ['sim', 'nao'][i % 2]));
+  const q3 = col('hq3', 'Faixa', 'q', Array.from({ length: N }, (_, i) => ['a', 'b', 'c'][i % 3]));
+  const n1 = col('hn', 'Peso', 'n', Array.from({ length: N }, (_, i) => String((i * 7) % 23 + 1)));
+  const n2 = col('hn2', 'Altura', 'n', Array.from({ length: N }, (_, i) => String((i * 3) % 19 + 2)));
+  const l1 = col('hl', 'Sintomas', 'l', Array.from({ length: N }, (_, i) => ['x;y', 'y;z', 'x;z'][i % 3]), ';');
+  const t0 = col('ht0', 'Time 1', 'q', Array.from({ length: N }, (_, i) => (i < 12 ? 'no' : 'yes')));
+  const t1 = col('ht1', 'Time 2', 'q', Array.from({ length: N }, (_, i) => (i < 4 ? 'no' : 'yes')));
+  const p0 = col('hp0', 'Peso T1', 'n', Array.from({ length: N }, (_, i) => String(i + 1)));
+  const p1 = col('hp1', 'Peso T2', 'n', Array.from({ length: N }, (_, i) => String(i + 4)));
+  const lk = ['discordo', 'neutro', 'concordo'];
+  const k0 = col('hk0', 'Item A', 'q', Array.from({ length: N }, (_, i) => lk[i % 3]));
+  const k1 = col('hk1', 'Item B', 'q', Array.from({ length: N }, (_, i) => lk[(i + 1) % 3]));
+  const all = [q, q3, n1, n2, l1, t0, t1, p0, p1, k0, k1];
+
+  const shapes = [
+    ['q', [q], []], ['l', [l1], []], ['n', [n1], []],
+    ['q x q', [q], [q3]], ['n x q', [n1], [q3]], ['q x n', [q], [n1]], ['n x n', [n1], [n2]],
+    ['l x q', [l1], [q3]], ['q x l', [q], [l1]], ['l x n', [l1], [n1]], ['n x l', [n1], [l1]],
+    ['paired q', [], [t0, t1]], ['paired n', [], [p0, p1]],
+    ['likert', [k0, k1], [], { chart_likert_enabled: true }]
+  ];
+  const run = (preds, resps, extra, show) => Statz.runAnalysis(
+    preds.map(sig), resps.map(sig), { dbA: { columns: all } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_show_xaxis_title: show, chart_show_yaxis_title: show, ...(extra || {}) })
+  ).result.analysis[0].chart;
+
+  for (const [name, preds, resps, extra] of shapes) {
+    const on = run(preds, resps, extra, true), off = run(preds, resps, extra, false);
+    assert.ok(on?.spec, `${name}: produced a chart`);
+    for (const [axis, side] of [['xaxis', 'b'], ['yaxis', 'l']]) {
+      const shown = String(on.spec.layout[axis]?.title?.text ?? '');
+      const shrank = (on.spec.layout.margin?.[side] ?? 0) !== (off.spec.layout.margin?.[side] ?? 0);
+      if (shrank) assert.notEqual(shown, '', `${name}: margin.${side} moved but ${axis} drew no title`);
+      if (shown !== '') {
+        assert.equal(String(off.spec.layout[axis].title.text), '', `${name}: ${axis} title hidden when off`);
+        assert.ok(shrank, `${name}: ${axis} title hidden but margin.${side} kept its space`);
+      }
+    }
+  }
+});

@@ -125,7 +125,8 @@ const MESSAGES = {
     "chart": {
       "axisLabels": {
         "count": "Contagem",
-        "value": "Valor"
+        "value": "Valor",
+        "moment": "Momento"
       }
     },
     "posthoc": {
@@ -322,7 +323,8 @@ const MESSAGES = {
     "chart": {
       "axisLabels": {
         "count": "Count",
-        "value": "Value"
+        "value": "Value",
+        "moment": "Moment"
       }
     },
     "posthoc": {
@@ -519,7 +521,8 @@ const MESSAGES = {
     "chart": {
       "axisLabels": {
         "count": "Conteo",
-        "value": "Valor"
+        "value": "Valor",
+        "moment": "Momento"
       }
     },
     "posthoc": {
