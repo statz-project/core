@@ -1467,3 +1467,77 @@ test("has_kruskal_sign survives an adjustment that silences every pair", () => {
     assert.ok(out.flags.has('has_kruskal_sign'), `${name}: flag reports that Dunn ran`);
   }
 });
+
+test("Holm is a step-down: never weaker than Bonferroni, and monotone in raw-p order", () => {
+  // Reported: the same data that gave one significant pair under Bonferroni gave NONE under Holm.
+  // That is impossible — Holm's first term is m*p(1), identical to Bonferroni's, so it is
+  // uniformly the more powerful of the two. The monotonicity pass was propagating its max
+  // BACKWARD (the Benjamini-Hochberg direction, which uses a running min), which handed every
+  // comparison the largest adjusted value and punished the most significant pair hardest.
+  const predictor = Statz.getColumnValues(parsed, "col_score_hash");
+  const response = Statz.getColumnValues(parsed, "col_income_hash");
+  const posthoc = (adjust_kruskal) =>
+    Statz.summarize_n_q(predictor.rawValues, response.rawValues, null, null, { adjust_kruskal }).posthoc;
+
+  // Raw p-values for this fixture are 0.0062, 0.0245, 0.2821 over three comparisons.
+  assert.deepEqual(posthoc('holm'), [
+    { groupA: 'low', groupB: 'high', pValue: 0.0185, significant: true },   // 3 x 0.0062
+    { groupA: 'low', groupB: 'middle', pValue: 0.049, significant: true }   // 2 x 0.0245
+  ]);
+  // The smallest p gets the same treatment under both, which is what makes the ordering hold.
+  assert.equal(posthoc('holm')[0].pValue, posthoc('bonferroni')[0].pValue);
+  assert.ok(posthoc('holm').length > posthoc('bonferroni').length, 'and Holm recovers a pair Bonferroni loses');
+
+  // All three corrections list the pairs in the same order, so switching one does not reshuffle
+  // the legend under the reader. Holm used to emit its internal ascending-p ranking.
+  const pairs = (adjust) => Statz.runDunnTest(
+    (() => {
+      const map = {};
+      predictor.rawValues.forEach((v, i) => {
+        const g = response.rawValues[i];
+        if (g == null || g === '') return;
+        const n = Number(v);
+        if (Number.isFinite(n)) (map[g] ??= []).push(n);
+      });
+      return map;
+    })(), 0.05, adjust).map((c) => `${c.groupA}|${c.groupB}`);
+  assert.deepEqual(pairs('holm'), ['low|high', 'low|middle', 'high|middle']);
+  assert.deepEqual(pairs('bonferroni'), pairs('holm'));
+  assert.deepEqual(pairs('none'), pairs('holm'));
+
+  // The property that would have caught this on any data: whatever Bonferroni calls significant,
+  // Holm must too. Swept over group counts, sizes and separations.
+  const rnd = (s) => () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  let holmFoundMore = 0;
+  for (let seed = 1; seed < 200; seed++) {
+    const r = rnd(seed), k = 3 + (seed % 3), groups = {};
+    for (let g = 0; g < k; g++) groups[`g${g}`] = Array.from({ length: 6 + seed % 7 }, () => g * 0.9 + r() * 3);
+    const names = (adjust) => new Set(Statz.runDunnTest(groups, 0.05, adjust)
+      .filter((c) => c.significant).map((c) => `${c.groupA}|${c.groupB}`));
+    const bonf = names('bonferroni'), holm = names('holm');
+    for (const pair of bonf) assert.ok(holm.has(pair), `seed ${seed}: Holm lost ${pair}`);
+    if (holm.size > bonf.size) holmFoundMore += 1;
+
+    // Every correction returns the SAME pair order — the one the comparison loop builds from the
+    // response's levels — so a reader can scan the list the same way whichever is chosen. Holm
+    // ranks internally to compute; it must not leak that ranking into its output.
+    const pairsOf = (adjust) => Statz.runDunnTest(groups, 0.05, adjust).map((c) => `${c.groupA}|${c.groupB}`);
+    assert.deepEqual(pairsOf('holm'), pairsOf('none'), `seed ${seed}: Holm reordered the pairs`);
+    assert.deepEqual(pairsOf('bonferroni'), pairsOf('none'), `seed ${seed}: Bonferroni reordered the pairs`);
+
+    // Adjusted p-values must not decrease as the RAW p-values grow — checked in raw-p order,
+    // which is no longer the output order. Both series come back rounded to 4 decimals, and two
+    // genuinely different raw p-values can round to the same number (several tiny ones all land on
+    // 0). Where that happens the output no longer says which came first, so the reconstruction
+    // cannot tell either and the pair is skipped rather than compared in a guessed order.
+    const raw = Statz.runDunnTest(groups, 0.05, 'none').map((c) => c.pValue);
+    const holmP = Statz.runDunnTest(groups, 0.05, 'holm').map((c) => c.pValue);
+    const byRaw = raw.map((_, i) => i).sort((a, b) => raw[a] - raw[b]);
+    for (let i = 1; i < byRaw.length; i++) {
+      if (raw[byRaw[i]] === raw[byRaw[i - 1]]) continue;
+      assert.ok(holmP[byRaw[i]] >= holmP[byRaw[i - 1]],
+        `seed ${seed}: adjusted p fell from ${holmP[byRaw[i - 1]]} to ${holmP[byRaw[i]]}`);
+    }
+  }
+  assert.ok(holmFoundMore > 10, `the sweep must actually separate the two (${holmFoundMore} cases)`);
+});

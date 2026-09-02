@@ -534,7 +534,26 @@ ns.runDunnTest = function (groupMap, alpha = 0.05, adjust = 'bonferroni') {
     for (let i = 0; i < k - 1; i++) { for (let j = i + 1; j < k; j++) { const gi = groupNames[i]; const gj = groupNames[j]; const Ri = groupStats[gi].sumRanks; const Rj = groupStats[gj].sumRanks; const ni = groupStats[gi].n; const nj = groupStats[gj].n; const meanRi = Ri / ni; const meanRj = Rj / nj; const SE = Math.sqrt(((N * (N + 1)) / 12) * (1 / ni + 1 / nj)); const z = (meanRi - meanRj) / SE; const pRaw = 2 * (1 - jStat.normal.cdf(Math.abs(z), 0, 1)); comparisonsRaw.push({ groupA: gi, groupB: gj, pRaw }); } }
     const m = comparisonsRaw.length; let comparisons = [];
     if (adjust === 'bonferroni') { comparisons = comparisonsRaw.map(comp => ({ groupA: comp.groupA, groupB: comp.groupB, pValue: Math.min(comp.pRaw * m, 1), significant: comp.pRaw * m < alpha })); }
-    else if (adjust === 'holm') { const sorted = [...comparisonsRaw].sort((a, b) => a.pRaw - b.pRaw); const adjusted = []; for (let i = 0; i < m; i++) { const adjP = Math.min((m - i) * sorted[i].pRaw, 1); adjusted.push({ ...sorted[i], adjP }); } for (let i = m - 2; i >= 0; i--) { adjusted[i].adjP = Math.max(adjusted[i].adjP, adjusted[i + 1].adjP); } comparisons = adjusted.map(comp => ({ groupA: comp.groupA, groupB: comp.groupB, pValue: comp.adjP, significant: comp.adjP < alpha })); }
+    else if (adjust === 'holm') {
+      // Holm ranks by ascending raw p, but only to compute; the OUTPUT keeps the original pair
+      // order that `bonferroni` and `none` return, which follows the response's level order and
+      // lets a reader scan the comparisons the same way whatever correction is chosen. Ranking
+      // over indices rather than over a sorted copy of the objects is what makes that possible.
+      const order = comparisonsRaw.map((_, i) => i).sort((a, b) => comparisonsRaw[a].pRaw - comparisonsRaw[b].pRaw);
+      const adjusted = new Array(m);
+      // Step-down monotonicity accumulates FORWARD, from the smallest raw p to the largest:
+      // adj(k) = max(adj(k-1), (m-k+1)*p(k)). Running it backwards instead — the direction
+      // Benjamini-Hochberg uses, with a running min — assigned every comparison the LARGEST
+      // adjusted value, so the most significant pair was punished with the worst p and Holm
+      // came out strictly more conservative than Bonferroni. It cannot be: the first term is
+      // m*p(1), identical to Bonferroni's, so Holm is uniformly the more powerful of the two.
+      let running = 0;
+      order.forEach((index, rank) => {
+        running = Math.max(running, Math.min((m - rank) * comparisonsRaw[index].pRaw, 1));
+        adjusted[index] = running;
+      });
+      comparisons = comparisonsRaw.map((comp, i) => ({ groupA: comp.groupA, groupB: comp.groupB, pValue: adjusted[i], significant: adjusted[i] < alpha }));
+    }
     else { comparisons = comparisonsRaw.map(comp => ({ groupA: comp.groupA, groupB: comp.groupB, pValue: comp.pRaw, significant: comp.pRaw < alpha })); }
     return comparisons.map(c => ({ groupA: c.groupA, groupB: c.groupB, pValue: +c.pValue.toFixed(4), significant: c.significant }));
   } catch { return []; }
