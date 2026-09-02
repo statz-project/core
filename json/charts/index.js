@@ -18,6 +18,9 @@ import { chart_l_l } from './l_l.js';
 import { chart_paired_n } from './paired_n.js';
 import { chart_paired_q } from './paired_q.js';
 import { chart_likert } from './likert.js';
+// Not a chart builder: a label helper the driver needs when composing a title from several
+// column labels, exposed here so callers reach the charts layer through one entry point.
+import { joinLabelsWrapped } from './_shared.js';
 
 const ns = {
   chart_q,
@@ -35,6 +38,7 @@ const ns = {
   chart_paired_n,
   chart_paired_q,
   chart_likert,
+  joinLabelsWrapped,
 };
 
 export default ns;

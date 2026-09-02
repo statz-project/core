@@ -125,6 +125,47 @@ export function resolveValueAxisLabel(options) {
 }
 
 /**
+ * Join labels with a separator, breaking lines BETWEEN labels rather than between words.
+ *
+ * `wrapText` counts whitespace-separated tokens, which is right for a single label but wrong for a
+ * composed one: a paired legend title of "Time 1 × Time 2" is 5 tokens, so a 4-word wrap split it
+ * as "Time 1 × Time<br>2" — through the middle of a moment's name. The atomic unit here is the
+ * label, so lines are filled with whole labels and only overflow once the next one would not fit.
+ * A single label longer than the budget still gets its own line rather than being chopped.
+ * @param {string[]} labels
+ * @param {string} separator
+ * @param {number} maxWords Budget per line, in whitespace-separated tokens (separator included).
+ * @returns {string} `<br>`-joined lines.
+ */
+export function joinLabelsWrapped(labels, separator, maxWords) {
+  const parts = (Array.isArray(labels) ? labels : []).map((l) => String(l ?? '')).filter(Boolean);
+  if (parts.length === 0) return '';
+  if (!Number.isFinite(maxWords) || maxWords <= 0) return parts.join(separator);
+  const countWords = (text) => String(text).split(/\s+/).filter(Boolean).length;
+  const sepWords = countWords(separator);
+  /** @type {string[]} */
+  const lines = [];
+  let current = '';
+  let used = 0;
+  for (const part of parts) {
+    const cost = countWords(part) + (current ? sepWords : 0);
+    if (current && used + cost > maxWords) {
+      // Separator stays at the END of the line it breaks after, like a trailing operator, so the
+      // reader can see the list continues. Dropping it produced "Time 1<br>Time 2", which reads
+      // as two unrelated titles.
+      lines.push(current + separator.replace(/\s+$/, ''));
+      current = part;
+      used = countWords(part);
+    } else {
+      current = current ? `${current}${separator}${part}` : part;
+      used += cost;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join('<br>');
+}
+
+/**
  * Resolve the label for the axis that carries the paired moments (Profile B).
  *
  * The moment names are already the tick text, so this axis was left untitled — but "untitled"
@@ -175,7 +216,12 @@ export function buildLegendLayout(options, meta = {}) {
     ? Number(options.chart_legend_title_wrap)
     : 4;
   const rawTitle = String(meta.title ?? '');
-  const titleText = showTitle && rawTitle ? wrapText(rawTitle, titleWrap) : '';
+  // A title that already carries `<br>` was broken by the caller, which knows its structure —
+  // a composed paired title breaks between moments, not between words. Re-wrapping it by word
+  // count would undo exactly that.
+  const titleText = showTitle && rawTitle
+    ? (rawTitle.includes('<br>') ? rawTitle : wrapText(rawTitle, titleWrap))
+    : '';
 
   /** @type {any} */
   const legend = {

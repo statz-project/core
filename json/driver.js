@@ -522,8 +522,15 @@ ns.summarizePaired = function (columns, responses, options, flagsUsed, lang) {
     const arrays = resolvedCols.map((c) => c.raw_values || []);
     if (options?.mode === 'chart') {
       const chart = charts.chart_paired_q(arrays, labels, { ...options, lang }, {
-        levels: unionLevels,
-        qualitativeLabel: responses[0]?.col_label || ''
+        // Legend title = every moment joined, the same string this entry reports as its
+        // `response` and the same one the cell heading shows. The legend entries are the binary
+        // levels, which are shared across ALL moments (see `getPairedBinaryLevels`), so naming
+        // the legend after the first moment alone said something untrue about the other bars.
+        // Broken between moments here rather than by word count in the legend helper, which would
+        // split "Time 1 × Time 2" as "Time 1 × Time<br>2".
+        qualitativeLabel: charts.joinLabelsWrapped(labels, ' × ',
+          Number.isFinite(Number(options?.chart_legend_title_wrap)) ? Number(options.chart_legend_title_wrap) : 4),
+        levels: unionLevels
       });
       return /** @type {any} */ ({
         predictor: null,

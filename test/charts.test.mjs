@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Statz } from "../index.js";
 import { parseFixture } from '../scripts/dev/load-fixture.mjs';
 import driver from "../json/driver.js";
+import charts from "../json/charts/index.js";
 import { chart_n_n } from "../json/charts/n_n.js";
 
 globalThis.Statz = Statz;
@@ -3047,4 +3048,56 @@ test("the category axis follows percent_by, so each group sums to 100%", () => {
       for (const s of [byCol, byRow, byTotal]) assert.equal(cellCount(s, origin, income), n);
     }
   }
+});
+
+test("paired_q legend title names every moment, and breaks between them", () => {
+  // Reported: the legend title was the FIRST moment's column label ("Time 1") while the entries
+  // are the binary levels shared by ALL moments — the title claimed something untrue about the
+  // other bars. It now matches the entry's `response`, which is also the cell heading.
+  const N = 20;
+  const col = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'q', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const moments = (k) => Array.from({ length: k }, (_, m) =>
+    col(`h${m}`, `Time ${m + 1}`, Array.from({ length: N }, (_, i) => (i < 15 - m * 5 ? 'no' : 'yes'))));
+  const run = (k, extra) => {
+    const cols = moments(k);
+    return Statz.runAnalysis([], cols.map(sig), { dbA: { columns: cols } },
+      Statz.getDefaultAnalysisOptions({ mode: 'chart', ...extra })).result.analysis[0];
+  };
+
+  for (const k of [2, 3, 4]) {
+    const entry = run(k, {});
+    const title = entry.chart.spec.layout.legend.title.text;
+    assert.equal(title.replace(/<br>/g, ' '), entry.response, `${k} moments: legend title == response`);
+    // Breaks fall BETWEEN moments, never inside one — a word-count wrap split "Time 1 × Time 2"
+    // as "Time 1 × Time<br>2".
+    for (const line of title.split('<br>')) {
+      assert.match(line, /^Time \d+( ×)?$/, `${k} moments: "${line}" is a whole moment`);
+    }
+    // The entries stay the binary levels, shared across every moment.
+    assert.deepEqual(entry.chart.spec.data.map((t) => t.name), ['no', 'yes']);
+  }
+
+  // The break budget is still chart_legend_title_wrap: raise it and the moments share a line.
+  const wide = run(2, { chart_legend_title_wrap: 20 }).chart.spec.layout.legend.title.text;
+  assert.equal(wide, 'Time 1 × Time 2', 'no break needed within a generous budget');
+  assert.ok(run(4, { chart_legend_title_wrap: 20 }).chart.spec.layout.legend.title.text.split('<br>').length < 4);
+
+  // And chart_show_legend_title still removes it outright.
+  assert.equal(run(3, { chart_show_legend_title: false }).chart.spec.layout.legend.title.text, '');
+});
+
+test("joinLabelsWrapped keeps labels intact and never drops the separator", () => {
+  const join = charts.joinLabelsWrapped;
+  assert.equal(join(['Time 1', 'Time 2'], ' × ', 20), 'Time 1 × Time 2', 'fits: no break');
+  assert.equal(join(['Time 1', 'Time 2'], ' × ', 4), 'Time 1 ×<br>Time 2', 'separator ends the line it breaks after');
+  assert.equal(join(['a', 'b', 'c'], ' × ', 5), 'a × b × c', 'three one-word labels fit in five tokens');
+  // A label longer than the whole budget still gets a line to itself rather than being chopped.
+  assert.equal(join(['one two three four five', 'x'], ' × ', 2), 'one two three four five ×<br>x');
+  assert.equal(join([], ' × ', 4), '');
+  assert.equal(join(['solo'], ' × ', 4), 'solo');
+  assert.equal(join(['a', 'b'], ' × ', 0), 'a × b', 'a non-positive budget means no wrapping');
 });
