@@ -1190,3 +1190,74 @@ test('createVariant: an unscored ordinal_scores operation leaves the column alon
   const partial = buildScored({ scores: [{ level: 'neutro', score: 3 }] });
   assert.equal(partial.col_type, 'n');
 });
+
+test("transform output is trimmed to significant digits, never at the cost of a value", () => {
+  // Variants are stored as text in Db_data, and a transform emits the full double expansion:
+  // Math.log10(41.24) is 17 characters whose last ten are noise. Trimmed by SIGNIFICANT digits,
+  // not decimal places — these are data, and the transform sets their scale.
+  const N = 300;
+  const build = (values, fn) => {
+    const col = factors.makeColumn(values, { col_type: 'n', includeBaseVariant: true });
+    col.col_hash = 'h';
+    const variant = variants.createVariant(col, { transform: { fn } });
+    const decoded = factors.decodeColumn({ col_type: 'n', col_sep: '', col_values: variant.col_values });
+    return { variant, decoded, present: decoded.filter((v) => v !== '' && v != null) };
+  };
+  const sigDigits = (s) => String(s).replace('-', '').replace('.', '').replace(/e[-+]?\d+$/i, '')
+    .replace(/^0+/, '').replace(/0+$/, '').length;
+
+  // Well-scaled data: trimmed, and every value still distinct.
+  const weights = build(Array.from({ length: N }, (_, i) => String(40 + i * 0.31)), 'log10');
+  assert.equal(new Set(weights.present).size, N, 'no value merged');
+  for (const v of weights.present) assert.ok(sigDigits(v) <= 9, `${v} kept full precision`);
+  const rawSize = JSON.stringify(Array.from({ length: N }, (_, i) => String(Math.log10(40 + i * 0.31)))).length;
+  assert.ok(JSON.stringify(weights.variant.col_values).length < rawSize * 0.8, 'and it is meaningfully smaller');
+
+  // The cases a fixed-decimal round would have destroyed: log10 of ratios near 1 lands around
+  // 1e-4, sqrt of concentrations around 1e-3, and rounding those to 3 decimals collapsed 300
+  // values into 14 and into 2. Significant digits are scale-free, so these survive AND shrink —
+  // the second half matters, because a decimal-place rule would trip the guard below and fall
+  // back to full precision, keeping the values at the cost of the saving.
+  for (const [name, values, fn, exact] of [
+    ['ratios near 1', Array.from({ length: N }, (_, i) => String(1 + i * 0.0001)), 'log10',
+      (i) => Math.log10(1 + i * 0.0001)],
+    ['concentrations', Array.from({ length: N }, (_, i) => String(0.00001 + i * 1e-8)), 'sqrt',
+      (i) => Math.sqrt(0.00001 + i * 1e-8)]
+  ]) {
+    const out = build(values, fn);
+    assert.equal(new Set(out.present).size, N, `${name}: every value survived`);
+    const full = JSON.stringify(Array.from({ length: N }, (_, i) => String(exact(i)))).length;
+    assert.ok(JSON.stringify(out.variant.col_values).length < full * 0.85, `${name}: and it shrank`);
+  }
+
+  // Relative fidelity is the actual contract, and it is what fixes the digit count: every stored
+  // value must sit within 1e-8 of the exact result in relative terms, far below the 4 decimals any
+  // reported statistic carries. Asserted rather than assuming a constant, so trimming further
+  // cannot pass unnoticed.
+  for (const v of weights.present) {
+    const i = weights.present.indexOf(v);
+    const exact = Math.log10(40 + i * 0.31);
+    assert.ok(Math.abs((Number(v) - exact) / exact) < 1e-8, `${v} drifted from ${exact}`);
+  }
+
+  // Significant digits are scale-free but not SPREAD-free: squaring values around 1e10 that differ
+  // by 1 leaves neighbours far closer than nine digits can separate — 300 values become 7. The
+  // collapse is detected and the full-precision column kept rather than silently merged.
+  const degenerate = build(Array.from({ length: N }, (_, i) => String(1e10 + i)), 'square');
+  assert.equal(new Set(degenerate.present).size, N, 'the guard kept every value');
+  assert.ok(degenerate.present.some((v) => sigDigits(v) > 9), 'by falling back to full precision');
+
+  // Rows the transform skips stay empty and still raise their warning.
+  const withSkips = build(Array.from({ length: N }, (_, i) => (i % 10 === 0 ? '-5' : String(40 + i * 0.31))), 'log10');
+  assert.equal(withSkips.decoded.filter((v) => v === '' || v == null).length, N / 10);
+  assert.equal(new Set(withSkips.present).size, N - N / 10);
+  assert.match(withSkips.variant.meta.warnings[0], /log10/);
+
+  // Replaying the stored recipe reproduces the same values, so content hashes stay stable.
+  const col = factors.makeColumn(Array.from({ length: 20 }, (_, i) => String(40 + i * 0.31)),
+    { col_type: 'n', includeBaseVariant: true });
+  col.col_hash = 'h';
+  const first = variants.createVariant(col, { transform: { fn: 'log10' } });
+  const replay = variants.createVariant(col, first.meta.recipe);
+  assert.deepEqual(replay.col_values, first.col_values, 'a replay is byte-identical');
+});

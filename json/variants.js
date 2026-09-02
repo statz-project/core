@@ -439,6 +439,46 @@ const applyOrdinalScores = (values, scores, ctx, meta) => {
  * @param {VariantMeta} meta
  * @returns {string[]}
  */
+/**
+ * Significant digits kept for a transformed value, and the formatter that applies them.
+ *
+ * A log/sqrt/square result carries the full double expansion — `Math.log10(41.24)` is 17 characters
+ * of which the last ten are noise — and a variant is stored as text in `Db_data`, so a 300-row
+ * column paid ~6.3KB for precision no measurement has.
+ *
+ * SIGNIFICANT digits, not decimal places, because unlike a chart's jitter these are DATA whose
+ * scale is set by the transform and the input: `log10` of ratios near 1 lands around 1e-4, `sqrt`
+ * of concentrations around 1e-3. Rounding those to 3 decimals collapsed 300 distinct values into
+ * 14 and into 2 respectively — the variable destroyed, silently, in exactly the cases a log or a
+ * root transform is reached for.
+ *
+ * `Number(...)` normalizes the fixed-width `toPrecision` output back to its shortest form, so the
+ * result is never longer than the unrounded string, and scientific notation round-trips through
+ * `parseNumericSafe`.
+ */
+const TRANSFORM_PRECISION = 9;
+const formatTransformed = (result) => (Number.isFinite(result)
+  ? String(Number(result.toPrecision(TRANSFORM_PRECISION)))
+  : '');
+
+/**
+ * Keep the rounded column only when it lost no distinct value.
+ *
+ * Significant digits are scale-free but not spread-free: squaring values around 1e9 that differ by
+ * 7 leaves neighbours 1.4e-8 apart in relative terms, which even nine digits cannot separate —
+ * 300 values became 1. Rather than bet on a precision being high enough for data nobody has seen
+ * yet, the collapse is simply detected and the full-precision column kept. Distinctness is the
+ * right test because the collapse IS the failure: a shift below 1e-8 relative moves no statistic
+ * this library reports, but merged values destroy the variable.
+ * @param {string[]} rounded
+ * @param {string[]} exact
+ * @returns {string[]}
+ */
+const keepRoundedIfLossless = (rounded, exact) => {
+  const distinct = (arr) => new Set(arr.filter((v) => v !== '')).size;
+  return distinct(rounded) === distinct(exact) ? rounded : exact;
+};
+
 const transformNumeric = (values, options, meta) => {
   if (!options || !options.fn) return values;
   const fn = options.fn;
@@ -446,25 +486,27 @@ const transformNumeric = (values, options, meta) => {
   if (fn === 'log' && (baseValue <= 0 || baseValue === 1)) throw new Error('Log base must be greater than 0 and not equal to 1.');
   const skipped = [];
   let totalSkipped = 0;
-  const transformed = values.map((value, index) => {
+  // Two passes over one numeric result per row: the map stays free of string shapes, and both
+  // renderings are built from the same values so the lossless check compares like with like.
+  const results = values.map((value, index) => {
     const numeric = parseNumericSafe(value);
-    if (!Number.isFinite(numeric)) return '';
+    if (!Number.isFinite(numeric)) return null;
     let result;
     switch (fn) {
       case 'log':
-        if (numeric <= 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return ''; }
+        if (numeric <= 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return null; }
         result = Math.log(numeric) / Math.log(baseValue);
         break;
       case 'log10':
-        if (numeric <= 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return ''; }
+        if (numeric <= 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return null; }
         result = Math.log10(numeric);
         break;
       case 'log2':
-        if (numeric <= 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return ''; }
+        if (numeric <= 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return null; }
         result = Math.log2(numeric);
         break;
       case 'sqrt':
-        if (numeric < 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return ''; }
+        if (numeric < 0) { totalSkipped += 1; if (skipped.length < MAX_WARNINGS) skipped.push(index + 1); return null; }
         result = Math.sqrt(numeric);
         break;
       case 'square':
@@ -473,8 +515,12 @@ const transformNumeric = (values, options, meta) => {
       default:
         throw new Error(`Unsupported transform fn: ${fn}`);
     }
-    return Number.isFinite(result) ? result.toString() : '';
+    return Number.isFinite(result) ? result : null;
   });
+  const transformed = keepRoundedIfLossless(
+    results.map((r) => (r === null ? '' : formatTransformed(r))),
+    results.map((r) => (r === null ? '' : r.toString()))
+  );
   meta.actions.push({ type: 'transform', fn });
   if (totalSkipped) {
     const listed = skipped.join(', ');
