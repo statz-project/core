@@ -338,12 +338,12 @@ test("alpha and adjust_kruskal are table-only, and only where a gate reads them"
     assert.equal(offered(flag, 'table', 'alpha'), false, flag);
   }
 
-  // adjust_kruskal is a summarize_n_q concern only — including the list-expanded cells that
-  // delegate to it, which the list used to omit.
-  for (const flag of ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_kruskal_sign']) {
-    assert.equal(offered(flag, 'table', 'adjust_kruskal'), true, flag);
+  // adjust_kruskal narrows further than alpha does: it corrects the Dunn pairwise step, so the
+  // shape of the cell is not enough — Dunn has to have actually run. See the dedicated test below.
+  assert.equal(offered('has_kruskal_sign', 'table', 'adjust_kruskal'), true);
+  for (const flag of ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_qq', 'has_tukey']) {
+    assert.equal(offered(flag, 'table', 'adjust_kruskal'), false, `${flag}: shape alone is not enough`);
   }
-  assert.equal(offered('has_qq', 'table', 'adjust_kruskal'), false, 'chi-square has no Dunn step');
 });
 
 test("residual options follow has_residuals, and the toggle cannot switch itself off the panel", () => {
@@ -416,5 +416,24 @@ test("the list-expansion options reach chart mode, because they change what the 
         assert.ok(!names.includes(option), `${flag} in ${mode} mode must not offer ${option}`);
       }
     }
+  }
+});
+
+test("adjust_kruskal is offered only where Dunn actually ran", () => {
+  // Reported: has_nq offered the multiple-comparison correction for a two-group comparison, where
+  // the test is Mann-Whitney (or t) and there are no pairwise comparisons to correct. The shape
+  // flag says "numeric by qualitative"; it says nothing about the group count, the parametric
+  // route, or whether the omnibus test was significant. `has_kruskal_sign` says all three.
+  const offered = (flags) => getAvailableOptions(flags, 'table').some((o) => o.name === 'adjust_kruskal');
+
+  assert.equal(offered(['has_nq', 'has_kruskal_sign']), true, 'Kruskal significant → Dunn ran → correctable');
+  assert.equal(offered(['has_nq']), false, 'two groups, or a non-significant omnibus: nothing to correct');
+  assert.equal(offered(['has_nq', 'has_tukey']), false, 'the ANOVA route uses Tukey, which corrects itself');
+
+  // The list-expanded cells delegate to summarize_n_q, so they reach it the same way — through the
+  // post-hoc flag, not through their own shape.
+  for (const shape of ['has_qn', 'has_ln', 'has_nl']) {
+    assert.equal(offered([shape]), false, `${shape} alone`);
+    assert.equal(offered([shape, 'has_kruskal_sign']), true, `${shape} with Dunn`);
   }
 });

@@ -60,7 +60,17 @@ const CATEGORICAL_X_AXIS = [
 const ALPHA_GATED = ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_nq', 'has_qn', 'has_ln', 'has_nl'];
 // Dunn's adjustment is a `summarize_n_q` concern only — including the list-expanded cells that
 // delegate to it.
-const KRUSKAL_ADJUSTED = ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_kruskal_sign'];
+// `adjust_kruskal` corrects the Dunn pairwise comparisons, so the only cell it can affect is one
+// where Dunn actually ran: a non-parametric route with MORE than two groups whose Kruskal-Wallis
+// came out significant. That is exactly what `has_kruskal_sign` reports. The shape flags used to
+// be in here too, which offered the correction for a two-group comparison (Mann-Whitney or t —
+// nothing to correct), for the ANOVA route (Tukey carries its own correction), and for a
+// non-significant Kruskal (no post-hoc at all).
+//
+// Unlike `has_residuals`, gating on this is not a one-way switch: `has_kruskal_sign` is added
+// whether or not any comparison survives the adjustment (see the `flagsUsed.add` outside the
+// filter in numeric.js), so changing the correction can never make the option disappear.
+const KRUSKAL_ADJUSTED = ['has_kruskal_sign'];
 
 const QL_MISSING_BUCKET = ['has_q', 'has_l'];
 

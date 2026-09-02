@@ -1435,3 +1435,35 @@ test("has_residuals tracks availability, not the with_residuals toggle", () => {
   assert.ok(!Statz.runAnalysis([sig(ps)], [sig(rs)], { dbA: { columns: [ps, rs] } },
     Statz.getDefaultAnalysisOptions({ mode: 'table' })).flags.includes('has_residuals'));
 });
+
+test("has_kruskal_sign survives an adjustment that silences every pair", () => {
+  // The property that makes `adjust_kruskal`'s gate safe. The option is offered only when this
+  // flag is present, so if the flag depended on a pair SURVIVING the adjustment, picking a
+  // stricter correction would remove the flag, remove the option, and leave no way back — the
+  // one-way switch `has_residuals` had. The flag therefore reports "Dunn ran", not "Dunn found
+  // something": `flagsUsed.add` sits outside the `.filter(v => v.significant)`.
+  //
+  // Fixture found by search: Kruskal is significant, and with three comparisons Bonferroni pushes
+  // every pair back over alpha while the uncorrected run keeps two.
+  const groups = ["a","a","a","a","a","b","b","b","b","b","c","c","c","c","c"];
+  const values = ["2.88","2.97","2.534","2.495","2.612","1.604","3.599","1.419","1.763","3.63",
+    "3.001","4.179","3.71","3.949","3.427"];
+  const summarize = (adjust_kruskal) => {
+    const flags = new Set();
+    const table = Statz.summarize_n_q(values, groups, null, flags,
+      { alpha: 0.05, adjust_kruskal, lang: 'en_us' });
+    return { table, flags };
+  };
+
+  const strict = summarize('bonferroni');
+  const raw = summarize('none');
+  assert.equal(strict.table.test_used, 'Kruskal–Wallis');
+  assert.ok(strict.table.p_value < 0.05, 'the omnibus test is significant either way');
+  // The adjustment genuinely changes the outcome here — otherwise the assertion below is vacuous.
+  assert.equal(strict.table.posthoc.length, 0, 'Bonferroni silences every pair');
+  assert.ok(raw.table.posthoc.length > 0, 'uncorrected, some survive');
+  // ...and yet the flag is present in both, so the option can never hide itself.
+  for (const [name, out] of [['bonferroni', strict], ['none', raw]]) {
+    assert.ok(out.flags.has('has_kruskal_sign'), `${name}: flag reports that Dunn ran`);
+  }
+});
