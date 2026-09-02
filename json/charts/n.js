@@ -94,6 +94,11 @@ export function chart_n(values, options = {}, meta = {}) {
 
   const layout = {
     xaxis: {
+      // automargin: the wrapped tick labels and the axis title are laid out by Plotly, which
+      // knows their rendered height; the fixed `margin` below is only a floor. Without it a
+      // long label stack overran the margin and printed on top of the axis title — the bar
+      // family has carried this on its categorical axis all along.
+      automargin: true,
       tickmode: 'array',
       tickvals: [1],
       // The variable label IS the tick here, so it wraps as a title, not as a category.
@@ -103,6 +108,7 @@ export function chart_n(values, options = {}, meta = {}) {
       showgrid: false
     },
     yaxis: {
+      automargin: true,
       // Generic "Value" (i18n) instead of duplicating varLabel — the x-axis tick text
       // already carries the variable name at position 1. Previous behavior printed the
       // varLabel on BOTH axes (redundant).

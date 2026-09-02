@@ -77,11 +77,13 @@ export function chart_n_n(predictorVals, responseVals, options = {}, meta = {}) 
 
   const layout = {
     xaxis: {
+      automargin: true,
       title: { text: wrapTitle(meta.predictorLabel ?? '', options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})
     },
     yaxis: {
+      automargin: true,
       title: { text: wrapTitle(meta.responseLabel ?? '', options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})

@@ -109,6 +109,11 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
   const tickvals = groups.map((_, i) => i + 1);
   const layout = {
     xaxis: {
+      // automargin: the wrapped tick labels and the axis title are laid out by Plotly, which
+      // knows their rendered height; the fixed `margin` below is only a floor. Without it a
+      // long label stack overran the margin and printed on top of the axis title — the bar
+      // family has carried this on its categorical axis all along.
+      automargin: true,
       title: { text: wrapTitle(meta.groupLabel ?? '', options) },
       tickmode: 'array',
       tickvals,
@@ -118,6 +123,7 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
       showgrid: false
     },
     yaxis: {
+      automargin: true,
       title: { text: wrapTitle(meta.numericLabel ?? '', options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})

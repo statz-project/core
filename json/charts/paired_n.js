@@ -153,6 +153,11 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
   const tickvals = labels.map((_, i) => i + 1);
   const layout = {
     xaxis: {
+      // automargin: the wrapped tick labels and the axis title are laid out by Plotly, which
+      // knows their rendered height; the fixed `margin` below is only a floor. Without it a
+      // long label stack overran the margin and printed on top of the axis title — the bar
+      // family has carried this on its categorical axis all along.
+      automargin: true,
       // Named for what the categories are, like its paired_q counterpart: the tick text gives
       // the individual moments, not the fact that the axis IS a sequence of moments. Without a
       // title key at all, `chart_show_xaxis_title` was silently inert on this shape.
@@ -165,6 +170,7 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
       showgrid: false
     },
     yaxis: {
+      automargin: true,
       // Generic "Value" (i18n), not a column label. The moments are separate columns, so any one
       // of their labels is wrong for the other moments' points — the axis read "Peso T1" above the
       // T2 values. The moment names are already the tick text on the other axis, so nothing is

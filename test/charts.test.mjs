@@ -3221,3 +3221,50 @@ test("chart_include_zero is opt-in, and never governs a bar baseline", () => {
   assert.equal(chart_n(['60', '70', '80'], {}, {}).spec.layout.yaxis.rangemode, undefined);
   assert.equal(chart_n(['60', '70', '80'], { chart_include_zero: true }, {}).spec.layout.yaxis.rangemode, 'tozero');
 });
+
+test("point and scatter charts let Plotly size the margin for their axis text", () => {
+  // Reported on has_nq: the wrapped category labels printed on top of the x-axis title. The bar
+  // family has always carried automargin on its categorical axis; the point/scatter family had it
+  // on neither, so a 4-line tick stack under a 3-line title had to fit in a fixed margin.b of 70.
+  // The fixed margin is a floor; only Plotly knows the rendered height of the text.
+  const N = 30;
+  const mk = (hash, label, type, values, sep) => {
+    const c = Statz.makeColumn(values, { col_type: type, col_sep: sep, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const LONG_Q = 'sex - sit at tornet sit at tornet sit at tornet sit at tornet sit at tornet';
+  const cols = {
+    n: mk('hn', 'Escore', 'n', Array.from({ length: N }, (_, i) => String(3 + i % 7))),
+    n2: mk('hn2', 'Idade', 'n', Array.from({ length: N }, (_, i) => String(40 + i))),
+    q: mk('hq', LONG_Q, 'q', Array.from({ length: N }, (_, i) =>
+      ['female - At vero eos et accusamus et iusto odio', 'male - Nam libero tempore, cum soluta'][i % 2])),
+    l: mk('hl', 'Sintomas', 'l', Array.from({ length: N }, () => 'x;y'), ';'),
+    t1: mk('ht1', 'Peso T1', 'n', Array.from({ length: N }, (_, i) => String(60 + i))),
+    t2: mk('ht2', 'Peso T2', 'n', Array.from({ length: N }, (_, i) => String(63 + i)))
+  };
+  const db = { dbA: { columns: Object.values(cols) } };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const entry = (preds, resps) => Statz.runAnalysis(preds.map((k) => sig(cols[k])), resps.map((k) => sig(cols[k])), db,
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', lang: 'pt_br' })).result.analysis[0];
+
+  // Every shape whose axis text comes from user data — wrapped category ticks, or a title built
+  // from a variable label — must let the margin grow to fit it.
+  for (const [name, preds, resps] of [
+    ['n', ['n'], []], ['n x q', ['n'], ['q']], ['q x n', ['q'], ['n']],
+    ['n x n', ['n'], ['n2']], ['l x n', ['l'], ['n']], ['paired_n', [], ['t1', 't2']]
+  ]) {
+    const layout = entry(preds, resps).chart.spec.layout;
+    assert.equal(layout.xaxis.automargin, true, `${name}: x axis`);
+    assert.equal(layout.yaxis.automargin, true, `${name}: y axis`);
+  }
+
+  // The reported case really does stack more text than the fixed margin could hold: the wrapped
+  // ticks alone are several lines, and the title is several more.
+  const reported = entry(['n'], ['q']).chart.spec.layout;
+  assert.ok(reported.xaxis.ticktext.some((t) => t.split('<br>').length >= 3), 'ticks wrap to 3+ lines');
+  assert.ok(reported.xaxis.title.text.split('<br>').length >= 2, 'and the title wraps too');
+  assert.ok(reported.margin.b < 100, 'over a fixed floor that could not have held both');
+
+  // The bar family keeps the automargin it already had on its categorical axis.
+  assert.equal(entry(['q'], []).chart.spec.layout.xaxis.automargin, true);
+});
