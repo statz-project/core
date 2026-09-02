@@ -138,8 +138,15 @@ ns.OPTION_METADATA = {
   },
   percent_by: {
     category: 'table', type: 'enum', default: 'col',
-    enum: ['col', 'row', 'total'], appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll'], modeGate: 'table',
-    labelKey: 'options.percent_by.label', descriptionKey: 'options.percent_by.description'
+    // Both modes: `chart_q_q` reads the same option, so a table and a chart of the same cross-tab
+    // report the same percentages. (In chart mode it only shows through `chart_label_format`
+    // 'p'/'np' — an option-value dependency for the panel to hide, like missing_label's.)
+    enum: ['col', 'row', 'total'], appliesTo: ['has_qq', 'has_lq', 'has_ql', 'has_ll'], modeGate: null,
+    labelKey: 'options.percent_by.label', descriptionKey: 'options.percent_by.description',
+    // Mode-specific wording. In chart mode this option does more than pick a denominator — it
+    // decides which variable groups the bars — and a label reading only "Percent by" never told
+    // the user that. Same control, different framing where its effect is different.
+    chartLabelKey: 'options.percent_by.chartLabel', chartDescriptionKey: 'options.percent_by.chartDescription'
   },
   label_list_with_column: {
     category: 'table', type: 'boolean', default: true, enum: null,
@@ -148,7 +155,7 @@ ns.OPTION_METADATA = {
   },
   with_residuals: {
     category: 'table', type: 'boolean', default: true, enum: null,
-    appliesTo: ['has_qq', 'has_lq'], modeGate: 'table',
+    appliesTo: ['has_residuals'], modeGate: 'table',
     labelKey: 'options.with_residuals.label', descriptionKey: 'options.with_residuals.description'
   },
   // Effect sizes surface in every cell that routes through summarize_q_q and yields a 2×2 —
@@ -392,10 +399,10 @@ ns.getAvailableOptions = function (flags, mode = 'table') {
  * @param {string=} lang
  * @returns {string}
  */
-ns.getOptionLabel = function (optionName, lang) {
+ns.getOptionLabel = function (optionName, lang, mode = undefined) {
   const meta = ns.OPTION_METADATA[optionName];
   if (!meta) return optionName;
-  return translate(meta.labelKey, lang);
+  return translate((mode === 'chart' && meta.chartLabelKey) || meta.labelKey, lang);
 };
 
 /**
@@ -404,10 +411,10 @@ ns.getOptionLabel = function (optionName, lang) {
  * @param {string=} lang
  * @returns {string}
  */
-ns.getOptionDescription = function (optionName, lang) {
+ns.getOptionDescription = function (optionName, lang, mode = undefined) {
   const meta = ns.OPTION_METADATA[optionName];
   if (!meta) return '';
-  return translate(meta.descriptionKey, lang);
+  return translate((mode === 'chart' && meta.chartDescriptionKey) || meta.descriptionKey, lang);
 };
 
 /**

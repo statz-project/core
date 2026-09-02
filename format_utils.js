@@ -41,3 +41,25 @@ export function formatNumberLocale(value, decimals = 1, lang = "pt_br") {
   const locale = localeMap[lang.toLowerCase()] || "pt-BR";
   return value.toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
+
+/**
+ * Decimal + thousands separator pair for Plotly's `layout.separators`, in that order.
+ *
+ * Covers the numbers Plotly renders itself — axis ticks, and hover values in interactive mode —
+ * which `formatNumberLocale` never reaches because they are drawn from raw numeric data, not from
+ * strings we build. Without it a pt_br chart labels its bars `5,0%` (ours) above an axis reading
+ * `1.234` with the wrong meaning (Plotly's default is decimal point, thousands comma).
+ *
+ * Derived from Intl rather than a second hardcoded table, so it cannot drift from the locale map
+ * above; the fallbacks match Plotly's own default if Intl ever yields nothing.
+ * @param {string=} lang
+ * @returns {string} `",."` for pt_br and es_es, `".,"` for en_us
+ */
+export function resolveSeparators(lang = "pt_br") {
+  const localeMap = { pt_br: "pt-BR", en_us: "en-US", es_es: "es-ES" };
+  const locale = localeMap[String(lang ?? "").toLowerCase()] || "pt-BR";
+  const parts = new Intl.NumberFormat(locale).formatToParts(12345.6);
+  const decimal = parts.find((part) => part.type === "decimal")?.value || ".";
+  const group = parts.find((part) => part.type === "group")?.value || ",";
+  return `${decimal}${group}`;
+}

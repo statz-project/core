@@ -52,7 +52,7 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
     const text = ys.map((c, mi) => {
       const total = countsPerMoment[mi].reduce((a, b) => a + b, 0);
       const pct = total > 0 ? (c / total) * 100 : 0;
-      return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat));
+      return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat), options.lang);
     });
     return {
       type: 'bar',

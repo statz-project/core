@@ -106,10 +106,12 @@ test("getAvailableOptions([], 'table') returns only mode-agnostic + table-mode o
   assert.ok(names.includes('lang'));
 });
 
-test("getAvailableOptions(['has_qq'], 'table') includes with_residuals + effect_size_type + alpha; excludes chart_*", () => {
+test("getAvailableOptions(['has_qq'], 'table') includes effect_size_type + alpha; excludes chart_*", () => {
   const out = getAvailableOptions(['has_qq'], 'table');
   const names = new Set(out.map((o) => o.name));
-  assert.ok(names.has('with_residuals'), 'with_residuals applies to has_qq');
+  // with_residuals is NOT here: the shape alone does not mean this analysis has residuals to
+  // show. It follows has_residuals — see the residual-options test below.
+  assert.ok(!names.has('with_residuals'), 'with_residuals waits for has_residuals');
   assert.ok(names.has('effect_size_type'), 'effect_size_type applies to has_qq');
   assert.ok(names.has('alpha'), 'alpha applies to has_qq');
   assert.ok(names.has('percent_by'), 'percent_by applies to has_qq');
@@ -124,7 +126,7 @@ test("getAvailableOptions(['has_qq'], 'chart') includes chart_label_format + cha
   assert.ok(names.has('chart_label_format'), 'chart_label_format applies to has_qq');
   assert.ok(names.has('chart_theme'), 'chart_theme is always-relevant in chart mode');
   assert.equal(names.has('with_residuals'), false, 'with_residuals is table-only');
-  assert.equal(names.has('percent_by'), false, 'percent_by is table-only');
+  assert.ok(names.has('percent_by'), 'percent_by reaches chart mode — chart_q_q honours it too');
 });
 
 test("getAvailableOptions(['has_n'], 'chart') includes chart_show_boxplot + chart_include_zero", () => {
@@ -342,4 +344,51 @@ test("alpha and adjust_kruskal are table-only, and only where a gate reads them"
     assert.equal(offered(flag, 'table', 'adjust_kruskal'), true, flag);
   }
   assert.equal(offered('has_qq', 'table', 'adjust_kruskal'), false, 'chi-square has no Dunn step');
+});
+
+test("residual options follow has_residuals, and the toggle cannot switch itself off the panel", () => {
+  // Reported: a q x q whose test is not significant computes no residuals, yet the panel still
+  // offered "Mostrar resíduos" — a control with nothing to control.
+  //
+  // The naive fix (gate with_residuals on has_residuals) is a trap while the flag is derived
+  // from `used_resid_*`, which is only set when the option is ON: turning it off would remove
+  // the flag, which would remove the option, with no way back. `has_residuals` therefore means
+  // "this table HAS residuals to show", computed independently of the toggle, so the two cases
+  // stay distinguishable.
+  const bothOff = getAvailableOptions(['has_qq'], 'table').map((o) => o.name);
+  assert.ok(!bothOff.includes('with_residuals'), 'no residuals → no display toggle');
+  assert.ok(!bothOff.includes('residual_symbols'), 'and no symbol pickers');
+
+  const withResid = getAvailableOptions(['has_qq', 'has_residuals'], 'table').map((o) => o.name);
+  assert.ok(withResid.includes('with_residuals'), 'residuals available → the toggle appears');
+  assert.ok(withResid.includes('residual_symbols'), 'and so do the symbol pickers');
+
+  // Both stay table-only; neither leaks into chart mode.
+  const chart = getAvailableOptions(['has_qq', 'has_residuals'], 'chart').map((o) => o.name);
+  assert.ok(!chart.includes('with_residuals') && !chart.includes('residual_symbols'));
+});
+
+test("percent_by presents itself differently in chart mode, where it does more", () => {
+  // In chart mode the option also decides which variable groups the bars, and a label reading only
+  // "Percent by" never said so — the user had no way to discover that this is the axis control.
+  // Same option, same values; only the wording changes with the mode.
+  assert.equal(optionsMetadata.getOptionLabel('percent_by', 'en_us', 'table'), 'Percent by');
+  assert.equal(optionsMetadata.getOptionLabel('percent_by', 'en_us', 'chart'), 'Group by');
+  assert.match(optionsMetadata.getOptionDescription('percent_by', 'en_us', 'chart'), /100%/);
+  assert.ok(!optionsMetadata.getOptionDescription('percent_by', 'en_us', 'table').includes('100%'));
+
+  // Omitting the mode keeps the pre-existing text, so a caller that never passes one is unaffected.
+  assert.equal(optionsMetadata.getOptionLabel('percent_by', 'en_us'), optionsMetadata.getOptionLabel('percent_by', 'en_us', 'table'));
+  assert.equal(optionsMetadata.getOptionDescription('percent_by', 'en_us'), optionsMetadata.getOptionDescription('percent_by', 'en_us', 'table'));
+
+  // Every language carries both wordings, and options without a chart variant ignore the argument.
+  for (const lang of ['pt_br', 'en_us', 'es_es']) {
+    const table = optionsMetadata.getOptionLabel('percent_by', lang, 'table');
+    const chart = optionsMetadata.getOptionLabel('percent_by', lang, 'chart');
+    assert.ok(table && chart && table !== chart, `${lang}: both wordings present and distinct`);
+    assert.ok(!chart.startsWith('options.'), `${lang}: chart key resolves`);
+    assert.ok(!optionsMetadata.getOptionDescription('percent_by', lang, 'chart').startsWith('options.'), `${lang}: chart description resolves`);
+    assert.equal(optionsMetadata.getOptionLabel('chart_theme', lang, 'chart'), optionsMetadata.getOptionLabel('chart_theme', lang, 'table'),
+      `${lang}: an option with no chart variant is unaffected`);
+  }
 });

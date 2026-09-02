@@ -1369,3 +1369,69 @@ test("paired summaries carry the p-value on the table, never duplicated into a r
     assert.match(cells[0], /^\d+,\d+¹$/, 'localised, and tied to the footer legend');
   }
 });
+
+test("has_residuals tracks availability, not the with_residuals toggle", () => {
+  // The flag gates the with_residuals option itself, so deriving it from "a symbol was printed"
+  // made the toggle one-way: switching it off removed the flag, removed the option, and left no
+  // way back. Availability is computed whether or not the display is on; what the display
+  // controls is the annotation and the footer legend that explains it.
+  const N = 90;
+  const pred = [], resp = [];
+  for (let i = 0; i < N; i++) {
+    const g = ['a', 'b', 'c'][i % 3];
+    pred.push(g);
+    resp.push(g === 'a' ? 'sim' : g === 'b' ? 'nao' : (i % 6 === 2 ? 'sim' : 'nao'));
+  }
+  const col = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'q', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const p = col('hp', 'Grupo', pred), r = col('hr', 'Desfecho', resp);
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const run = (cols, extra) => Statz.runAnalysis([sig(cols[0])], [sig(cols[1])], { dbA: { columns: cols } },
+    Statz.getDefaultAnalysisOptions({ mode: 'table', ...extra }));
+
+  const on = run([p, r], {});
+  const off = run([p, r], { with_residuals: false });
+  assert.ok(on.result.analysis[0].table.p_value < 0.05, 'the fixture is significant');
+  assert.ok(on.flags.includes('has_residuals'), 'available and shown');
+  assert.ok(off.flags.includes('has_residuals'), 'available and hidden — still available');
+
+  // What the toggle does control: the annotation, the residual payload, and the legend signal.
+  assert.ok(on.result.analysis[0].table.used_resid_greater || on.result.analysis[0].table.used_resid_lower);
+  assert.equal(off.result.analysis[0].table.used_resid_greater, false, 'no symbol printed');
+  assert.equal(off.result.analysis[0].table.used_resid_lower, false);
+  assert.equal(off.result.analysis[0].table.posthoc_residuals, null, 'nor computed-and-hidden payload');
+  // The footer legend follows the symbols, not availability — explaining marks nobody can see
+  // would be worse than saying nothing.
+  const legendOf = (res) => Statz.combineAnalysisAsSingleTable(res.result);
+  assert.ok(legendOf(on).resid_symbol_greater_used || legendOf(on).resid_symbol_lower_used);
+  assert.equal(legendOf(off).resid_symbol_greater_used, false);
+  assert.equal(legendOf(off).resid_symbol_lower_used, false);
+
+  // An independent pair has no residuals to show at all, whatever the toggle says.
+  const pi = col('hpi', 'Grupo', Array.from({ length: N }, (_, i) => ['a', 'b', 'c'][i % 3]));
+  const ri = col('hri', 'Desfecho', Array.from({ length: N }, (_, i) => ['sim', 'nao'][i % 2]));
+  assert.ok(!run([pi, ri], {}).flags.includes('has_residuals'), 'not significant → nothing available');
+
+  // Significance alone is not availability. A 6x6 checkerboard spreads a large deviation over
+  // every cell: chi-square clears its (much higher) critical value while no single adjusted
+  // residual reaches 1.96, so there is still nothing to annotate. Availability has to test the
+  // cells, not just the p-value — the significance gate is only what makes the cells worth
+  // computing.
+  const spread = { pred: [], resp: [] };
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 6; j++) {
+      for (let k = 0; k < ((i + j) % 2 === 0 ? 14 : 6); k++) {
+        spread.pred.push('R' + i); spread.resp.push('C' + j);
+      }
+    }
+  }
+  const diffuse = Statz.summarize_q_q(spread.pred, spread.resp, null, { with_residuals: true, lang: 'en_us' });
+  assert.ok(diffuse.p_value < 0.05, 'the association is significant');
+  assert.ok(Math.max(...diffuse.posthoc_residuals.flat().map(Math.abs)) < 1.96, 'yet no cell qualifies');
+  assert.equal(diffuse.residuals_available, false, 'so there are no residuals to offer');
+  const ps = col('hps', 'R', spread.pred), rs = col('hrs', 'C', spread.resp);
+  assert.ok(!Statz.runAnalysis([sig(ps)], [sig(rs)], { dbA: { columns: [ps, rs] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'table' })).flags.includes('has_residuals'));
+});

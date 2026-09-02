@@ -1,4 +1,4 @@
-import { formatNumberLocale, formatPValue } from '../format_utils.js';
+import { formatNumberLocale, formatPValue, resolveSeparators } from '../format_utils.js';
 import { trimPunctuation } from '../string_utils.js';
 
 export function getNS() {
@@ -22,4 +22,4 @@ export function getStatsLib() {
   return ns.stdlibStats || ns.simpleStatistics || g.ss || g.simpleStatistics || null;
 }
 
-export { formatNumberLocale, formatPValue, trimPunctuation };
+export { formatNumberLocale, formatPValue, resolveSeparators, trimPunctuation };

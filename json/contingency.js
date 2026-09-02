@@ -149,6 +149,13 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     let residualsAnnotated = null;
     let used_resid_greater = false;
     let used_resid_lower = false;
+    // Whether this table HAS residuals to show, as opposed to whether it is currently showing
+    // them. The two must not be conflated: `has_residuals` is derived from this, and gating the
+    // `with_residuals` option on "currently showing" would make the toggle one-way — switching it
+    // off would remove the flag, which would remove the option, leaving no way to switch it back
+    // on. Computed independently of the toggle so a table that merely has the display disabled
+    // stays distinguishable from one whose test was not significant.
+    let residuals_available = false;
     // A contingency test needs at least two rows AND two columns: df = (rows-1)(cols-1), so a
     // 1×1, 2×1 or 1×2 table has df = 0 and no test exists. stdlib does not reject these — it
     // returns {statistic: 0, df: 0, pValue: 0}, reporting the strongest possible significance for
@@ -166,13 +173,20 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
       method = translate('tests.chiSquare', lang);
       p_value = +(result?.pValue?.toFixed?.(4) ?? NaN);
     }
-    if (withResiduals && Number.isFinite(p_value) && p_value < alpha) {
-      residuals = ns.computeAdjustedResiduals(observed, expected, rowSums, colSums, total);
-      residualsAnnotated = residuals.map(row => row.map(value => {
-        if (value > 1.96) { used_resid_greater = true; return residualSymbols.greater; }
-        if (value < -1.96) { used_resid_lower = true; return residualSymbols.lower; }
-        return '';
-      }));
+    if (Number.isFinite(p_value) && p_value < alpha) {
+      const matrix = ns.computeAdjustedResiduals(observed, expected, rowSums, colSums, total);
+      residuals_available = matrix.some(row => row.some(value => value > 1.96 || value < -1.96));
+      // `used_resid_*` keeps its narrower meaning — a symbol was actually printed — because the
+      // exporter's footer legend keys off it, and a legend for symbols nobody can see is worse
+      // than no legend. Same reason `posthoc_residuals` stays null when the display is off.
+      if (withResiduals) {
+        residuals = matrix;
+        residualsAnnotated = matrix.map(row => row.map(value => {
+          if (value > 1.96) { used_resid_greater = true; return residualSymbols.greater; }
+          if (value < -1.96) { used_resid_lower = true; return residualSymbols.lower; }
+          return '';
+        }));
+      }
     }
     // Effect sizes for 2×2 tables: odds ratio + risk ratio with 95% CI. OPT-IN — the columns are an
     // extra analysis the reader asks for, not part of the baseline cross-tab. When off the
@@ -181,7 +195,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     const effect_sizes = (is2x2 && withEffectSizes)
       ? ns.computeEffectSizes2x2(observed[0][0], observed[0][1], observed[1][0], observed[1][1])
       : null;
-    return { method, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower, effect_sizes };
+    return { method, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower, residuals_available, effect_sizes };
   })();
   const annotated = test.residualsAnnotated || [];
   const showEffectSizes = !!test.effect_sizes && rowLevels.length === 2 && colLevels.length === 2;
@@ -227,6 +241,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     posthoc_residuals: test.residuals,
     used_resid_greater: test.used_resid_greater,
     used_resid_lower: test.used_resid_lower,
+    residuals_available: test.residuals_available,
     effect_sizes: test.effect_sizes,
     percent_by: percentBy,
     lang

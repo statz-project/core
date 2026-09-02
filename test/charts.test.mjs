@@ -1523,10 +1523,19 @@ test("chart_q_q: y-axis (bar heights) labeled per chart_label_format — previou
   const dbs = { db: { columns: [q1, q2] } };
   const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Sex", role: "predictor" })];
   const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Outcome", role: "response" })];
-  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart" });
-  const layout = result.analysis[0].chart.spec.layout;
-  assert.equal(layout.xaxis.title.text, "Sex");
-  assert.equal(layout.yaxis.title.text, "Count", "grouped_bar y-axis carries numeric label");
+  const chart = (extra) => driver.runAnalysis(preds, resps, dbs, { mode: "chart", ...extra })
+    .result.analysis[0].chart.spec;
+  // Default percent_by 'col' normalizes over the response, so the response is what groups the
+  // bars — the axis follows the denominator so each group sums to 100%.
+  const byCol = chart({}).layout;
+  assert.equal(byCol.xaxis.title.text, "Outcome");
+  assert.equal(byCol.yaxis.title.text, "Count", "grouped_bar y-axis carries numeric label");
+  assert.equal(chart({}).layout.legend.title.text, "Sex", "and the predictor becomes the series");
+  // 'row' normalizes over the predictor, so the two swap back.
+  const byRow = chart({ percent_by: "row" }).layout;
+  assert.equal(byRow.xaxis.title.text, "Sex");
+  assert.equal(byRow.legend.title.text, "Outcome");
+  assert.equal(byRow.yaxis.title.text, "Count", "the numeric axis is unaffected either way");
 });
 
 test("chart_paired_q: y-axis carries 'Count' label — previously empty", () => {
@@ -1741,7 +1750,10 @@ test("chart_q_q default legend: top-oriented, small font, title present, wrap ap
   const dbs = { db: { columns: [q1, q2] } };
   const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
   const resps = [JSON.stringify({ database_id: "db", col_hash: "h_q2", col_var_index: null, col_label: "Final Post Intervention Outcome Result", role: "response" })];
-  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart" });
+  // percent_by 'row' keeps the RESPONSE in the legend, where this test's long label and
+  // multi-word levels live. The default 'col' puts the response on the category axis instead,
+  // which would leave these wrap assertions inspecting a one-word predictor and pass vacuously.
+  const { result } = driver.runAnalysis(preds, resps, dbs, { mode: "chart", percent_by: "row" });
   const legend = result.analysis[0].chart.spec.layout.legend;
   // Position default 'top': horizontal orientation + centered above the plot.
   assert.equal(legend.orientation, "h");
@@ -1842,7 +1854,7 @@ test("chart_q_q: chart_legend_title_wrap and chart_legend_labels_wrap gate indep
 
   // Case A: title_wrap=3 (wraps 4-word title), labels_wrap=10 (leaves 4-word entries intact).
   const caseA = driver.runAnalysis(preds, resps, dbs, {
-    mode: "chart", chart_legend_title_wrap: 3, chart_legend_labels_wrap: 10
+    mode: "chart", percent_by: "row", chart_legend_title_wrap: 3, chart_legend_labels_wrap: 10
   });
   const legendA = caseA.result.analysis[0].chart.spec.layout.legend;
   assert.equal(legendA.title.text, "Very Long Response<br>Variable", "title wrapped at 3");
@@ -1851,7 +1863,7 @@ test("chart_q_q: chart_legend_title_wrap and chart_legend_labels_wrap gate indep
 
   // Case B: title_wrap=10 (leaves 4-word title intact), labels_wrap=2 (wraps 4-word entries).
   const caseB = driver.runAnalysis(preds, resps, dbs, {
-    mode: "chart", chart_legend_title_wrap: 10, chart_legend_labels_wrap: 2
+    mode: "chart", percent_by: "row", chart_legend_title_wrap: 10, chart_legend_labels_wrap: 2
   });
   const legendB = caseB.result.analysis[0].chart.spec.layout.legend;
   assert.equal(legendB.title.text, "Very Long Response Variable", "title NOT wrapped when title_wrap=10");
@@ -2630,8 +2642,11 @@ test("chart_bar_orientation drives every bar chart, and auto means one thing eve
     mkCol('t1', 'T1', 'q', alternating('sim', 'nao')),
     mkCol('t2', 'T2', 'q', alternating('nao', 'sim'))
   ] };
+  // percent_by 'row' keeps the PREDICTOR on the category axis (see the axis-follows-percent_by
+  // test): the heuristic reads the axis levels, so under the 'col' default the 9-level predictor
+  // would move to the legend and these fixtures would stop testing "many categories".
   const orientation = (preds, resps, chart_bar_orientation) => Statz.runAnalysis(preds, resps, { dbA: db },
-    Statz.getDefaultAnalysisOptions({ mode: 'chart', ...(chart_bar_orientation ? { chart_bar_orientation } : {}) }))
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', percent_by: 'row', ...(chart_bar_orientation ? { chart_bar_orientation } : {}) }))
     .result.analysis[0].chart.spec.data[0].orientation ?? 'v';
 
   const shapes = [
@@ -2650,7 +2665,7 @@ test("chart_bar_orientation drives every bar chart, and auto means one thing eve
 
   // Forcing horizontal must move the axis titles with the bars, not leave them on the old axis.
   const spec = Statz.runAnalysis([sig('f', 'Few')], [sig('r', 'Resp')], { dbA: db },
-    Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_bar_orientation: 'horizontal' }))
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', percent_by: 'row', chart_bar_orientation: 'horizontal' }))
     .result.analysis[0].chart.spec;
   assert.equal(spec.layout.yaxis.title.text, 'Few', 'the category label follows to the y axis');
   assert.ok(spec.layout.xaxis.title.text, 'and the count label takes the x axis');
@@ -2784,10 +2799,13 @@ test("a bottom legend reserves room for everything stacked above it", () => {
   const LONG = 'Internacao por doenca relacionada ao tabagismo com agravo sanitario de ultima urgencia grave';
   const WIDE = ['grupo controle sem intervencao alguma', 'grupo tratado com protocolo completo'];
   const r = col('hr', 'Desfecho', Array.from({ length: N }, (_, i) => ['sim', 'nao'][i % 2]));
+  // percent_by 'row' keeps the predictor on the category axis, so the long label and the wide
+  // categories below stay where this test needs them — on the axis, feeding the x-axis title and
+  // the tick stack the legend has to clear. Under the 'col' default they would move to the legend.
   const layout = (label, cats, extra) => {
     const g = col('hg', label, Array.from({ length: N }, (_, i) => cats[i % cats.length]));
     return Statz.runAnalysis([sig(g)], [sig(r)], { dbA: { columns: [g, r] } },
-      Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_legend_position: 'bottom', ...extra }))
+      Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_legend_position: 'bottom', percent_by: 'row', ...extra }))
       .result.analysis[0].chart.spec.layout;
   };
 
@@ -2868,4 +2886,165 @@ test("horizontal bars read top-down: the categorical axis is reversed, the data 
   const likert = chart_likert(['Item A', 'Item B'].map((label, k) => ({
     label, values: Array.from({ length: 9 }, (_, i) => lk[(i + k) % 3]) })), {}, {});
   assert.equal(likert.spec.layout.yaxis.autorange, 'reversed');
+});
+
+test("chart_q_q percentages use the same denominator as the table, per percent_by", () => {
+  // Reported: an element switched from table to chart showed different percentages for the same
+  // cross-tab. The table honoured percent_by (driver-normalized to 'col'); the chart divided by
+  // the row total, hardcoded. The reporter's own case: origin x income.
+  const cell = { foreign: { high: 2, low: 0, middle: 51 }, local: { high: 38, low: 5, middle: 0 } };
+  const pred = [], resp = [];
+  for (const [origin, byIncome] of Object.entries(cell)) {
+    for (const [income, n] of Object.entries(byIncome)) {
+      for (let k = 0; k < n; k++) { pred.push(origin); resp.push(income); }
+    }
+  }
+  // en_us on both sides: the table formats percentages through the locale, the chart through
+  // toFixed, so only en_us lets the two be compared as strings.
+  const opts = (percent_by) => ({ lang: 'en_us', percent_by, with_residuals: false });
+
+  // Looked up by NAME, not by position: percent_by also decides which variable groups the bars,
+  // so the trace/category axes swap between modes. The value for a given pair must not.
+  const chartCell = (chart, origin, income) => {
+    const vertical = chart.spec.data[0].orientation !== 'h';
+    const cats = vertical ? chart.spec.data[0].x : chart.spec.data[0].y;
+    for (const tr of chart.spec.data) {
+      for (let i = 0; i < cats.length; i++) {
+        const pair = new Set([tr.name, cats[i]]);
+        if (pair.has(origin) && pair.has(income)) return tr.text[i];
+      }
+    }
+    return undefined;
+  };
+
+  for (const percent_by of ['col', 'row', 'total']) {
+    const chart = chart_q_q(pred, resp, { ...opts(percent_by), chart_label_format: 'np' }, {});
+    const table = Statz.summarize_q_q(pred, resp, null, opts(percent_by));
+    const groupCol = table.columns[0];
+    for (const income of ['high', 'low', 'middle']) {
+      for (const origin of ['foreign', 'local']) {
+        const fromTable = table.rows.find((r) => r[groupCol] === origin)[income];
+        assert.equal(chartCell(chart, origin, income), fromTable,
+          `${percent_by}: ${origin} x ${income} must read the same in both renderings`);
+      }
+    }
+  }
+
+  // The three modes are actually distinct here — the assertion above would be vacuous otherwise.
+  const textFor = (percent_by) => chartCell(
+    chart_q_q(pred, resp, { ...opts(percent_by), chart_label_format: 'p' }, {}), 'foreign', 'high');
+  assert.equal(textFor('col'), '5.0%', 'over the high column (40)');
+  assert.equal(textFor('row'), '3.8%', 'over the foreign row (53) — the old hardcoded behaviour');
+  assert.equal(textFor('total'), '2.1%', 'over the complete-case grand total (96)');
+
+  // Unset falls back to 'row', matching summarize_q_q's own fallback for direct callers; the
+  // driver normalizes both to 'col' before either builder sees them.
+  assert.equal(chartCell(chart_q_q(pred, resp, { lang: 'en_us', chart_label_format: 'p' }, {}),
+    'foreign', 'high'), '3.8%');
+  assert.equal(Statz.getDefaultAnalysisOptions({}).percent_by, 'col');
+});
+
+test("chart number formatting follows the language, like the tables", () => {
+  // A pt_br element read `5,0%` in the table and `3.8%` on the bars of the same cross-tab: two
+  // separate defects. The denominator is fixed elsewhere; this covers the separator, which came
+  // from formatBarLabel's bare toFixed(1). Plotly's own numbers (ticks, hover) never pass through
+  // our formatters at all, so layout.separators carries the locale to them.
+  const cell = { foreign: { high: 2, low: 0, middle: 51 }, local: { high: 38, low: 5, middle: 0 } };
+  const pred = [], resp = [];
+  for (const [origin, byIncome] of Object.entries(cell)) {
+    for (const [income, n] of Object.entries(byIncome)) {
+      for (let k = 0; k < n; k++) { pred.push(origin); resp.push(income); }
+    }
+  }
+  const col = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'q', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const p = col('hp', 'origin', pred), r = col('hr', 'income', resp);
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const run = (extra) => Statz.runAnalysis([sig(p)], [sig(r)], { dbA: { columns: [p, r] } },
+    Statz.getDefaultAnalysisOptions({ with_residuals: false, ...extra })).result.analysis[0];
+
+  for (const [lang, expected, separators] of [
+    ['pt_br', '2 (5,0%)', ',.'],
+    ['en_us', '2 (5.0%)', '.,'],
+    ['es_es', '2 (5,0%)', ',.']
+  ]) {
+    const table = run({ mode: 'table', lang }).table;
+    const chart = run({ mode: 'chart', chart_label_format: 'np', lang }).chart;
+    assert.equal(table.rows.find((x) => x[table.columns[0]] === 'foreign').high, expected, `${lang}: table`);
+    assert.equal(chart.spec.data[0].text[0], expected, `${lang}: bar label matches the table`);
+    assert.equal(chart.spec.layout.separators, separators, `${lang}: Plotly's own numbers too`);
+  }
+
+  // Univariate and paired bars share the formatter, so they follow as well.
+  const q = Statz.runAnalysis([sig(p)], [], { dbA: { columns: [p, r] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', lang: 'pt_br', chart_label_format: 'p' }))
+    .result.analysis[0].chart;
+  assert.ok(q.spec.data[0].text.every((t) => !t.includes('.')), `univariate bars localized: ${q.spec.data[0].text}`);
+
+  // An unset language resolves through the runtime default (en_us), the same normalization the
+  // summaries do — formatNumberLocale's own pt_br fallback would have split the two apart again.
+  assert.equal(chart_q(['a', 'a', 'b'], { chart_label_format: 'p' }, {}).spec.data[0].text[0], '66.7%');
+});
+
+test("the category axis follows percent_by, so each group sums to 100%", () => {
+  // Reported: a q x q switched from table to chart put the predictor on the axis while the default
+  // denominator normalized over the response, so the bars grouped under one category added to 105%
+  // and 195% — unreadable as parts of a whole. The grouping variable has to be the one the
+  // denominator normalizes over; anything else is arithmetically incoherent, whichever is "the
+  // natural" axis. One control, not two: pinning the axis separately would let the pair disagree
+  // again from the other side.
+  const cell = { foreign: { high: 2, low: 0, middle: 51 }, local: { high: 38, low: 5, middle: 0 } };
+  const pred = [], resp = [];
+  for (const [origin, byIncome] of Object.entries(cell)) {
+    for (const [income, n] of Object.entries(byIncome)) {
+      for (let k = 0; k < n; k++) { pred.push(origin); resp.push(income); }
+    }
+  }
+  const col = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'q', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const p = col('hp', 'origin', pred), r = col('hr', 'income', resp);
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const spec = (percent_by) => Statz.runAnalysis([sig(p)], [sig(r)], { dbA: { columns: [p, r] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', lang: 'en_us', chart_label_format: 'np', percent_by }))
+    .result.analysis[0].chart.spec;
+  const groupSums = (s) => s.data[0].x.map((_, i) =>
+    Math.round(s.data.reduce((sum, tr) => sum + Number(tr.text[i].replace(/.*\(([\d.]+)%\).*/, '$1')), 0)));
+
+  const byCol = spec('col');
+  assert.equal(byCol.layout.xaxis.title.text, 'income', "'col' normalizes over the response");
+  assert.equal(byCol.layout.legend.title.text, 'origin');
+  assert.deepEqual(byCol.data[0].x, ['high', 'low', 'middle']);
+  assert.deepEqual(groupSums(byCol), [100, 100, 100]);
+
+  const byRow = spec('row');
+  assert.equal(byRow.layout.xaxis.title.text, 'origin', "'row' normalizes over the predictor");
+  assert.equal(byRow.layout.legend.title.text, 'income');
+  assert.deepEqual(groupSums(byRow), [100, 100]);
+
+  // 'total' normalizes over neither, so no group can sum to 100 — the whole chart does instead.
+  // It keeps the predictor on the axis, matching the table's row ordering.
+  const byTotal = spec('total');
+  assert.equal(byTotal.layout.xaxis.title.text, 'origin');
+  assert.equal(groupSums(byTotal).reduce((a, b) => a + b, 0), 100);
+
+  // The counts themselves never move — only which variable groups them.
+  const cellCount = (s, origin, income) => {
+    const cats = s.data[0].x;
+    for (const tr of s.data) {
+      for (let i = 0; i < cats.length; i++) {
+        const pair = new Set([tr.name, cats[i]]);
+        if (pair.has(origin) && pair.has(income)) return (tr.orientation === 'h' ? tr.x : tr.y)[i];
+      }
+    }
+    return undefined;
+  };
+  for (const [origin, byIncome] of Object.entries(cell)) {
+    for (const [income, n] of Object.entries(byIncome)) {
+      for (const s of [byCol, byRow, byTotal]) assert.equal(cellCount(s, origin, income), n);
+    }
+  }
 });

@@ -1,5 +1,5 @@
 // @ts-check
-import { formatNumberLocale } from './_env.js';
+import { formatNumberLocale, resolveSeparators } from './_env.js';
 import factors from './factors.js';
 import contingency from './contingency.js';
 import numeric from './numeric.js';
@@ -1544,7 +1544,10 @@ ns.summarizePredictors = function (columns, predictors, responses, data, options
         return summaries;
       }
     }
-    if (table?.used_resid_greater || table?.used_resid_lower) flagsUsed.add('has_residuals');
+    // Keyed on availability, not on the current display state — see `residuals_available` in
+    // contingency.js. Emitting it from `used_resid_*` made the flag vanish when the user merely
+    // turned `with_residuals` off, which is indistinguishable from a non-significant test.
+    if (table?.residuals_available) flagsUsed.add('has_residuals');
     // n × n is a pair-wise correlation; the header label needs both axes to be meaningful.
     const finalPredictorLabel = (predictorType === 'n' && responseType === 'n' && response?.col_label)
       ? `${pred.col_label} × ${response.col_label}`
@@ -1764,6 +1767,7 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   // "Value" for chart_n numeric axis, variable labels for scatter/individual-values).
   // Hiding a title just blanks its .text so Plotly reserves no space for it.
   const staticPlot = (/** @type {any} */ (mergedOptions).chart_interactive) !== true;
+  const separators = resolveSeparators(lang);
   const showXTitle = (/** @type {any} */ (mergedOptions).chart_show_xaxis_title) !== false;
   const showYTitle = (/** @type {any} */ (mergedOptions).chart_show_yaxis_title) !== false;
   // Reclaim ~25px of margin per hidden axis title (Plotly reserves that space in the
@@ -1811,6 +1815,10 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   result.forEach((/** @type {any} */ r) => {
     if (!r.chart?.spec) return;
     r.chart.spec.config = { ...(r.chart.spec.config || {}), staticPlot };
+    // Numbers Plotly renders itself — axis ticks, and hover values when the chart is
+    // interactive — are drawn from raw data and never pass through our formatters, so
+    // without this a pt_br chart pairs `5,0%` bar labels with dot-decimal ticks.
+    (r.chart.spec.layout || (r.chart.spec.layout = {})).separators = separators;
     const layout = r.chart.spec.layout || {};
     layout.margin = layout.margin || {};
     if (!showXTitle && hasTitleText(layout.xaxis)) {

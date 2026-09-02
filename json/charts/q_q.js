@@ -18,6 +18,9 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
   const counts = {};
   /** @type {Record<string, number>} */
   const rowTotals = {};
+  /** @type {Record<string, number>} */
+  const colTotals = {};
+  let grandTotal = 0;
   for (let i = 0; i < len; i++) {
     if (factors.isMissingValue(predictorVals[i]) || factors.isMissingValue(responseVals[i])) continue;
     const p = String(predictorVals[i]).trim();
@@ -25,6 +28,8 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
     if (!counts[p]) counts[p] = {};
     counts[p][r] = (counts[p][r] || 0) + 1;
     rowTotals[p] = (rowTotals[p] || 0) + 1;
+    colTotals[r] = (colTotals[r] || 0) + 1;
+    grandTotal += 1;
   }
   const presetPred = Array.isArray(meta.predictorLabels) ? meta.predictorLabels : null;
   const presetResp = Array.isArray(meta.responseLabels) ? meta.responseLabels : null;
@@ -36,48 +41,76 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
   if (predLevels.length === 0 || respLevels.length === 0) return null;
 
   const labelFormat = ['n', 'p', 'np'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
+  // Same denominator the table uses, from the same option — a chart and a table of the same
+  // cross-tab must not disagree about what a percentage is. This was hardcoded to the row total
+  // while `summarize_q_q` honoured `percent_by` (normalized to 'col' by the driver), so switching
+  // an element from table to chart silently changed every number on screen. The 'row' fallback
+  // matches summarize_q_q's own, for callers that reach these builders directly.
+  const percentBy = ['row', 'col', 'total'].includes(options.percent_by) ? options.percent_by : 'row';
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
   const legendWrap = getLegendLabelsWrap(options);
-  const palette = getThemePalette(options.chart_theme, respLevels.length);
-  const predTicks = predLevels.map((l) => wrapText(l, labelWrap));
-  // Same `auto` as every other bar chart: too many predictor levels, or labels too wide to sit
-  // side by side once wrapped. `chart_bar_orientation` overrides it either way.
-  const horizontal = resolveBarOrientation(predLevels, options) === 'h';
+
+  // Which variable groups the bars, and which becomes the series, follows `percent_by`. The bars
+  // under one group sum to 100% only when the grouping variable is the one the denominator
+  // normalizes over, so pinning the predictor to the axis while the default denominator is the
+  // response produced groups adding to 105% and 195% — a chart that cannot be read as parts of a
+  // whole. 'total' normalizes over neither, so nothing sums to 100% either way; it keeps the
+  // predictor on the axis to match the table's row ordering.
+  const responseOnAxis = percentBy === 'col';
+  const axisLevels = responseOnAxis ? respLevels : predLevels;
+  const seriesLevels = responseOnAxis ? predLevels : respLevels;
+  const axisLabel = responseOnAxis ? meta.responseLabel : meta.predictorLabel;
+  const seriesLabel = responseOnAxis ? meta.predictorLabel : meta.responseLabel;
+  const countAt = (axisLevel, seriesLevel) => (responseOnAxis
+    ? counts[seriesLevel]?.[axisLevel]
+    : counts[axisLevel]?.[seriesLevel]) || 0;
+  // Whichever way round, the denominator is the AXIS level's own total — that is what makes the
+  // group sum to 100%.
+  const denominatorAt = (axisLevel) => (percentBy === 'total' ? grandTotal
+    : responseOnAxis ? (colTotals[axisLevel] || 0)
+      : (rowTotals[axisLevel] || 0));
+
+  const palette = getThemePalette(options.chart_theme, seriesLevels.length);
+  const axisTicks = axisLevels.map((l) => wrapText(l, labelWrap));
+  // Same `auto` as every other bar chart: too many categories on the axis, or labels too wide to
+  // sit side by side once wrapped. `chart_bar_orientation` overrides it either way. It reads the
+  // axis levels, so swapping the roles above also swaps which variable drives the heuristic.
+  const horizontal = resolveBarOrientation(axisLevels, options) === 'h';
 
   /** @type {any[]} */
-  const data = respLevels.map((resp, ri) => {
-    const ys = predLevels.map((p) => counts[p]?.[resp] || 0);
-    const text = ys.map((c, pi) => {
-      const total = rowTotals[predLevels[pi]] || 0;
+  const data = seriesLevels.map((series, si) => {
+    const ys = axisLevels.map((axisLevel) => countAt(axisLevel, series));
+    const text = ys.map((c, ai) => {
+      const total = denominatorAt(axisLevels[ai]);
       const pct = total > 0 ? (c / total) * 100 : 0;
-      return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat));
+      return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat), options.lang);
     });
     return {
       type: 'bar',
-      // Trace name = legend entry — wrap per chart_legend_wrap so long response levels
+      // Trace name = legend entry — wrap per chart_legend_wrap so long series levels
       // don't blow up the legend width.
-      name: wrapText(resp, legendWrap),
+      name: wrapText(series, legendWrap),
       orientation: horizontal ? 'h' : 'v',
-      x: horizontal ? ys : predTicks,
-      y: horizontal ? predTicks : ys,
+      x: horizontal ? ys : axisTicks,
+      y: horizontal ? axisTicks : ys,
       text,
       textposition: 'outside',
       cliponaxis: false,
-      marker: { color: palette[ri] },
-      hovertemplate: `${resp}: %{${horizontal ? 'x' : 'y'}}<extra></extra>`
+      marker: { color: palette[si] },
+      hovertemplate: `${series}: %{${horizontal ? 'x' : 'y'}}<extra></extra>`
     };
   });
 
   const layout = {
     barmode: 'group',
-    // The categorical axis carries the predictor label and needs automargin for the wrapped
-    // ticks; the numeric one is labelled per chart_label_format, matching the per-bar values.
+    // The categorical axis carries whichever variable groups the bars and needs automargin for the
+    // wrapped ticks; the numeric one is labelled per chart_label_format, matching the per-bar values.
     xaxis: horizontal
       ? { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' }
-      : { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true },
+      : { title: { text: wrapTitle(axisLabel ?? '', options) }, automargin: true },
     yaxis: horizontal
-      // Reversed so the first predictor level is the TOP bar — see buildBarSpec for why.
-      ? { title: { text: wrapTitle(meta.predictorLabel ?? '', options) }, automargin: true, autorange: 'reversed' }
+      // Reversed so the first category is the TOP bar — see buildBarSpec for why.
+      ? { title: { text: wrapTitle(axisLabel ?? '', options) }, automargin: true, autorange: 'reversed' }
       : { title: { text: resolveNumericAxisLabel(options) }, zeroline: false, rangemode: 'tozero' },
     // margin.t 60 gives `textposition: outside` room above the tallest bar; horizontal moves that
     // need to the right edge and widens the left for the category ticks.
@@ -85,7 +118,7 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
     // Legend layout: position (top/right/bottom), title visibility, and wrapping all
     // resolved by the shared helper from Analysis_options. Fixes the "legend takes
     // half the plot width" issue by defaulting to horizontal top orientation.
-    legend: buildLegendLayout(options, { title: meta.responseLabel ?? '' }),
+    legend: buildLegendLayout(options, { title: seriesLabel ?? '' }),
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff'
   };

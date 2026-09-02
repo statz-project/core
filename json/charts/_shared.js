@@ -1,7 +1,8 @@
 // @ts-check
 // Shared building blocks for chart_* spec builders.
 // Keep pure: no Plotly imports, no DOM access. Just helpers and palette constants.
-import { translate } from '../../i18n/index.js';
+import { translate, normalizeLanguage } from '../../i18n/index.js';
+import { formatNumberLocale } from '../../format_utils.js';
 
 /**
  * Theme palette used by single-series charts (univariate q, l; scatter, individual values).
@@ -72,14 +73,26 @@ export function wrapText(text, nWords) {
 
 /**
  * Format a single bar's value label per chart_label_format option.
+ *
+ * Percentages go through `formatNumberLocale`, the same helper the table summaries use. A bare
+ * `toFixed(1)` always writes a decimal POINT, so a pt_br element showed `3.8%` on the bars next
+ * to `5,0%` in the table of the very same cross-tab. The count is an integer and needs no
+ * separator at these magnitudes, so it is left as-is.
+ *
+ * The language is normalized first, exactly as every `summarize_*` does before formatting:
+ * `formatNumberLocale` falls back to pt_br on its own, while an unset `options.lang` resolves
+ * through the runtime default (en_us). Skipping the normalization would trade the old bug for a
+ * new one — charts and tables disagreeing whenever the caller omits the language.
  * @param {number} count
  * @param {number} percent  In 0-100.
  * @param {'n'|'p'|'np'} format
+ * @param {string=} lang
  * @returns {string}
  */
-export function formatBarLabel(count, percent, format) {
-  if (format === 'p') return `${percent.toFixed(1)}%`;
-  if (format === 'np') return `${count} (${percent.toFixed(1)}%)`;
+export function formatBarLabel(count, percent, format, lang = undefined) {
+  const pct = formatNumberLocale(percent, 1, normalizeLanguage(lang));
+  if (format === 'p') return `${pct}%`;
+  if (format === 'np') return `${count} (${pct}%)`;
   return String(count);
 }
 
@@ -312,7 +325,7 @@ export function buildBarSpec({ labels, counts, total, options, meta }) {
   const horizontal = resolveBarOrientation(labels, options) === 'h';
   const text = counts.map((c) => {
     const pct = total > 0 ? (c / total) * 100 : 0;
-    return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat));
+    return formatBarLabel(c, pct, /** @type {'n'|'p'|'np'} */ (labelFormat), options.lang);
   });
   const wrappedLabels = labels.map((l) => wrapText(l, labelWrap));
   const varLabel = wrapTitle(meta.varLabel ?? '', options);
