@@ -959,3 +959,46 @@ test("combineAnalysisAsSingleTable: a single analysis keeps its column order unt
   assert.deepEqual(exporters.combineAnalysisAsSingleTable(result).columns,
     ['Grupo', 'no', 'yes', 'p-valor']);
 });
+
+test("p-values render at the same precision wherever they appear", () => {
+  // The omnibus test printed 3 decimals and the post-hoc comparisons 4, in the same table. Not a
+  // precision difference — both are stored at toFixed(4) — just two renderings, and the mismatched
+  // pair made the extra digit worse than useless: keeping the omnibus threshold of 0.001 alongside
+  // 4 decimals printed a sub-threshold value as `<0,0010`, less informative than the omnibus
+  // `0,001` and spelling the same cut-off two ways. (`formatPValue` compares the ROUNDED value
+  // against the threshold, so 0.0009 shows as `0,001`; 0.0002 is what actually crosses it.)
+  const result = {
+    lang: 'pt_br',
+    analysis: [{
+      predictor: 'Escore', response: 'income', predictor_type: 'n', response_type: 'q',
+      table: {
+        columns: ['Grupo', 'p-valor'], rows: [{ Grupo: 'n', 'p-valor': '' }],
+        test_used: 'Kruskal-Wallis', p_value: 0.0201, lang: 'pt_br',
+        posthoc: [
+          { groupA: 'low', groupB: 'high', pValue: 0.0185, significant: true },
+          { groupA: 'low', groupB: 'middle', pValue: 0.0002, significant: true }
+        ]
+      }
+    }]
+  };
+  const combined = exporters.combineAnalysisAsSingleTable(result);
+  const pCol = combined.columns.find((c) => c.toLowerCase().includes('p-valor'));
+  const omnibus = combined.rows.map((r) => r[pCol]).find(Boolean);
+  assert.match(omnibus, /^0,020/, 'omnibus keeps 3 decimals');
+
+  // Same digit count in the post-hoc legend, and the sub-threshold value uses the SAME spelling
+  // of the cut-off the omnibus would use.
+  const legend = combined.posthoc_legend.join(' ').replace(/<[^>]+>/g, '');
+  assert.match(legend, /p=0,019/, 'post-hoc trimmed to 3 decimals too');
+  assert.match(legend, /p=&lt;0,001|p=<0,001/, 'and the sub-threshold value uses the shared cut-off');
+  assert.ok(!legend.includes('0,0010'), `the four-decimal threshold spelling is gone: ${legend}`);
+
+  // The standalone post-hoc table goes through the same constants.
+  const html = exporters.exportPosthocComparisonsAsHTML(result.analysis, { lang: 'pt_br' });
+  const cells = (html.match(/<td>[^<]*<\/td>/g) ?? []).map((c) => c.replace(/<\/?td>/g, ''));
+  assert.ok(cells.includes('0,019'), `expected 3 decimals, got ${cells.join(' | ')}`);
+  assert.ok(!cells.some((c) => c.includes('0,0010')), 'and no four-decimal threshold here either');
+  for (const cell of cells.filter((c) => /^[<0-9]/.test(c))) {
+    assert.ok(!/\d,\d{4}/.test(cell), `${cell} still carries 4 decimals`);
+  }
+});

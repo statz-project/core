@@ -11,6 +11,15 @@ const ns = {};
  * @param {unknown} val
  * @returns {string}
  */
+// p-values read the same wherever they appear: the omnibus test and the post-hoc comparisons in
+// the same table used 3 and 4 decimals respectively, which was not a precision difference — both
+// are stored at `toFixed(4)` — only a rendering one, with no rationale recorded anywhere. The
+// mismatched pair also made the extra digit useless: keeping the omnibus threshold of 0.001
+// alongside 4 decimals printed 0.0009 as `<0,0010`, less informative than the omnibus `0,001`
+// while claiming one more digit, and spelled the same cut-off two ways in one table.
+const PVALUE_DECIMALS = 3;
+const PVALUE_THRESHOLD = 0.001;
+
 const escapeHtml = (val) => {
   const str = String(val ?? '');
   // Avoid regex literals with `</` sequences (safer for inline bundles); use split/join for < and >.
@@ -175,7 +184,7 @@ ns.exportPosthocComparisonsAsHTML = function (analysis, titleOrOptions) {
             <tr>
                 <td>“${p.groupA}”</td>
                 <td>“${p.groupB}”</td>
-                <td>${formatPValue(p.pValue, 4, 0.001, lang)}</td>
+                <td>${formatPValue(p.pValue, PVALUE_DECIMALS, PVALUE_THRESHOLD, lang)}</td>
                 <td style="text-align:center;">${significantSymbol}</td>
             </tr>`).join('');
     const block = `
@@ -244,7 +253,7 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
       if (col === firstColLabel) {
         rowIntro[col] = predLabel;
       } else if (col === pValueLabel && typeof table.p_value === 'number') {
-        const formatted = formatPValue(table.p_value, 3, 0.001, lang);
+        const formatted = formatPValue(table.p_value, PVALUE_DECIMALS, PVALUE_THRESHOLD, lang);
         rowIntro[col] = `${formatted}${table.test_symbol ?? ''}`;
       } else if (col === pValueLabel) {
         rowIntro[col] = missingValue;
@@ -268,7 +277,7 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
     if (Array.isArray(table.posthoc)) {
       const comparisons = table.posthoc
         .filter(p => p.significant)
-        .map(p => translate('posthoc.comparisonPair', lang, { groupA: p.groupA, groupB: p.groupB, pValue: formatPValue(p.pValue, 4, 0.001, lang) }));
+        .map(p => translate('posthoc.comparisonPair', lang, { groupA: p.groupA, groupB: p.groupB, pValue: formatPValue(p.pValue, PVALUE_DECIMALS, PVALUE_THRESHOLD, lang) }));
       if (comparisons.length) {
         posthocByPredictor.push(translate('posthoc.comparisonEntry', lang, { predictor: obj.predictor, comparisons: comparisons.join(', ') }));
       }
