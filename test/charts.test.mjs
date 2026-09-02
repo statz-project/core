@@ -776,7 +776,7 @@ import { chart_paired_q } from "../json/charts/paired_q.js";
 test("chart_paired_n: K=2 produces subject lines + per-moment points + per-moment means", () => {
   const t0 = [10, 12, 14, 16, 18];
   const t1 = [11, 13, 14, 17, 20];
-  const out = chart_paired_n([t0, t1], ["T0", "T1"], {}, { numericLabel: "Creatinine" });
+  const out = chart_paired_n([t0, t1], ["T0", "T1"], {}, {});
   assert.ok(out);
   assert.equal(out.type, "paired_individual_values");
   // 5 subject lines + 2 moments * (points + mean) = 5 + 4 = 9
@@ -3100,4 +3100,34 @@ test("joinLabelsWrapped keeps labels intact and never drops the separator", () =
   assert.equal(join([], ' × ', 4), '');
   assert.equal(join(['solo'], ' × ', 4), 'solo');
   assert.equal(join(['a', 'b'], ' × ', 0), 'a × b', 'a non-positive budget means no wrapping');
+});
+
+test("paired_n labels its value axis generically, not after one moment's column", () => {
+  // The moments are separate columns, so the first one's label ("Peso T1") was wrong for every
+  // other moment's points on the same axis. The moment names are already the tick text on the
+  // category axis, so a generic i18n "Value" loses nothing — the same call chart_n makes.
+  const N = 12;
+  const col = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'n', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const cols = ['Peso T1', 'Peso T2', 'Peso T3'].map((label, m) =>
+    col(`h${m}`, label, Array.from({ length: N }, (_, i) => String(60 + i + m * 3))));
+  const run = (lang) => Statz.runAnalysis([], cols.map(sig), { dbA: { columns: cols } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', lang })).result.analysis[0];
+
+  for (const [lang, moment, value] of [['pt_br', 'Momento', 'Valor'], ['en_us', 'Moment', 'Value'], ['es_es', 'Momento', 'Valor']]) {
+    const entry = run(lang);
+    const layout = entry.chart.spec.layout;
+    assert.equal(entry.chart.type, 'paired_individual_values');
+    assert.equal(layout.yaxis.title.text, value, `${lang}: generic value label`);
+    assert.equal(layout.xaxis.title.text, moment, `${lang}: and the moment label opposite it`);
+    // No column label survives on either axis title — the names live in the ticks and the heading.
+    for (const title of [layout.yaxis.title.text, layout.xaxis.title.text]) {
+      assert.ok(!title.includes('Peso'), `${lang}: "${title}" must not name one moment`);
+    }
+    assert.deepEqual(layout.xaxis.ticktext, ['Peso T1', 'Peso T2', 'Peso T3']);
+    assert.equal(entry.response, 'Peso T1 × Peso T2 × Peso T3');
+  }
 });

@@ -483,9 +483,9 @@ ns.summarizePaired = function (columns, responses, options, flagsUsed, lang) {
     flagsUsed.add('has_paired_n');
     const arrays = resolvedCols.map((c) => c.raw_values || []);
     if (options?.mode === 'chart') {
-      const chart = charts.chart_paired_n(arrays, labels, { ...options, lang }, {
-        numericLabel: responses[0]?.col_label || ''
-      });
+      // No meta: the value axis is labelled generically and the moment names are the tick text,
+      // so there is no column label for this chart to carry.
+      const chart = charts.chart_paired_n(arrays, labels, { ...options, lang }, {});
       return /** @type {any} */ ({
         predictor: null,
         response: labels.join(' × '),

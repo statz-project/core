@@ -6,7 +6,7 @@
 //
 // Mirrors r.plot.individual_values(paired=TRUE).
 import variants from '../variants.js';
-import { resolveTheme, wrapText, wrapTitle, computeCenter, resolveMomentAxisLabel } from './_shared.js';
+import { resolveTheme, wrapText, computeCenter, resolveMomentAxisLabel, resolveValueAxisLabel } from './_shared.js';
 
 /** @param {number} i */
 function deterministicJitter(i) {
@@ -21,7 +21,7 @@ const PAIRED_LINE_ALPHA = 0.4;
  * @param {Array<Array<string|number|null|undefined>>} responses K arrays of values; one per moment.
  * @param {string[]} labels Moment labels (one per response column).
  * @param {Record<string,any>=} options Normalized analysis options (chart_*).
- * @param {{numericLabel?:string}=} meta Optional axis label (typically the original column label common to all moments).
+ * @param {{}=} meta Unused. The value axis is labelled generically — see the layout below.
  * @returns {{type:string, spec:{data:any[], layout:any}}|null}
  */
 export function chart_paired_n(responses, labels, options = {}, meta = {}) {
@@ -160,7 +160,11 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
       showgrid: false
     },
     yaxis: {
-      title: { text: wrapTitle(meta.numericLabel ?? '', options) },
+      // Generic "Value" (i18n), not a column label. The moments are separate columns, so any one
+      // of their labels is wrong for the other moments' points — the axis read "Peso T1" above the
+      // T2 values. The moment names are already the tick text on the other axis, so nothing is
+      // lost. Same reasoning `chart_n` uses for its own value axis.
+      title: { text: resolveValueAxisLabel(options) },
       zeroline: false,
       ...(includeZero ? { rangemode: 'tozero' } : {})
     },
