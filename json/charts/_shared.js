@@ -125,6 +125,25 @@ export function resolveValueAxisLabel(options) {
 }
 
 /**
+ * Round a jittered category coordinate for the emitted spec.
+ *
+ * These are display positions, not data: a point's x is its group index plus a deterministic
+ * offset bounded by the jitter width, so the whole range is roughly [0.7, K + 0.3] whatever the
+ * measurements are. Full double precision buys nothing there — 0.001 of a category unit is a
+ * fraction of a pixel — but it costs ~18 characters per observation in a spec that is stored as
+ * text, where the coordinates were 38-43% of the whole payload for a 100-row chart.
+ *
+ * Deliberately NOT applied to anything derived from the DATA — the central-tendency crossbar, the
+ * regression endpoints, the plotted values. Those carry the measurements' own scale: a fixed
+ * 3-decimal round sends a mean of 0.00039 to zero. Only the bounded coordinate is safe.
+ * @param {number} coord
+ * @returns {number}
+ */
+export function roundJitter(coord) {
+  return Math.round(coord * 1000) / 1000;
+}
+
+/**
  * Join labels with a separator, breaking lines BETWEEN labels rather than between words.
  *
  * `wrapText` counts whitespace-separated tokens, which is right for a single label but wrong for a

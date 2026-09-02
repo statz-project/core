@@ -6,7 +6,7 @@
 //
 // Mirrors r.plot.individual_values(paired=TRUE).
 import variants from '../variants.js';
-import { resolveTheme, wrapText, computeCenter, resolveMomentAxisLabel, resolveValueAxisLabel } from './_shared.js';
+import { resolveTheme, wrapText, computeCenter, resolveMomentAxisLabel, resolveValueAxisLabel, roundJitter } from './_shared.js';
 
 /** @param {number} i */
 function deterministicJitter(i) {
@@ -101,7 +101,7 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
       /** @type {number[]} */
       const ys = [];
       for (let k = 0; k < K; k++) {
-        xs.push(k + 1 + subjectOffsets[s]);
+        xs.push(roundJitter(k + 1 + subjectOffsets[s]));
         ys.push(aligned[k][s]);
       }
       data.push({
@@ -124,7 +124,7 @@ export function chart_paired_n(responses, labels, options = {}, meta = {}) {
     for (let k = 0; k < K; k++) {
       const xCenter = k + 1;
       const ys = aligned[k];
-      const xs = ys.map((_, s) => xCenter + subjectOffsets[s]);
+      const xs = ys.map((_, s) => roundJitter(xCenter + subjectOffsets[s]));
       data.push({
         type: 'scatter',
         mode: 'markers',

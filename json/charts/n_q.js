@@ -4,7 +4,7 @@
 // optional box overlay per group.
 import variants from '../variants.js';
 import factors from '../factors.js';
-import { resolveTheme, wrapText, wrapTitle, computeCenter } from './_shared.js';
+import { resolveTheme, wrapText, wrapTitle, computeCenter, roundJitter } from './_shared.js';
 
 /**
  * Deterministic pseudo-random in [-0.5, 0.5) keyed by index. Allows tests to assert
@@ -80,7 +80,7 @@ export function chart_n_q(numericVals, groupVals, options = {}, meta = {}) {
       });
     }
     if (showPoints) {
-      const xs = ys.map((_, i) => xCenter + deterministicJitter(i) * 2 * jitterWidth);
+      const xs = ys.map((_, i) => roundJitter(xCenter + deterministicJitter(i) * 2 * jitterWidth));
       data.push({
         type: 'scatter',
         mode: 'markers',

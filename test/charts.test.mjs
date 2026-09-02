@@ -3268,3 +3268,57 @@ test("point and scatter charts let Plotly size the margin for their axis text", 
   // The bar family keeps the automargin it already had on its categorical axis.
   assert.equal(entry(['q'], []).chart.spec.layout.xaxis.automargin, true);
 });
+
+test("jitter coordinates are rounded; data-scaled values are not", () => {
+  // Result_json is stored as text in Bubble, and for a 100-row point chart the full-precision
+  // jitter coordinates were 38-43% of the payload. They are display positions in a bounded range
+  // (group index ± the jitter width), so 0.001 of a category unit — a fraction of a pixel — is
+  // all the precision they can use.
+  const N = 60;
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values, { col_type: type, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const num = mk('hn', 'Escore', 'n', Array.from({ length: N }, (_, i) => String(3 + i % 7)));
+  const grp = mk('hq', 'Sexo', 'q', Array.from({ length: N }, (_, i) => ['female', 'male'][i % 2]));
+  const t1 = mk('ht1', 'Peso T1', 'n', Array.from({ length: N }, (_, i) => String(60 + i % 30)));
+  const t2 = mk('ht2', 'Peso T2', 'n', Array.from({ length: N }, (_, i) => String(63 + i % 30)));
+  const db = { dbA: { columns: [num, grp, t1, t2] } };
+  const spec = (preds, resps) => Statz.runAnalysis(preds.map(sig), resps.map(sig), db,
+    Statz.getDefaultAnalysisOptions({ mode: 'chart' })).result.analysis[0].chart.spec;
+  const decimals = (v) => String(v).split('.')[1]?.length ?? 0;
+
+  for (const [name, s] of [['n', spec([num], [])], ['n x q', spec([num], [grp])], ['paired_n', spec([], [t1, t2])]]) {
+    const xs = s.data.flatMap((tr) => tr.x ?? []).filter((v) => typeof v === 'number');
+    assert.ok(xs.length > N, `${name}: there are coordinates to check`);
+    for (const x of xs) assert.ok(decimals(x) <= 3, `${name}: ${x} kept full precision`);
+    // Still inside the jitter band around its category, so nothing moved visibly.
+    for (const x of xs) assert.ok(x > 0.6 && x < s.layout.xaxis.range[1], `${name}: ${x} left the plot`);
+    // ...and the jitter still SPREADS. Rounding is only free while it stays far below the band:
+    // round hard enough and every point in a group snaps onto the tick, which is precisely the
+    // overlap the jitter exists to break up.
+    const points = s.data.filter((tr) => tr.mode === 'markers');
+    assert.ok(points.length > 0, `${name}: has point traces`);
+    for (const tr of points) {
+      const spread = Math.max(...tr.x) - Math.min(...tr.x);
+      assert.ok(spread > 0.1, `${name}: jitter collapsed to a spread of ${spread}`);
+      assert.ok(new Set(tr.x).size > 5, `${name}: only ${new Set(tr.x).size} distinct positions`);
+    }
+  }
+
+  // The safety line: a central-tendency crossbar carries the DATA's scale, so a fixed-decimal
+  // round would destroy it. With concentrations around 0.0003, rounding to 3 decimals would put
+  // the trend line on zero — these must keep every digit.
+  const tiny = mk('ht', 'Concentracao', 'n', Array.from({ length: 20 }, (_, i) => (0.0003 + i * 0.00001).toFixed(6)));
+  const tinySpec = Statz.runAnalysis([sig(tiny)], [sig(grp)], { dbA: { columns: [tiny, grp] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart' })).result.analysis[0].chart.spec;
+  const crossbars = tinySpec.data.filter((tr) => tr.mode === 'lines');
+  assert.ok(crossbars.length > 0);
+  for (const bar of crossbars) {
+    assert.ok(bar.y[0] > 0, `crossbar at ${bar.y[0]} was rounded away`);
+    assert.ok(bar.y[0] < 0.001, 'the fixture really is below a 3-decimal floor');
+  }
+  // ...while that same chart's coordinates are still rounded.
+  for (const x of tinySpec.data.flatMap((tr) => tr.x ?? [])) assert.ok(decimals(x) <= 3);
+});

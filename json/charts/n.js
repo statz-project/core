@@ -3,7 +3,7 @@
 // All points are drawn at the same x position (single category) with horizontal jitter,
 // a horizontal crossbar marks the mean, and an optional boxplot can overlay the points.
 import variants from '../variants.js';
-import { resolveTheme, resolveValueAxisLabel, wrapTitle, computeCenter } from './_shared.js';
+import { resolveTheme, resolveValueAxisLabel, wrapTitle, computeCenter, roundJitter } from './_shared.js';
 
 /**
  * Deterministic pseudo-random in [-0.5, 0.5) keyed by index. Allows tests to assert
@@ -67,7 +67,7 @@ export function chart_n(values, options = {}, meta = {}) {
     });
   }
   if (showPoints) {
-    const xJitter = nums.map((_, i) => 1 + deterministicJitter(i) * 2 * jitterWidth);
+    const xJitter = nums.map((_, i) => roundJitter(1 + deterministicJitter(i) * 2 * jitterWidth));
     const center = computeCenter(nums, centerMode);
     data.push({
       type: 'scatter',
