@@ -150,7 +150,10 @@ ns.OPTION_METADATA = {
   },
   label_list_with_column: {
     category: 'table', type: 'boolean', default: true, enum: null,
-    appliesTo: ALL_LIST_EXPAND, modeGate: 'table',
+    // Both modes. The prefix rides on the entry's `predictor`, which the chart path uses for the
+    // cell heading, for the legend title (percent_by 'col') and for the category-axis title
+    // (percent_by 'row') — three visible places, not one table column.
+    appliesTo: ALL_LIST_EXPAND, modeGate: null,
     labelKey: 'options.label_list_with_column.label', descriptionKey: 'options.label_list_with_column.description'
   },
   with_residuals: {
@@ -193,12 +196,16 @@ ns.OPTION_METADATA = {
     // yes/no labels) is called by table AND chart callers for lq/ql/ln/ll. Previous
     // `['has_l', 'has_lq', 'has_ln']` was wrong on both ends — surfaced under
     // Profile A `has_l` (which never binarizes) and omitted `has_ql` / `has_ll`.
-    enum: null, appliesTo: ALL_LIST_EXPAND, modeGate: 'table',
+    // The mode gate lagged behind that fix: the same "table AND chart callers" reasoning applies
+    // to it. The labels become the series names (percent_by 'col') or the axis categories
+    // (percent_by 'row'), and in `has_ln`/`has_nl` both at once.
+    enum: null, appliesTo: ALL_LIST_EXPAND, modeGate: null,
     labelKey: 'options.yes_label.label', descriptionKey: 'options.yes_label.description'
   },
   no_label: {
     category: 'table', type: 'string', default: null, defaultI18nKey: '__binary__',
-    enum: null, appliesTo: ALL_LIST_EXPAND, modeGate: 'table',
+    // Both modes, for the reason spelled out on `yes_label` above.
+    enum: null, appliesTo: ALL_LIST_EXPAND, modeGate: null,
     labelKey: 'options.no_label.label', descriptionKey: 'options.no_label.description'
   },
   binary_min_count: {

@@ -3131,3 +3131,40 @@ test("paired_n labels its value axis generically, not after one moment's column"
     assert.equal(entry.response, 'Peso T1 × Peso T2 × Peso T3');
   }
 });
+
+test("list-expansion labels reach the chart, not just the table", () => {
+  // The evidence behind opening label_list_with_column / yes_label / no_label to chart mode: each
+  // one changes something on screen. Asserted through runAnalysis so the driver's own wiring —
+  // which builds the cell heading from `predictor` — is covered too.
+  const N = 24;
+  const mk = (hash, label, type, values, sep) => {
+    const c = Statz.makeColumn(values, { col_type: type, col_sep: sep, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const list = mk('hl', 'Sintomas', 'l', Array.from({ length: N }, (_, i) => ['febre;tosse', 'tosse', 'febre'][i % 3]), ';');
+  const q = mk('hq', 'Desfecho', 'q', Array.from({ length: N }, (_, i) => ['alta', 'obito'][i % 2]));
+  const num = mk('hn', 'Idade', 'n', Array.from({ length: N }, (_, i) => String(40 + i)));
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const run = (resp, extra) => Statz.runAnalysis([sig(list)], [sig(resp)], { dbA: { columns: [list, q, num] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', lang: 'pt_br', ...extra })).result.analysis[0];
+  const series = (e) => e.chart.spec.data.map((t) => t.name);
+  const ticks = (e) => e.chart.spec.layout.xaxis.ticktext ?? e.chart.spec.data[0].x;
+
+  // label_list_with_column: the prefix shows in all three places the reporter named.
+  const on = run(q, {}), off = run(q, { label_list_with_column: false });
+  assert.match(on.predictor, /^Sintomas: /, 'cell heading carries the prefix');
+  assert.match(on.chart.spec.layout.legend.title.text, /^Sintomas: /, "and the legend title under percent_by 'col'");
+  assert.match(run(q, { percent_by: 'row' }).chart.spec.layout.xaxis.title.text, /^Sintomas: /,
+    "and the axis title under 'row'");
+  assert.equal(off.predictor, 'febre', 'turned off, the bare item remains');
+  assert.equal(off.chart.spec.layout.legend.title.text, 'febre');
+
+  // yes_label / no_label: the series names under 'col', the axis categories under 'row'.
+  const custom = { yes_label: 'Presente', no_label: 'Ausente' };
+  assert.deepEqual(series(run(q, {})), ['Não', 'Sim']);
+  assert.deepEqual(series(run(q, custom)), ['Ausente', 'Presente']);
+  assert.deepEqual(ticks(run(q, { percent_by: 'row' })), ['Não', 'Sim']);
+  assert.deepEqual(ticks(run(q, { percent_by: 'row', ...custom })), ['Ausente', 'Presente']);
+  // has_ln routes through chart_n_q instead, where they land on the category axis.
+  assert.deepEqual(ticks(run(num, custom)), ['Ausente', 'Presente']);
+});

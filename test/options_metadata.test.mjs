@@ -392,3 +392,29 @@ test("percent_by presents itself differently in chart mode, where it does more",
       `${lang}: an option with no chart variant is unaffected`);
   }
 });
+
+test("the list-expansion options reach chart mode, because they change what the chart shows", () => {
+  // Reported for has_lq: chart mode offered only binary_min_count, yet the other three visibly
+  // change the chart. The prefix rides on the entry's `predictor` — cell heading, legend title
+  // (percent_by 'col'), category-axis title ('row') — and the yes/no labels become the series
+  // names or the axis categories depending on the same option.
+  const LIST_EXPAND = ['has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll'];
+  const SHARED = ['label_list_with_column', 'yes_label', 'no_label', 'binary_min_count'];
+  for (const flag of LIST_EXPAND) {
+    for (const mode of ['table', 'chart']) {
+      const names = getAvailableOptions([flag], mode).map((o) => o.name);
+      for (const option of SHARED) {
+        assert.ok(names.includes(option), `${flag} in ${mode} mode must offer ${option}`);
+      }
+    }
+  }
+  // And nowhere else: a shape that never binarizes a list has nothing for them to control.
+  for (const flag of ['has_q', 'has_l', 'has_n', 'has_qq', 'has_nq', 'has_paired_q']) {
+    for (const mode of ['table', 'chart']) {
+      const names = getAvailableOptions([flag], mode).map((o) => o.name);
+      for (const option of SHARED) {
+        assert.ok(!names.includes(option), `${flag} in ${mode} mode must not offer ${option}`);
+      }
+    }
+  }
+});
