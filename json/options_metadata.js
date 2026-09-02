@@ -302,7 +302,7 @@ ns.OPTION_METADATA = {
     labelKey: 'options.chart_x_label_wrap.label', descriptionKey: 'options.chart_x_label_wrap.description'
   },
   chart_include_zero: {
-    category: 'chart', type: 'boolean', default: true, enum: null,
+    category: 'chart', type: 'boolean', default: false, enum: null,
     appliesTo: ['has_n', 'has_nq', 'has_qn', 'has_nn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'chart',
     labelKey: 'options.chart_include_zero.label', descriptionKey: 'options.chart_include_zero.description'
   },

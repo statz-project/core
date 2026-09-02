@@ -41,7 +41,12 @@ export function chart_n_n(predictorVals, responseVals, options = {}, meta = {}) 
 
   const theme = resolveTheme(options.chart_theme);
   const pointSize = Number.isFinite(Number(options.chart_point_size)) ? Number(options.chart_point_size) : 8;
-  const includeZero = options.chart_include_zero !== false;
+  // Default OFF: a numeric variable is not assumed to be a magnitude measured from zero.
+  // Weights in the 60-90 range, or ages, would have all their variation squeezed into the top
+  // of the plot. Only the point/scatter charts read this — the bar families pin
+  // `rangemode: 'tozero'` unconditionally, since a bar's length IS its magnitude and a
+  // truncated baseline would misstate it.
+  const includeZero = options.chart_include_zero === true;
 
   /** @type {any[]} */
   const data = [{

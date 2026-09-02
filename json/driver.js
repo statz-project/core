@@ -824,7 +824,9 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
     ? (/** @type {any} */ (normalized).chart_width_mode) : 'auto';
   normalized.chart_bar_orientation = ['auto', 'vertical', 'horizontal'].includes((/** @type {any} */ (normalized).chart_bar_orientation))
     ? (/** @type {any} */ (normalized).chart_bar_orientation) : 'auto';
-  normalized.chart_include_zero = (/** @type {any} */ (normalized).chart_include_zero) !== false;
+  // Opt-in, not opt-out — see the note in the chart builders. Forcing a zero baseline on an
+  // arbitrary numeric variable hides the variation the chart exists to show.
+  normalized.chart_include_zero = (/** @type {any} */ (normalized).chart_include_zero) === true;
   // Static by default: charts render without hover crosshair / zoom / pan. Opt-in via
   // `chart_interactive: true` surfaces Plotly's native interactive gestures.
   /** @type {any} */ (normalized).chart_interactive = (/** @type {any} */ (normalized).chart_interactive) === true;

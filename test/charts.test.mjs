@@ -4,6 +4,7 @@ import { Statz } from "../index.js";
 import { parseFixture } from '../scripts/dev/load-fixture.mjs';
 import driver from "../json/driver.js";
 import charts from "../json/charts/index.js";
+import optionsMetadata from "../json/options_metadata.js";
 import { chart_n_n } from "../json/charts/n_n.js";
 
 globalThis.Statz = Statz;
@@ -3167,4 +3168,56 @@ test("list-expansion labels reach the chart, not just the table", () => {
   assert.deepEqual(ticks(run(q, { percent_by: 'row', ...custom })), ['Ausente', 'Presente']);
   // has_ln routes through chart_n_q instead, where they land on the category axis.
   assert.deepEqual(ticks(run(num, custom)), ['Ausente', 'Presente']);
+});
+
+test("chart_include_zero is opt-in, and never governs a bar baseline", () => {
+  // Flipped from true: a numeric variable is not assumed to be a magnitude measured from zero, so
+  // forcing the baseline squeezed weights in the 60-90 range into the top of the plot. Safe to
+  // flip only because the option reaches the point/scatter charts alone — the bar families pin
+  // `rangemode: 'tozero'` unconditionally, where a truncated baseline would misstate the data.
+  assert.equal(Statz.getDefaultAnalysisOptions({}).chart_include_zero, false);
+  assert.equal(optionsMetadata.getOptionDefault('chart_include_zero', 'en_us'), false,
+    'the metadata default must agree, it is what the panel seeds the widget from');
+
+  const N = 24;
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values, { col_type: type, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const peso = mk('hn', 'Peso', 'n', Array.from({ length: N }, (_, i) => String(60 + i)));
+  const alt = mk('hn2', 'Altura', 'n', Array.from({ length: N }, (_, i) => String(150 + (i * 3) % 40)));
+  const sexo = mk('hq', 'Sexo', 'q', Array.from({ length: N }, (_, i) => ['f', 'm'][i % 2]));
+  const desf = mk('hq2', 'Desfecho', 'q', Array.from({ length: N }, (_, i) => ['alta', 'obito'][(i >> 1) % 2]));
+  const t1 = mk('ht1', 'T1', 'n', Array.from({ length: N }, (_, i) => String(60 + i)));
+  const t2 = mk('ht2', 'T2', 'n', Array.from({ length: N }, (_, i) => String(63 + i)));
+  const b1 = mk('hb1', 'B1', 'q', Array.from({ length: N }, (_, i) => (i < 18 ? 'no' : 'yes')));
+  const b2 = mk('hb2', 'B2', 'q', Array.from({ length: N }, (_, i) => (i < 6 ? 'no' : 'yes')));
+  const db = { dbA: { columns: [peso, alt, sexo, desf, t1, t2, b1, b2] } };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const modes = (preds, resps, extra) => {
+    const l = Statz.runAnalysis(preds.map(sig), resps.map(sig), db,
+      Statz.getDefaultAnalysisOptions({ mode: 'chart', ...extra })).result.analysis[0].chart.spec.layout;
+    return [l.xaxis?.rangemode, l.yaxis?.rangemode];
+  };
+
+  // Point and scatter charts: off by default, and the option still turns it back on.
+  for (const [name, preds, resps] of [
+    ['n', [peso], []], ['n x q', [peso], [sexo]], ['n x n', [peso], [alt]], ['paired_n', [], [t1, t2]]
+  ]) {
+    assert.ok(!modes(preds, resps, {}).includes('tozero'), `${name}: no forced baseline by default`);
+    assert.ok(modes(preds, resps, { chart_include_zero: true }).includes('tozero'), `${name}: opt back in`);
+  }
+
+  // Bar families: pinned either way — the option must not be able to truncate a bar.
+  for (const [name, preds, resps] of [['q x q', [sexo], [desf]], ['paired_q', [], [b1, b2]]]) {
+    for (const chart_include_zero of [true, false]) {
+      assert.ok(modes(preds, resps, { chart_include_zero }).includes('tozero'),
+        `${name}: zero baseline holds with chart_include_zero=${chart_include_zero}`);
+    }
+  }
+
+  // A builder called directly with no options must agree with the driver's normalization, or the
+  // two disagree about the default the way formatBarLabel once did about the language.
+  assert.equal(chart_n(['60', '70', '80'], {}, {}).spec.layout.yaxis.rangemode, undefined);
+  assert.equal(chart_n(['60', '70', '80'], { chart_include_zero: true }, {}).spec.layout.yaxis.rangemode, 'tozero');
 });
