@@ -3352,3 +3352,47 @@ test("chart_options is a chart-mode payload, and only chart mode carries it", ()
     Statz.getDefaultAnalysisOptions({ mode: 'table' })).result;
   assert.ok(!('chart_options' in univariate));
 });
+
+test("chart_include_zero reaches every numeric axis it claims, scatter included", () => {
+  // Reported as "offered for n x n but not used there". It IS used — measurably — but the label
+  // said "Y axis" while a scatter has data on BOTH axes and gets `rangemode: 'tozero'` on each,
+  // so the control did something the wording did not describe.
+  const N = 30;
+  const mk = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'n', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const x = mk('hx', 'Peso', Array.from({ length: N }, (_, i) => String(60 + i)));
+  const y = mk('hy', 'Altura', Array.from({ length: N }, (_, i) => String(150 + ((i * 3) % 40))));
+  const q = mk('hq', 'Sexo', Array.from({ length: N }, (_, i) => ['f', 'm'][i % 2]));
+  q.col_type = 'q';
+  const db = { dbA: { columns: [x, y, q] } };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const layoutOf = (preds, resps, chart_include_zero) => Statz.runAnalysis(preds.map(sig), resps.map(sig), db,
+    Statz.getDefaultAnalysisOptions({ mode: 'chart', chart_include_zero })).result.analysis[0].chart.spec.layout;
+
+  // Scatter: both axes carry data, so both respond.
+  assert.equal(layoutOf([x], [y], false).xaxis.rangemode, undefined);
+  assert.equal(layoutOf([x], [y], false).yaxis.rangemode, undefined);
+  assert.equal(layoutOf([x], [y], true).xaxis.rangemode, 'tozero');
+  assert.equal(layoutOf([x], [y], true).yaxis.rangemode, 'tozero');
+
+  // Where the other axis is categorical, only the value axis responds — the case the old wording
+  // described, and the reason it had to become generic rather than name the y axis.
+  const grouped = layoutOf([x], [q], true);
+  assert.equal(grouped.yaxis.rangemode, 'tozero');
+  assert.equal(grouped.xaxis.rangemode, undefined, 'the category axis is untouched');
+
+  // The wording now covers both, in every language, and no longer promises only the y axis.
+  for (const lang of ['pt_br', 'en_us', 'es_es']) {
+    const label = optionsMetadata.getOptionLabel('chart_include_zero', lang);
+    const description = optionsMetadata.getOptionDescription('chart_include_zero', lang);
+    // Token comparison, not a regex: an escaped word boundary does not survive the trip through
+    // a template literal, and silently became a literal backspace here once already.
+    const words = label.split(/[^A-Za-zÀ-ɏ]+/).filter(Boolean);
+    for (const axis of ['Y', 'X']) {
+      assert.ok(!words.includes(axis), `${lang}: label still names the ${axis} axis (${label})`);
+    }
+    assert.ok(description.length > 0, `${lang}: the option keeps a description`);
+  }
+});
