@@ -1865,16 +1865,20 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
     }
   });
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+  /** @type {any} */
+  const finalResult = { analysis: result, test_legend, lang };
   // `chart_options` bag on the result carries HTML-level chart display flags for
   // `exportCombinedAsChartHTML` to consume (currently: `show_title` gates the
   // <div class="statz-chart-title"> heading above each cell — warning cells always
-  // keep their heading so the user can identify which analysis was rejected).
-  /** @type {any} */
-  const finalResult = { analysis: result, test_legend, lang };
-  finalResult.chart_options = {
-    show_title: (/** @type {any} */ (mergedOptions).chart_show_title) === true,
-    width_mode: (/** @type {any} */ (mergedOptions).chart_width_mode) === 'full' ? 'full' : 'auto'
-  };
+  // keep their heading so the user can identify which analysis was rejected; `width_mode`
+  // picks the grid class). Emitted in chart mode only: a table result has no chart for these
+  // to describe, and Result_json is stored as text, so the bag was pure noise there.
+  if (mergedOptions.mode === 'chart') {
+    finalResult.chart_options = {
+      show_title: (/** @type {any} */ (mergedOptions).chart_show_title) === true,
+      width_mode: (/** @type {any} */ (mergedOptions).chart_width_mode) === 'full' ? 'full' : 'auto'
+    };
+  }
   return { result: finalResult, flags: Array.from(flagsUsed) };
 };
 

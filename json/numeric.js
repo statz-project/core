@@ -1,5 +1,5 @@
 // @ts-check
-import { getJStat, getSS, getStatsLib, formatNumberLocale } from './_env.js';
+import { getJStat, getSS, getStatsLib, formatNumberLocale, formatPValue, PVALUE_DECIMALS, PVALUE_THRESHOLD } from './_env.js';
 import { getBinaryLabels, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 import variants from './variants.js';
 import factors from './factors.js';
@@ -386,18 +386,24 @@ ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, optio
   // 5. Build display table.
   const statisticLabel = translate('table.columns.variable', lang) || 'Statistic';
   const valueLabel = translate('table.columns.description', lang) || 'Value';
-  const fmt = (/** @type {number} */ v, decimals = 4) => Number.isFinite(v) ? formatNumberLocale(v, decimals, lang) : '';
+  // Two decimals: a correlation and its interval are read for direction and rough strength, and
+  // r = 0,87 says everything r = 0,8712 does. The four-decimal `correlation` / `ci_*` fields on
+  // the returned object keep the precision for anyone computing with them.
+  const fmt = (/** @type {number} */ v, decimals = 2) => Number.isFinite(v) ? formatNumberLocale(v, decimals, lang) : '';
   const ciText = (Number.isFinite(ci_lower) && Number.isFinite(ci_upper))
     ? `[${fmt(ci_lower)}, ${fmt(ci_upper)}]`
     : '';
+  // Through the shared formatter like every other p-value in the library. The literal it replaces
+  // was neither localized (a decimal point in a pt_br table) nor consistent with the 3 decimals
+  // and `<0,001` cut-off used everywhere else.
   const pText = Number.isFinite(p_value)
-    ? (p_value < 0.0001 ? '<0.0001' : fmt(p_value))
+    ? formatPValue(p_value, PVALUE_DECIMALS, PVALUE_THRESHOLD, lang)
     : '';
   const rows = [
     { [statisticLabel]: 'n', [valueLabel]: String(n) },
     { [statisticLabel]: 'r', [valueLabel]: fmt(r) },
-    { [statisticLabel]: '95% CI', [valueLabel]: ciText },
-    { [statisticLabel]: 'p-value', [valueLabel]: pText }
+    { [statisticLabel]: translate('table.columns.ci95', lang), [valueLabel]: ciText },
+    { [statisticLabel]: translate('table.columns.pValue', lang), [valueLabel]: pText }
   ];
   return {
     columns: [statisticLabel, valueLabel],

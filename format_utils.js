@@ -19,6 +19,15 @@ export function round(num, decimals) {
  * @param {string=} lang e.g., 'pt_br' | 'en_us'
  * @returns {string}
  */
+/**
+ * How every p-value in the library is rendered: 3 decimals, with anything below 0.001 collapsed to
+ * `<0,001`. Exported so the exporters and the summaries that pre-format their own cells
+ * (`summarize_n_n`) cannot drift apart — they did, and one printed a hardcoded, unlocalized
+ * `<0.0001` beside the other's `0,020`.
+ */
+export const PVALUE_DECIMALS = 3;
+export const PVALUE_THRESHOLD = 0.001;
+
 export function formatPValue(p, decimals = 3, threshold = 0.001, lang = "pt_br") {
   if (typeof p !== "number" || isNaN(p)) return "-";
   const localeMap = { pt_br: "pt-BR", en_us: "en-US", es_es: "es-ES" };

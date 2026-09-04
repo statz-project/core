@@ -3322,3 +3322,33 @@ test("jitter coordinates are rounded; data-scaled values are not", () => {
   // ...while that same chart's coordinates are still rounded.
   for (const x of tinySpec.data.flatMap((tr) => tr.x ?? [])) assert.ok(decimals(x) <= 3);
 });
+
+test("chart_options is a chart-mode payload, and only chart mode carries it", () => {
+  // It was attached unconditionally, so a table result advertised chart display flags it has no
+  // charts to apply them to — noise in a Result_json that Bubble stores as text.
+  const N = 20;
+  const mk = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'n', includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const x = mk('hx', 'Predictor', Array.from({ length: N }, (_, i) => String(i + 1)));
+  const y = mk('hy', 'Response', Array.from({ length: N }, (_, i) => String((2 * (i + 1)) + ((i % 5) * 0.4))));
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const run = (mode) => Statz.runAnalysis([sig(x)], [sig(y)], { dbA: { columns: [x, y] } },
+    Statz.getDefaultAnalysisOptions({ mode, lang: 'pt_br' })).result;
+
+  const table = run('table');
+  assert.ok(!('chart_options' in table), `table mode carries ${Object.keys(table)}`);
+  assert.deepEqual(Object.keys(table), ['analysis', 'test_legend', 'lang']);
+
+  // Chart mode still carries it, with both flags the exporter reads.
+  const chart = run('chart');
+  assert.deepEqual(Object.keys(chart.chart_options).sort(), ['show_title', 'width_mode']);
+  assert.equal(chart.chart_options.show_title, false, 'chart_show_title default');
+  assert.equal(chart.chart_options.width_mode, 'auto', 'chart_width_mode default');
+
+  // A univariate table result too — the gate is on the mode, not on the analysis shape.
+  const univariate = Statz.runAnalysis([sig(x)], [], { dbA: { columns: [x, y] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'table' })).result;
+  assert.ok(!('chart_options' in univariate));
+});

@@ -1673,3 +1673,67 @@ test("degenerate groups do not fabricate a Welch result", () => {
   // The descriptive rows still reach the reader — a test that cannot run must not blank the summary.
   assert.ok(table.rows.length > 0 && table.columns.length > 0);
 });
+
+test("the correlation table is localized and reads at a useful precision", () => {
+  // Reported from a pt_br element: `p-value` and `95% CI` as English row labels, the p-value
+  // printed as a hardcoded `<0.0001` with a decimal POINT, and r / CI carrying four decimals.
+  // Three of those are the same defect — a summary that pre-formats its own cells had drifted
+  // from the shared formatters — and the fourth is a readability call.
+  const N = 50;
+  const xs = Array.from({ length: N }, (_, i) => String([3, 9, 1, 7, 5, 2, 8, 4, 6, 10][i % 10]));
+  const ys = Array.from({ length: N }, (_, i) => String([5, 2, 9, 1, 7, 4, 3, 10, 6, 8][i % 10]));
+
+  for (const [lang, ciLabel, pLabel, decimal] of [
+    ['pt_br', 'IC 95%', 'p-valor', ','],
+    ['en_us', '95% CI', 'p-value', '.'],
+    ['es_es', 'IC 95%', 'Valor p', ',']
+  ]) {
+    const table = Statz.summarize_n_n(xs, ys, null, { lang });
+    const cell = (label) => table.rows.find((r) => r[table.columns[0]] === label)?.[table.columns[1]];
+    assert.ok(cell(ciLabel) !== undefined, `${lang}: the CI row is labelled ${ciLabel}`);
+    assert.ok(cell(pLabel) !== undefined, `${lang}: the p-value row is labelled ${pLabel}`);
+    // Two decimals on r and on both interval bounds. Checked by splitting on the locale's
+    // separator rather than by regex, which needs escaping that a template literal eats.
+    const decimalsOf = (text) => String(text).split(decimal)[1]?.length ?? 0;
+    assert.equal(decimalsOf(cell('r')), 2, `${lang}: r = ${cell('r')}`);
+    for (const bound of cell(ciLabel).replace('[', '').replace(']', '').split(', ')) {
+      assert.equal(decimalsOf(bound), 2, `${lang}: CI bound ${bound}`);
+    }
+    // The p-value uses the locale's separator and the shared 3-decimal rendering.
+    assert.ok(!cell(pLabel).includes(decimal === ',' ? '.' : ','), `${lang}: ${cell(pLabel)} uses the wrong separator`);
+    assert.ok(!cell(pLabel).includes('0001'), `${lang}: the 4-decimal cut-off is gone (${cell(pLabel)})`);
+  }
+
+  // Display precision only: the returned fields keep four decimals for anyone computing with them.
+  const table = Statz.summarize_n_n(xs, ys, null, { lang: 'pt_br' });
+  for (const key of ['correlation', 'ci_lower', 'ci_upper']) {
+    assert.ok(Number.isFinite(table[key]), key);
+    assert.ok(String(table[key]).replace('-', '').split('.')[1]?.length <= 4, `${key} keeps 4 decimals`);
+  }
+  assert.notEqual(table.correlation, Number(table.rows[1][table.columns[1]].replace(',', '.')),
+    'the stored value is more precise than the rendered one');
+
+  // A p-value below the shared threshold reads as the shared cut-off, not a private one.
+  const strong = Array.from({ length: N }, (_, i) => String(i + 1));
+  const alsoStrong = Array.from({ length: N }, (_, i) => String((2 * (i + 1)) + ((i % 5) * 0.4)));
+  const strongTable = Statz.summarize_n_n(strong, alsoStrong, null, { lang: 'pt_br' });
+  assert.equal(strongTable.rows.find((r) => r[strongTable.columns[0]] === 'p-valor')[strongTable.columns[1]], '<0,001');
+});
+
+test("the correlation table names the test it actually ran", () => {
+  // Both branches build the same table, so a formatting change must not blur which one produced it.
+  const N = 50;
+  const linear = { x: Array.from({ length: N }, (_, i) => String(i + 1)),
+    y: Array.from({ length: N }, (_, i) => String((2 * (i + 1)) + ((i % 5) * 0.4))) };
+  assert.equal(Statz.summarize_n_n(linear.x, linear.y, null, { lang: 'en_us' }).test_used, 'Pearson correlation');
+
+  // Strongly skewed marginals fail the normality check and route to the rank correlation.
+  const rnd = (s) => () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const next = rnd(7);
+  const skewed = Array.from({ length: N }, () => +((next() ** 6) * 1000).toFixed(3));
+  const monotone = skewed.map((v, i) => +((v ** 0.5) + (i % 4)).toFixed(3));
+  const table = Statz.summarize_n_n(skewed.map(String), monotone.map(String), null, { lang: 'en_us' });
+  assert.equal(table.test_used, 'Spearman correlation');
+  assert.equal(Statz.summarize_n_n(skewed.map(String), monotone.map(String), null, { lang: 'pt_br' }).test_used,
+    'Correlação de Spearman');
+});
