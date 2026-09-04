@@ -1737,3 +1737,119 @@ test("the correlation table names the test it actually ran", () => {
   assert.equal(Statz.summarize_n_n(skewed.map(String), monotone.map(String), null, { lang: 'pt_br' }).test_used,
     'Correlação de Spearman');
 });
+
+test("every analysis gets its p-value cell and symbol, whatever order it is listed in", () => {
+  // Reported: an n x n listed before a q x n showed its legend entry but no superscript, and no
+  // p-value cell at all. Rows are written against the columns known SO FAR, and `summarize_n_n`
+  // reports its p inside its rows rather than in a column — so nothing had declared the p-value
+  // column by the time the correlation's intro row was built. The same two analyses in the
+  // opposite order came out right, which is what makes it a bug rather than a layout choice.
+  const N = 50;
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values, { col_type: type, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const x = mk('hx', 'NumPred', 'n', Array.from({ length: N }, (_, i) => String(i + 1)));
+  const y = mk('hy', 'NumResp', 'n', Array.from({ length: N }, (_, i) => String((2 * (i + 1)) + ((i % 5) * 0.4))));
+  const o = mk('ho', 'Origin', 'q', Array.from({ length: N }, (_, i) => ['foreign', 'local'][i % 2]));
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const combine = (preds) => {
+    const { result } = Statz.runAnalysis(preds.map(sig), [sig(y)], { dbA: { columns: [x, y, o] } },
+      Statz.getDefaultAnalysisOptions({ mode: 'table', lang: 'pt_br' }));
+    return Statz.combineAnalysisAsSingleTable(result);
+  };
+  const headerCells = (combined) => combined.rows
+    .filter((r) => Statz.isPredictorHeaderRow(r[combined.columns[0]]))
+    .map((r) => ({ label: r[combined.columns[0]].replace(/<[^>]+>/g, ''), p: r['p-valor'] }));
+
+  for (const [name, preds] of [['correlation first', [x, o]], ['comparison first', [o, x]]]) {
+    const combined = combine(preds);
+    assert.ok(combined.columns.includes('p-valor'), `${name}: the column exists`);
+    const headers = headerCells(combined);
+    assert.equal(headers.length, 2, name);
+    for (const { label, p } of headers) {
+      assert.ok(p && p.length > 0, `${name}: ${label} has no p-value cell`);
+      // Every symbol printed must be one the legend explains, and vice versa.
+      const symbol = p.replace(/^[^¹²³⁰-₟]*/, '');
+      assert.ok(symbol.length > 0, `${name}: ${label} carries no symbol (${p})`);
+      assert.ok(combined.test_legend.some((e) => e.symbol === symbol),
+        `${name}: ${symbol} is not in the legend`);
+    }
+    // The correlation's p reads the same either way; only its symbol number follows the order.
+    const correlation = headers.find((h) => h.label.includes('NumPred'));
+    assert.ok(correlation.p.startsWith('<0,001'), `${name}: ${correlation.p}`);
+  }
+
+  // A lone correlation still gets the column — before, nothing declared it and the p vanished.
+  const solo = combine([x]);
+  assert.ok(solo.columns.includes('p-valor'));
+  assert.equal(headerCells(solo).length, 1);
+  assert.ok(headerCells(solo)[0].p.startsWith('<0,001'));
+
+  // And the p is printed once per block: the statistics list keeps n / r / CI, not a second p.
+  const bodyLabels = solo.rows
+    .filter((r) => !Statz.isPredictorHeaderRow(r[solo.columns[0]]))
+    .map((r) => r['Variável']);
+  assert.deepEqual(bodyLabels, ['n', 'r', 'IC 95%'], 'the duplicated p-value row is gone');
+
+  // Nothing was dropped from a table that owns a p-value column: its rows blank it themselves.
+  const grouped = combine([o]);
+  assert.equal(grouped.rows.filter((r) => !Statz.isPredictorHeaderRow(r[grouped.columns[0]])).length, 1);
+
+  // The column is seeded only where some analysis reports a p. A descriptive-only listing has no
+  // test behind it, so it must not grow an empty column just because the seeding runs up front.
+  const { result: descriptive } = Statz.runAnalysis([sig(x), sig(o)], [], { dbA: { columns: [x, y, o] } },
+    Statz.getDefaultAnalysisOptions({ mode: 'table', lang: 'pt_br' }));
+  const described = Statz.combineAnalysisAsSingleTable(descriptive);
+  // Checked against every language: this listing resolves its labels differently from the ones
+  // above, and asserting the Portuguese spelling alone would pass without testing anything.
+  const anyPLabel = ['pt_br', 'en_us', 'es_es'].map((l) => Statz.translate('table.columns.pValue', l));
+  assert.ok(!described.columns.some((c) => anyPLabel.includes(c)), JSON.stringify(described.columns));
+});
+
+
+test("the first column is named for what the tables put in it, not for having a response", () => {
+  // Reported: an element holding only a correlation opened with an orphan "Grupo" column, empty in
+  // every row, while the Result_json it came from declared only ["Variável", "Descrição"]. The
+  // header was chosen from the analysis SHAPE — any entry with a response counted as grouped — but
+  // `summarize_n_n` keys its rows by variable, so nothing was ever written under it.
+  const N = 50;
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values, { col_type: type, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const x = mk('hx', 'NumPred', 'n', Array.from({ length: N }, (_, i) => String(i + 1)));
+  const y = mk('hy', 'NumResp', 'n', Array.from({ length: N }, (_, i) => String((2 * (i + 1)) + ((i % 5) * 0.4))));
+  const o = mk('ho', 'Origin', 'q', Array.from({ length: N }, (_, i) => ['foreign', 'local'][i % 2]));
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const run = (preds) => {
+    const { result } = Statz.runAnalysis(preds.map(sig), [sig(y)], { dbA: { columns: [x, y, o] } },
+      Statz.getDefaultAnalysisOptions({ mode: 'table', lang: 'pt_br' }));
+    return Statz.combineAnalysisAsSingleTable(result);
+  };
+  const groupLabel = Statz.translate('table.columns.group', 'pt_br');
+
+  // A correlation alone: the combined columns are the ones its own table declares, plus the p.
+  const solo = run([x]);
+  assert.deepEqual(solo.columns, ['Variável', 'Descrição', 'p-valor']);
+  assert.ok(!solo.columns.includes(groupLabel));
+  // Its rows land in that first column rather than leaving it blank.
+  assert.ok(solo.rows.every((r) => (r['Variável'] ?? '') !== ''), JSON.stringify(solo.rows));
+
+  // A grouped comparison still opens with the group column — alone or beside the correlation.
+  assert.equal(run([o]).columns[0], groupLabel);
+  const mixed = run([x, o]);
+  assert.equal(mixed.columns[0], groupLabel);
+  // There the correlation keeps its own "Variável" column and leaves the group one empty, which is
+  // what makes the lone case different: with no grouped table, the two are the same column.
+  assert.ok(mixed.columns.includes('Variável'));
+
+  // Warning entries (a rejected pairing, l × l without a subset, a response missing from a second
+  // Database) carry no columns for the rule above to read. An element where every entry is one of
+  // those keeps the older reading, so a rejected group comparison still says "Grupo".
+  const allWarnings = Statz.combineAnalysisAsSingleTable({
+    lang: 'pt_br',
+    analysis: [{ predictor: 'Origin', response: 'NumResp', table: { warning: 'não pareado' } }]
+  });
+  assert.deepEqual(allWarnings.columns, [groupLabel]);
+});

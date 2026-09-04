@@ -212,7 +212,19 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
   const resultArray = resultObj.analysis;
   const langCandidate = resultObj?.lang ?? resultArray?.find?.(obj => obj?.table?.lang)?.table?.lang;
   const lang = normalizeLanguage(langCandidate);
-  const hasGrouping = Array.isArray(resultArray) ? resultArray.some(obj => obj.response) : false;
+  // The first column carries the predictor header rows and, for grouped tables, the level names.
+  // Naming it "Group" whenever an analysis merely HAS a response left an orphan column on an
+  // element holding only a correlation: `summarize_n_n` keys its rows by "Variable", not by group,
+  // so "Group" stayed empty in every row and existed only to be swallowed by the header's colspan.
+  // Ask the tables what they actually declare instead of inferring it from the analysis shape.
+  // With no grouped table present the label collapses onto the "Variable" column the correlation
+  // already declares, which is what its own `table.columns` says. An element whose every entry is
+  // a warning declares no columns at all; there the old response-based reading still decides.
+  const groupColumn = translate('table.columns.group', lang);
+  const declaring = Array.isArray(resultArray) ? resultArray.filter(obj => Array.isArray(obj?.table?.columns)) : [];
+  const hasGrouping = declaring.length
+    ? declaring.some(obj => obj.table.columns[0] === groupColumn)
+    : (Array.isArray(resultArray) ? resultArray.some(obj => obj.response) : false);
   const firstColLabel = hasGrouping ? translate('table.columns.group', lang) : translate('table.columns.variable', lang);
   const pValueLabel = translate('table.columns.pValue', lang);
   const missingValue = translate('table.missingValue', lang);
@@ -220,6 +232,14 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
   if (!Array.isArray(resultArray)) return combined;
   const legendMap = new Map();
   const posthocByPredictor = [];
+  // Seed the p-value column before any row is built. Rows are written against the columns known
+  // SO FAR, so a table processed before the first one that declares a p-value column had nowhere
+  // to put its own — `summarize_n_n` reports its p inside its rows rather than in a column, so a
+  // correlation listed BEFORE a group comparison silently lost both its p-value cell and the
+  // superscript tying it to the legend, while the same two analyses in the opposite order came
+  // out right. The column is pinned last further down, so seeding it here does not fix its
+  // position, only its existence.
+  if (resultArray.some(obj => typeof obj?.table?.p_value === 'number')) combined.columns.push(pValueLabel);
   resultArray.forEach(obj => {
     const table = obj?.table;
     if (!table) return;
@@ -255,7 +275,14 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
     rowIntro._test_method = table.test_used;
     rowIntro._test_symbol = table.test_symbol;
     combined.rows.push(rowIntro);
+    // A table with no p-value COLUMN of its own reports its p as a body row instead (the
+    // `summarize_n_n` statistics list: n, r, CI, p). That row is dropped here because the intro
+    // row above now always carries the same p-value, in the p-value column, with the test symbol
+    // attached — keeping both would print it twice in the same block. Tables that do declare the
+    // column already blank it in their own body rows, so this never fires for them.
+    const duplicatesPValue = typeof table.p_value === 'number' && !table.columns.includes(pValueLabel);
     table.rows.forEach(row => {
+      if (duplicatesPValue && row[table.columns[0]] === pValueLabel) return;
       const fullRow = {};
       combined.columns.forEach(col => {
         fullRow[col] = row[col] ?? '';
