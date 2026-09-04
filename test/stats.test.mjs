@@ -1443,11 +1443,14 @@ test("has_kruskal_sign survives an adjustment that silences every pair", () => {
   // one-way switch `has_residuals` had. The flag therefore reports "Dunn ran", not "Dunn found
   // something": `flagsUsed.add` sits outside the `.filter(v => v.significant)`.
   //
-  // Fixture found by search: Kruskal is significant, and with three comparisons Bonferroni pushes
-  // every pair back over alpha while the uncorrected run keeps two.
-  const groups = ["a","a","a","a","a","b","b","b","b","b","c","c","c","c","c"];
-  const values = ["2.88","2.97","2.534","2.495","2.612","1.604","3.599","1.419","1.763","3.63",
-    "3.001","4.179","3.71","3.949","3.427"];
+  // Fixture found by search: strongly skewed, so the normality check routes it to Kruskal (a
+  // normal-but-heteroscedastic fixture now goes to Welch + Games-Howell instead, correctly).
+  // Kruskal is significant, and with three comparisons Bonferroni pushes every pair back over
+  // alpha while the uncorrected run keeps two.
+  const groups = ["a","a","a","a","a","a","a","b","b","b","b","b","b","b","c","c","c","c","c","c","c"];
+  const values = ["0.022","0.021","0.125","0.001","0.126","10.538","0.013",
+    "0.505","1.795","6.841","0.595","5.393","0.586","1.12",
+    "1.102","1.02","1.012","2.197","1","1.895","1.039"];
   const summarize = (adjust_kruskal) => {
     const flags = new Set();
     const table = Statz.summarize_n_q(values, groups, null, flags,
@@ -1457,7 +1460,7 @@ test("has_kruskal_sign survives an adjustment that silences every pair", () => {
 
   const strict = summarize('bonferroni');
   const raw = summarize('none');
-  assert.equal(strict.table.test_used, 'Kruskal–Wallis');
+  assert.equal(strict.table.test_used, 'Kruskal–Wallis', 'the fixture must stay on the rank-test route');
   assert.ok(strict.table.p_value < 0.05, 'the omnibus test is significant either way');
   // The adjustment genuinely changes the outcome here — otherwise the assertion below is vacuous.
   assert.equal(strict.table.posthoc.length, 0, 'Bonferroni silences every pair');
@@ -1540,4 +1543,133 @@ test("Holm is a step-down: never weaker than Bonferroni, and monotone in raw-p o
     }
   }
   assert.ok(holmFoundMore > 10, `the sweep must actually separate the two (${holmFoundMore} cases)`);
+});
+
+test("k>2 routes heteroscedastic normal data to Welch + Games-Howell", () => {
+  // The parametric gate is `allNormal && homoscedastic`, and anything failing it used to fall to
+  // Kruskal-Wallis — which answers the wrong violation. Kruskal is the test for non-normality;
+  // it is not robust to unequal spread (it tests stochastic dominance, so equal medians with
+  // different variances can still reject). The two-group branch already made this distinction by
+  // switching ttest2 to `variance: 'unequal'`; this is the same correction for three or more.
+  const rep = (arr, k) => Array.from({ length: k }, () => arr).flat();
+  const routes = [
+    ['normal + homoscedastic', rep(['a', 'b', 'c'], 8),
+      [10, 20, 30, 11, 21, 31, 9, 19, 29, 12, 22, 32, 8, 18, 28, 10.5, 20.5, 30.5, 11.5, 21.5, 31.5, 9.5, 19.5, 29.5].map(String),
+      'ANOVA', 'has_tukey'],
+    ['normal + heteroscedastic', ['a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'c', 'c', 'c', 'c', 'c'],
+      ['2.88', '2.97', '2.534', '2.495', '2.612', '1.604', '3.599', '1.419', '1.763', '3.63',
+        '3.001', '4.179', '3.71', '3.949', '3.427'],
+      'Welch\u2019s ANOVA', 'has_games_howell'],
+    ['skewed, so non-normal', ['a', 'a', 'a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'b', 'b', 'c', 'c', 'c', 'c', 'c', 'c', 'c'],
+      ['0.022', '0.021', '0.125', '0.001', '0.126', '10.538', '0.013', '0.505', '1.795', '6.841',
+        '0.595', '5.393', '0.586', '1.12', '1.102', '1.02', '1.012', '2.197', '1', '1.895', '1.039'],
+      'Kruskal\u2013Wallis', 'has_kruskal_sign']
+  ];
+  for (const [name, groups, values, expectedTest, expectedFlag] of routes) {
+    const flags = new Set();
+    const table = Statz.summarize_n_q(values, groups, null, flags, { alpha: 0.05, lang: 'en_us' });
+    assert.equal(table.test_used, expectedTest, name);
+    assert.ok(table.p_value < 0.05, `${name}: the fixture must be significant to reach a post-hoc`);
+    assert.ok(flags.has(expectedFlag), `${name}: expected ${expectedFlag}, got ${[...flags]}`);
+  }
+
+  // The flag alone would not prove WHICH post-hoc ran. On the heteroscedastic fixture the two
+  // disagree outright — Games-Howell finds a vs c, Tukey finds b vs c — so the reported pair says
+  // which function the branch actually called.
+  const hetero = { a: [2.88, 2.97, 2.534, 2.495, 2.612], b: [1.604, 3.599, 1.419, 1.763, 3.63], c: [3.001, 4.179, 3.71, 3.949, 3.427] };
+  const gh = Statz.runGamesHowell(hetero, 0.05).filter((c) => c.significant);
+  const tuk = Statz.runTukeyHSD(hetero, 0.05).filter((c) => c.significant);
+  assert.notDeepEqual(gh, tuk, 'the fixture must separate the two post-hocs');
+  const viaBranch = Statz.summarize_n_q(routes[1][2], routes[1][1], null, new Set(), { alpha: 0.05, lang: 'en_us' });
+  assert.deepEqual(viaBranch.posthoc, gh, 'the Welch branch reports Games-Howell');
+
+  // Welch's ANOVA reduces to Welch's t at k=2: F = t², same p, same denominator df. That identity
+  // pins the whole formula, weighting and Satterthwaite df included.
+  const a = [12, 14, 15, 13, 16, 14, 15, 13, 14];
+  const b = [18, 25, 19, 31, 17, 22, 40, 15];
+  const welch = Statz.computeWelchAnova({ a, b });
+  const tWelch = statistics.ttest2(a, b, { variance: 'unequal' });
+  // F and df match to machine precision, which is what pins the formula. The p-values differ by
+  // ~4e-10 because they come from two independent CDF implementations — jStat's F here, stdlib's
+  // t there — so the looser bound is about those libraries, not about this arithmetic.
+  assert.ok(Math.abs(welch.statistic - (tWelch.statistic ** 2)) < 1e-12, 'F = t\u00b2');
+  assert.ok(Math.abs(welch.df2 - tWelch.df) < 1e-12, 'and the same denominator df');
+  assert.ok(Math.abs(welch.pValue - tWelch.pValue) < 1e-8, 'and the same p');
+  // The correction term 1 + 2(k-2)tmp vanishes at k=2, so the identity above cannot see it. For
+  // k=3 it is pinned by the relationship it creates between the statistic and the denominator df:
+  // since df2 = 1/(3.tmp), the reported F times (1 + 2/(3.df2)) must give back the uncorrected
+  // between-group term, which the test computes from the data on its own.
+  const trio = { A: [10, 12, 11, 13, 12, 11, 10, 12], B: [15, 30, 5, 25, 10, 20], C: [20, 21, 20, 21, 20, 21, 20] };
+  const arrays = Object.values(trio);
+  const meanOf = (x) => x.reduce((sum, v) => sum + v, 0) / x.length;
+  const varOf = (x) => { const m = meanOf(x); return x.reduce((sum, v) => sum + ((v - m) ** 2), 0) / (x.length - 1); };
+  const weights = arrays.map((x) => x.length / varOf(x));
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  const grand = arrays.reduce((sum, x, i) => sum + weights[i] * meanOf(x), 0) / totalWeight;
+  const between = arrays.reduce((sum, x, i) => sum + weights[i] * ((meanOf(x) - grand) ** 2), 0);
+  const trioWelch = Statz.computeWelchAnova(trio);
+  assert.ok(Math.abs((trioWelch.statistic * (1 + (2 / (3 * trioWelch.df2)))) - (between / 2)) < 1e-9,
+    'the k>2 correction term is applied');
+  assert.ok(trioWelch.statistic < between / 2, 'and it shrinks the statistic, as it must');
+
+  // Games-Howell likewise reduces to Welch's t at k=2.
+  assert.equal(Statz.runGamesHowell({ a, b }, 0.05)[0].pValue, +tWelch.pValue.toFixed(4));
+});
+
+test("Games-Howell recovers a difference Tukey's pooled variance hides", () => {
+  // Why the routing matters in practice, not just in principle. Two tight groups differ by a
+  // full unit with sd ~0.13 each; a third group is wildly variable. Pooling inflates the error
+  // term for EVERY comparison, including the two that have nothing to do with the noisy group.
+  const groups = {
+    A: [10.0, 10.2, 9.8, 10.1, 9.9, 10.0, 10.1],
+    B: [11.0, 11.2, 10.8, 11.1, 10.9, 11.0, 11.1],
+    C: [2, 18, 4, 20, 6, 16, 25]
+  };
+  const pairOf = (rows, x, y) => rows.find((c) => c.groupA === x && c.groupB === y);
+  const tukey = pairOf(Statz.runTukeyHSD(groups, 0.05), 'A', 'B');
+  const gamesHowell = pairOf(Statz.runGamesHowell(groups, 0.05), 'A', 'B');
+
+  assert.ok(gamesHowell.significant, `A vs B is a real 1.0 difference: ${gamesHowell.pValue}`);
+  assert.ok(!tukey.significant, `pooling hides it: ${tukey.pValue}`);
+  assert.ok(tukey.pValue > 0.5, 'and not marginally — the pooled MSE is ~40x the real one');
+
+  // Comparisons involving the noisy group stay non-significant under both; the difference is
+  // confined to the pair whose own variances the pooling misrepresented.
+  for (const [x, y] of [['A', 'C'], ['B', 'C']]) {
+    assert.ok(!pairOf(Statz.runGamesHowell(groups, 0.05), x, y).significant, `${x} vs ${y}`);
+  }
+});
+
+test("the Welch route offers no external correction, because Games-Howell needs none", () => {
+  // Same reason Tukey takes no option: the multiplicity correction lives inside the studentized
+  // range statistic. adjust_kruskal exists for Dunn alone, which produces uncorrected pairwise
+  // z-tests and has no joint distribution to compare against.
+  const offered = (flags) => Statz.getAvailableOptions(flags, 'table').some((o) => o.name === 'adjust_kruskal');
+  assert.equal(offered(['has_nq', 'has_games_howell']), false);
+  assert.equal(offered(['has_nq', 'has_tukey']), false);
+  assert.equal(offered(['has_nq', 'has_kruskal_sign']), true);
+});
+
+test("degenerate groups do not fabricate a Welch result", () => {
+  // A constant group makes Welch's weight n/s² infinite, so the omnibus test reports nothing
+  // rather than a nonsense F. Games-Howell guards per PAIR instead: a comparison against a
+  // constant group still has a finite standard error and is meaningful. The two are reachable
+  // together only in isolation — through summarize_n_q the post-hoc runs only once the omnibus
+  // returned a p, so this data never reaches it.
+  assert.equal(Statz.computeWelchAnova({ A: [5, 5, 5, 5, 5], B: [1, 9, 2, 8, 3], C: [10, 20, 11, 19, 12] }).pValue, null);
+  assert.equal(Statz.computeWelchAnova({ A: [5, 5, 5], B: [7, 7, 7] }).pValue, null);
+  assert.deepEqual(Statz.runGamesHowell({ A: [1] }, 0.05), [], 'a lone value has no variance to use');
+  // Zero error on both sides reports p = 1: no evidence rather than certainty, which is the
+  // conservative direction for a degenerate input.
+  assert.equal(Statz.runGamesHowell({ A: [5, 5, 5], B: [7, 7, 7] }, 0.05)[0].pValue, 1);
+
+  const groups = ['a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'c', 'c', 'c', 'c', 'c'];
+  const values = ['5', '5', '5', '5', '5', '1', '9', '2', '8', '3', '10', '20', '11', '19', '12'];
+  const flags = new Set();
+  const table = Statz.summarize_n_q(values, groups, null, flags, { alpha: 0.05, lang: 'en_us' });
+  assert.equal(table.p_value, null, 'no p-value invented');
+  assert.equal(table.posthoc, null, 'and no post-hoc attempted');
+  assert.equal(flags.size, 0);
+  // The descriptive rows still reach the reader — a test that cannot run must not blank the summary.
+  assert.ok(table.rows.length > 0 && table.columns.length > 0);
 });

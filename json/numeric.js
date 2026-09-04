@@ -149,6 +149,113 @@ ns.computeMannWhitney = function (x, y, correct = false, options = {}) {
 ns.stackGroups = function (groupMap) { const x = [], y = []; for (const group in groupMap) { const values = groupMap[group]; for (const val of values) { x.push(val); y.push(group); } } return { x, y }; };
 
 /** Tukey HSD post-hoc for ANOVA (via jStat). */
+/**
+ * Per-group n, mean and unbiased variance for the heteroscedastic tests below. Groups with fewer
+ * than two values are dropped: their variance is undefined, and Welch weights it by 1/s².
+ * @param {Record<string, number[]>} groupMap
+ * @returns {Array<{name:string, n:number, mean:number, variance:number}>}
+ */
+const describeGroups = (groupMap) => Object.keys(groupMap)
+  .filter((name) => Array.isArray(groupMap[name]) && groupMap[name].length > 1)
+  .map((name) => {
+    const values = groupMap[name];
+    const n = values.length;
+    const mean = values.reduce((sum, v) => sum + v, 0) / n;
+    const variance = values.reduce((sum, v) => sum + ((v - mean) ** 2), 0) / (n - 1);
+    return { name, n, mean, variance };
+  });
+
+/**
+ * Welch's one-way ANOVA: the omnibus test for normal groups with UNEQUAL variances.
+ *
+ * The k > 2 branch used to route heteroscedastic data to Kruskal-Wallis, which conflates two
+ * different violations — Kruskal answers non-normality, not unequal spread, and is itself not
+ * robust to it (it tests stochastic dominance, so equal medians with different variances can
+ * still reject). The two-group branch has always made this distinction, switching `ttest2` to
+ * `variance: 'unequal'`; this is the same correction for three or more.
+ *
+ * Formulated as R's `oneway.test(var.equal = FALSE)`: weights wᵢ = nᵢ/sᵢ², and
+ *   F = Σ wᵢ(x̄ᵢ − x̃)² / [(k−1)(1 + 2(k−2)·tmp)],  df = (k−1, 1/(3·tmp))
+ * where x̃ is the weighted grand mean and tmp = Σ[(1 − wᵢ/W)²/(nᵢ−1)] / (k²−1).
+ * @param {Record<string, number[]>} groupMap
+ * @returns {{pValue:number|null, statistic:number|null, df1:number|null, df2:number|null}}
+ */
+ns.computeWelchAnova = function (groupMap) {
+  const empty = { pValue: null, statistic: null, df1: null, df2: null };
+  try {
+    const jStat = getJStat();
+    const groups = describeGroups(groupMap);
+    const k = groups.length;
+    if (k < 2) return empty;
+    const weights = groups.map((g) => g.n / g.variance);
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+    const grandMean = groups.reduce((sum, g, i) => sum + weights[i] * g.mean, 0) / totalWeight;
+    const tmp = groups.reduce((sum, g, i) => sum + (((1 - weights[i] / totalWeight) ** 2) / (g.n - 1)), 0)
+      / ((k * k) - 1);
+    if (!(tmp > 0)) return empty;
+    const between = groups.reduce((sum, g, i) => sum + weights[i] * ((g.mean - grandMean) ** 2), 0);
+    const statistic = between / ((k - 1) * (1 + (2 * (k - 2) * tmp)));
+    const df1 = k - 1;
+    const df2 = 1 / (3 * tmp);
+    const pValue = 1 - jStat.centralF.cdf(statistic, df1, df2);
+    // This is the real guard, not a formality. A constant group has zero variance, so its weight
+    // nᵢ/sᵢ² is Infinity; the weighted grand mean then evaluates Infinity/Infinity and the NaN
+    // propagates all the way here. Reporting nothing beats reporting a degenerate F.
+    return Number.isFinite(pValue) ? { pValue, statistic, df1, df2 } : empty;
+  } catch { return empty; }
+};
+
+/**
+ * Games-Howell: the pairwise post-hoc that pairs with Welch's ANOVA.
+ *
+ * Same relationship to Welch that Tukey has to ANOVA — the multiplicity correction lives INSIDE
+ * the statistic, compared against the studentized range for k means, so there is no external
+ * adjustment to choose (which is why `adjust_kruskal` applies to Dunn and to nothing else). What
+ * differs from Tukey is that the standard error is unpooled and the degrees of freedom are
+ * Welch-Satterthwaite per pair, so neither assumes the equal variances Bartlett just rejected.
+ *
+ * Guards per PAIR rather than refusing wholesale the way `computeWelchAnova` does: a constant
+ * group breaks Welch's weight nᵢ/sᵢ² for the whole omnibus test, but a comparison AGAINST a
+ * constant group still has a finite standard error and is perfectly meaningful. Only when the
+ * error is zero on both sides is no statistic available, and that reports p = 1 — no evidence
+ * rather than certainty, the conservative direction for a degenerate input. Unreachable through
+ * `summarize_n_q` regardless, which only reaches the post-hoc once the omnibus test returned a p.
+ * @param {Record<string, number[]>} groupMap
+ * @param {number=} alpha
+ * @returns {Array<{groupA:string, groupB:string, pValue:number, significant:boolean}>}
+ */
+ns.runGamesHowell = function (groupMap, alpha = 0.05) {
+  try {
+    const jStat = getJStat();
+    const groups = describeGroups(groupMap);
+    const k = groups.length;
+    if (k < 2) return [];
+    const out = [];
+    for (let i = 0; i < k - 1; i++) {
+      for (let j = i + 1; j < k; j++) {
+        const a = groups[i];
+        const b = groups[j];
+        const varA = a.variance / a.n;
+        const varB = b.variance / b.n;
+        const standardError = Math.sqrt((varA + varB) / 2);
+        const df = ((varA + varB) ** 2)
+          / (((varA ** 2) / (a.n - 1)) + ((varB ** 2) / (b.n - 1)));
+        const q = standardError > 0 ? Math.abs(a.mean - b.mean) / standardError : 0;
+        const pValue = (standardError > 0 && Number.isFinite(df) && df > 0)
+          ? 1 - jStat.tukey.cdf(q, k, df)
+          : 1;
+        out.push({
+          groupA: a.name,
+          groupB: b.name,
+          pValue: +pValue.toFixed(4),
+          significant: pValue < alpha
+        });
+      }
+    }
+    return out;
+  } catch { return []; }
+};
+
 ns.runTukeyHSD = function (groupMap, alpha = 0.05) {
   try { const jStat = getJStat(); const groupNames = Object.keys(groupMap); const groupArrays = groupNames.map(name => groupMap[name]); const comparisons = jStat.tukeyhsd(groupArrays); return comparisons.map(([indexes, p]) => ({ groupA: groupNames[indexes[0]], groupB: groupNames[indexes[1]], pValue: +p.toFixed(4), significant: p < alpha })); } catch { return []; }
 };
@@ -702,6 +809,20 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
         if (jStat?.utils?.isNumber(p_value) && p_value < alpha) {
           posthoc = ns.runTukeyHSD(activeGroupMap, alpha).filter(v => v.significant);
           if (posthoc.length) flagsUsed?.add?.('has_tukey');
+        }
+      } else if (allNormal) {
+        // Normal but heteroscedastic. This used to fall through to Kruskal-Wallis, which answers
+        // the WRONG violation: it is a test of stochastic dominance, not of means, and is itself
+        // not robust to unequal spread. The two-group branch above has always drawn this
+        // distinction by switching `ttest2` to `variance: 'unequal'`; Welch + Games-Howell is the
+        // same correction for three or more groups, and keeps the post-hoc's assumptions matched
+        // to the omnibus test's the way Tukey is matched to ANOVA.
+        const result = ns.computeWelchAnova(activeGroupMap);
+        p_value = result.pValue;
+        method = translate('tests.welchAnova', lang);
+        if (jStat?.utils?.isNumber(p_value) && p_value < alpha) {
+          posthoc = ns.runGamesHowell(activeGroupMap, alpha).filter(v => v.significant);
+          if (posthoc.length) flagsUsed?.add?.('has_games_howell');
         }
       } else {
         const result = stats.kruskalTest(...groups);
