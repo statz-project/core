@@ -785,11 +785,6 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
     : ['mean_sd'];
   normalized.stat_options_by_group = groupedStats;
 
-  const statOptions = Array.isArray(normalized.stat_options) && normalized.stat_options.length
-    ? normalized.stat_options.slice()
-    : groupedStats.slice();
-  normalized.stat_options = statOptions;
-
   normalized.percent_by = ['row', 'col', 'total'].includes(normalized.percent_by) ? normalized.percent_by : 'col';
   normalized.adjust_kruskal = normalized.adjust_kruskal ?? 'bonferroni';
   normalized.include_missing = normalized.include_missing ?? true;

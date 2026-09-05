@@ -113,19 +113,17 @@ ns.OPTION_METADATA = {
     appliesTo: ['has_n'], modeGate: 'table',
     labelKey: 'options.stat_options_numeric.label', descriptionKey: 'options.stat_options_numeric.description'
   },
+  // `stat_options` is deliberately NOT catalogued here. It is the parameter name of the shared
+  // `getNumericalSummaryByGroup` helper and a documented argument for DIRECT calls to
+  // `summarize_n` / `describeColumn` — but as an analysis option it could never act: the driver
+  // used to default it to a copy of `stat_options_by_group`, and every consumer prefers the
+  // specific option anyway, so the panel was offering a control with no reachable effect.
   stat_options_by_group: {
     category: 'descriptive', type: 'multiselect',
     default: ['mean_sd'],
     enum: ['min', 'max', 'mean_sd', 'median_iqr', 'n', 'n_missing'],
     appliesTo: ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'table',
     labelKey: 'options.stat_options_by_group.label', descriptionKey: 'options.stat_options_by_group.description'
-  },
-  stat_options: {
-    category: 'descriptive', type: 'multiselect',
-    default: ['mean_sd'],
-    enum: ['min', 'max', 'mean_sd', 'median_iqr', 'n', 'n_missing'],
-    appliesTo: ['has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], modeGate: 'table',
-    labelKey: 'options.stat_options.label', descriptionKey: 'options.stat_options.description'
   },
   include_missing: {
     category: 'descriptive', type: 'boolean', default: true, enum: null,

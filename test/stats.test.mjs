@@ -144,15 +144,13 @@ test("run summarize_n_q get non-significant ANOVA", () => {
 
   const result = Statz.summarize_n_q(predictor.rawValues, response.rawValues);
 
-  const expected = {
-    test: Statz.translate('tests.anova'),
-    p: '0.717',
-    posthoc: null
-  };
-
-  assert.equal((result.test_used), expected.test)
-  assert.equal((result.p_value).toFixed(3), expected.p)
-  assert.equal((result.posthoc), expected.posthoc)
+  // Kruskal, not ANOVA. This fixture used to route parametric on a normality gate that never
+  // rejected: the `high` group (n = 43) has D = 0.1373 against a published Lilliefors critical
+  // value of 0.886/√43 = 0.1351, so it fails at α = 0.05 — but read against a fully specified
+  // N(0,1) the same D returns p = 0.3596 instead of 0.0395, and the group sailed through.
+  assert.equal(result.test_used, Statz.translate('tests.kruskalWallis'));
+  assert.equal(result.p_value, 0.7365);
+  assert.equal(result.posthoc, null);
     
 });
 
@@ -1667,13 +1665,19 @@ test("degenerate groups do not fabricate a Welch result", () => {
   // conservative direction for a degenerate input.
   assert.equal(Statz.runGamesHowell({ A: [5, 5, 5], B: [7, 7, 7] }, 0.05)[0].pValue, 1);
 
+  // End to end, this data no longer reaches Welch at all, and that is the better outcome. A
+  // constant group is degenerate rather than normal, so the shared `isNormal` gate rejects it and
+  // the comparison routes to the rank test — which handles a constant group without trouble and
+  // gives the reader a usable answer where the old path returned nothing. The guards above still
+  // matter: they are what `computeWelchAnova` does when called directly.
   const groups = ['a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'c', 'c', 'c', 'c', 'c'];
   const values = ['5', '5', '5', '5', '5', '1', '9', '2', '8', '3', '10', '20', '11', '19', '12'];
   const flags = new Set();
   const table = Statz.summarize_n_q(values, groups, null, flags, { alpha: 0.05, lang: 'en_us' });
-  assert.equal(table.p_value, null, 'no p-value invented');
-  assert.equal(table.posthoc, null, 'and no post-hoc attempted');
-  assert.equal(flags.size, 0);
+  assert.equal(table.test_used, Statz.translate('tests.kruskalWallis', 'en_us'));
+  assert.equal(table.p_value, 0.0073);
+  assert.deepEqual(table.posthoc.map((c) => [c.groupA, c.groupB]), [['a', 'c'], ['b', 'c']]);
+  assert.deepEqual([...flags], ['has_kruskal_sign']);
   // The descriptive rows still reach the reader — a test that cannot run must not blank the summary.
   assert.ok(table.rows.length > 0 && table.columns.length > 0);
 });
@@ -1937,14 +1941,14 @@ test("the standard deviation is the sample one on every path, displayed and infe
     Statz.getDefaultAnalysisOptions({ lang: 'pt_br' })).result.analysis[0].table;
   assert.equal(paired.rows[0]['antes'], '5,00 ± 2,14', 'paired: the same statistic, unchanged');
 
-  // Inferential side. These 18 differences sit either side of the 0.05 cut-off depending on the
-  // divisor used to standardise them: K-S returns 0.0462 with n and 0.0507 with n − 1, so the
-  // parametric route is taken only when the sample sd is used. Both call sites are covered — the
-  // paired one tests the differences, the correlation one tests each marginal.
-  const F = [2, -7, -10, -6, -8, -9, -6, -8, -6, 9, 4, -8, 7, 9, -5, -9, -8, -6];
+  // Inferential side. These ten values sit either side of the 0.05 cut-off depending on the divisor
+  // used to standardise them before the normality gate: Lilliefors returns 0.0412 with n and 0.0545
+  // with n − 1, so the parametric route is taken only when the sample sd is used. One call site now
+  // — `isNormal` — reached here from both directions: as the paired differences and as a marginal.
+  const F = [4, 13, -16, -17, -5, 8, 5, 4, 6, -3];
   const A = F.map((_, i) => 100 + i);
   const B = A.map((a, i) => a - F[i]);
-  const Y = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 7, 8];
+  const Y = [2, 4, 5, 7, 8, 9, 11, 12, 14, 16];
   const cols = [mk('ha', 'antes', 'n', A), mk('hb', 'depois', 'n', B), mk('hf', 'X', 'n', F), mk('hy', 'Y', 'n', Y)];
   const db = { dbA: { columns: cols } };
   const opts = Statz.getDefaultAnalysisOptions({ lang: 'pt_br' });
@@ -2086,4 +2090,110 @@ test("the tests taken from curated libraries keep their contract", () => {
     Statz.simpleStatistics = saved;
   }
   assert.equal(corr(N, N.map((v) => (v * 1.9) + (v % 3))).correlation, 0.9962, 'restored');
+});
+
+
+test("stat_options is a direct-call argument, never an analysis option", () => {
+  // It was catalogued as a panel option and could not act: the driver defaulted it to a COPY of
+  // `stat_options_by_group`, so it sat downstream of the thing it claimed to back up, and every
+  // consumer prefers the specific option anyway. The name survives as the parameter of the shared
+  // `getNumericalSummaryByGroup`, which `describeColumn` reaches with RAW options — the documented
+  // argument that `summarizeElementDatabases` passes — so the fallback itself must keep working.
+  assert.ok(!('stat_options' in Statz.getDefaultAnalysisOptions({})), 'not in the normalised bag');
+  const offered = Statz.getAvailableOptions(['has_n', 'has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_paired_n'], 'table')
+    .map((o) => o.name).filter((n) => n.startsWith('stat_'));
+  assert.deepEqual(offered, ['stat_options_numeric', 'stat_options_by_group']);
+
+  // The direct-call path still honours it: same column, two different summaries.
+  const col = Statz.makeColumn(['1', '2', '3', '4', '5', '6', '7', '8'],
+    { col_type: 'n', var_label: 'V', includeBaseVariant: true });
+  col.col_hash = 'hv'; col.col_label = 'V';
+  const describe = (opts) => Statz.describeColumn(col, null, { structured: true, lang: 'pt_br', ...opts })[0].summary;
+  const chosen = describe({ stat_options: ['median_iqr'] });
+  assert.notDeepEqual(chosen, describe({}), 'a direct caller can still choose the statistics');
+  assert.deepEqual(chosen, describe({ stat_options_numeric: ['median_iqr'] }),
+    'and gets what the specific option would have given');
+
+  // Through runAnalysis it is inert: the specific options are always present and win.
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: type, var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const cols = [mk('hg', 'G', 'q', ['a', 'a', 'a', 'a', 'b', 'b', 'b', 'b']), mk('hv', 'V', 'n', [1, 2, 3, 4, 5, 6, 7, 8])];
+  const rows = (opts) => {
+    const t = Statz.runAnalysis([sig('hv', 'V')], [sig('hg', 'G')], { dbA: { columns: cols } },
+      Statz.getDefaultAnalysisOptions({ lang: 'pt_br', ...opts })).result.analysis[0].table;
+    return t.rows.map((r) => r[t.columns[0]]);
+  };
+  assert.deepEqual(rows({ stat_options: ['min', 'max', 'n'] }), rows({}), 'shadowed by stat_options_by_group');
+});
+
+
+test("the normality gate reads D against the Lilliefors null, not a fully specified normal", () => {
+  // Every route standardised by the sample's own mean and sd and then compared D to N(0,1), which
+  // is valid only when those parameters come from outside the data. Estimating them shrinks D, so
+  // the p-value came back far too large. Over 2,000 samples per cell the old gate called TRUE
+  // normal data normal 100% of the time at every n from 10 to 100 — it should be 95% — and called
+  // lognormal data normal 98% of the time at n = 10 and 67% at n = 30.
+
+  // The approximation, against PUBLISHED Lilliefors critical values rather than our own output:
+  // at the tabulated D for α = 0.05 it must return something close to 0.05.
+  // Three significance levels, so the check constrains the whole curve rather than one point.
+  const tabulated = {
+    0.10: { 10: 0.239, 15: 0.201, 20: 0.176, 25: 0.159, 30: 0.146 },
+    0.05: { 10: 0.258, 15: 0.220, 20: 0.190, 25: 0.173, 30: 0.161 },
+    0.01: { 10: 0.294, 15: 0.257, 20: 0.231, 25: 0.200, 30: 0.187 }
+  };
+  for (const [level, rows] of Object.entries(tabulated)) {
+    for (const [n, D] of Object.entries(rows)) {
+      const p = Statz.lillieforsPValue(D, Number(n));
+      assert.ok(Math.abs(p - Number(level)) <= 0.007,
+        `n=${n} at α=${level}: expected ~${level}, got ${p.toFixed(4)}`);
+    }
+  }
+  // Below n = 10 the published table is coarser and the approximation is looser with it.
+  for (const [n, D] of Object.entries({ 4: 0.381, 5: 0.337, 6: 0.319, 7: 0.300, 8: 0.285, 9: 0.271 })) {
+    const p = Statz.lillieforsPValue(D, Number(n));
+    assert.ok(Math.abs(p - 0.05) <= 0.013, `n=${n}: expected ~0.05, got ${p.toFixed(4)}`);
+  }
+  // Above 30 the tabulated value is the asymptotic 0.886/√n.
+  for (const n of [40, 60, 100]) {
+    const p = Statz.lillieforsPValue(0.886 / Math.sqrt(n), n);
+    assert.ok(Math.abs(p - 0.05) <= 0.007, `n=${n}: got ${p.toFixed(4)}`);
+  }
+  // Monotone in D, and bounded: a bigger departure is never a bigger p-value.
+  assert.ok(Statz.lillieforsPValue(0.30, 20) < Statz.lillieforsPValue(0.15, 20));
+  assert.equal(Statz.lillieforsPValue(0, 20), 1, 'a degenerate D must not leak NaN');
+  assert.equal(Statz.lillieforsPValue(NaN, 20), 1);
+
+  // The gate's boundaries. Below three values there is no parametric test worth routing to; at
+  // exactly three normality cannot be assessed and the answer is "no evidence against it", which
+  // is what keeps a lab triplicate on ANOVA; a constant sample is degenerate at any n.
+  assert.equal(Statz.isNormal([1, 2]), false);
+  assert.equal(Statz.isNormal([1, 2, 3]), true);
+  assert.equal(Statz.isNormal([7, 7, 7]), false);
+  assert.equal(Statz.isNormal([7, 7, 7, 7, 7, 7]), false);
+
+  // End to end, the gain that motivated the change: this sample is lognormal, and the old gate
+  // accepted it as normal (K-S p = 0.0987) where Lilliefors rejects it outright.
+  const LOGN = [2.89, 0.45, 0.66, 2.05, 1.53, 1.26, 0.32, 0.45, 0.26, 0.53, 2.36, 2.11, 0.58, 0.56,
+                0.79, 0.5, 0.32, 1.14, 0.38, 1.62, 2.67, 2.54, 8.07, 0.97, 1.33, 0.57, 3.06, 1.41, 0.64, 1.09];
+  assert.equal(Statz.isNormal(LOGN), false, 'skewed data must not pass');
+  const mk = (hash, label, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: 'n', var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const straight = LOGN.map((_, i) => i + 1);
+  const table = Statz.runAnalysis([sig('hx', 'X')], [sig('hy', 'Y')],
+    { dbA: { columns: [mk('hx', 'X', LOGN), mk('hy', 'Y', straight)] } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br' })).result.analysis[0].table;
+  assert.equal(table.test_used, Statz.translate('tests.spearman', 'pt_br'),
+    'a skewed marginal routes to the rank correlation');
+
+  // And it is not simply stricter about everything: a well-behaved sample still routes parametric.
+  const CLEAN = [-1.64, -1.28, -1.04, -0.84, -0.67, -0.52, -0.39, -0.25, -0.13, 0,
+                 0.13, 0.25, 0.39, 0.52, 0.67, 0.84, 1.04, 1.28, 1.64, 0.3];
+  assert.equal(Statz.isNormal(CLEAN), true);
 });

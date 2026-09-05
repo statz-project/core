@@ -50,6 +50,91 @@ const sample = {
 };
 
 /**
+ * Normality gate: Lilliefors.
+ *
+ * The K-S STATISTIC is the right one and always was; the null it was read against was not. Every
+ * route standardised by the sample's own mean and sd and then compared the result to a fully
+ * specified N(0,1) — which is only valid when those two parameters come from outside the data.
+ * Estimating them pulls the fitted curve toward the sample, shrinking D, so the K-S p-value is far
+ * too large. Measured over 2,000 samples per cell, the old gate called TRUE normal data normal
+ * 100% of the time at every n from 10 to 100 — it should be 95% — and called lognormal data
+ * normal 98% of the time at n = 10 and 67% at n = 30. At the sample sizes this tool sees it was
+ * not a gate at all: the parametric route was taken almost unconditionally.
+ *
+ * Lilliefors is that same D read against the distribution it actually follows when the parameters
+ * are estimated. The same sweep puts the null at 95.0% (n = 10), lognormal at 55.9% / 8.6%
+ * (n = 10 / 30) and exponential at 68.8% / 20.6%. Light-tailed alternatives stay hard for the
+ * K-S family — uniform is still called normal 93.6% of the time at n = 10 — which is a limit of
+ * the statistic, not of the null; Shapiro-Wilk is what would close that, and no dependency ships it.
+ *
+ * The p-value uses the Abdi & Molin (2007) approximation, checked against the published critical
+ * values: at the tabulated D for α = 0.05 it returns between 0.042 and 0.062 for every n from 4
+ * to 30, and between 0.045 and 0.051 on the asymptotic 0.886/√n for n = 40, 60 and 100.
+ *
+ * @param {number} D K-S statistic
+ * @param {number} n Sample size
+ */
+ns.lillieforsPValue = function (D, n) {
+  // D = 0 would divide by zero below. It means the empirical CDF matched the fitted normal exactly,
+  // which no real sample does, but a degenerate input must not leak NaN into a routing decision.
+  if (!Number.isFinite(D) || D <= 0) return 1;
+  let Dn = D;
+  let N = n;
+  // Above 100 the approximation is defined on a rescaled statistic at N = 100.
+  if (n > 100) { Dn = D * Math.pow(n / 100, 0.49); N = 100; }
+  const b0 = 0.37872;
+  const b1 = 1.30748;
+  const b2 = 0.08861;
+  const discriminant = Math.pow(b1 + N, 2) - (4 * b2 * (b0 - Math.pow(Dn, -2)));
+  if (!(discriminant >= 0)) return 1;
+  const A = (-(b1 + N) + Math.sqrt(discriminant)) / (2 * b2);
+  const coefficients = [
+    -0.37782822932, 1.67819837908, -3.02959249450, 2.80015798142, -1.39874347510,
+    0.40466213484, -0.06353440387, 0.00287462087, 0.00069650013, -0.00011872227, 0.00000575586
+  ];
+  let p = 0;
+  for (let i = 0; i < coefficients.length; i++) p += coefficients[i] * Math.pow(A, i);
+  return Math.min(1, Math.max(0, p));
+};
+
+/**
+ * Is this sample consistent with a normal distribution? The single gate behind every parametric /
+ * non-parametric routing decision — the two correlation marginals, the paired differences, and
+ * each group of an n × q comparison. It was written out three times before, and the three had
+ * already drifted apart in how they standardised.
+ *
+ * The small-n boundary reproduces what the three sites already did, deliberately. Below three
+ * values there is no parametric test worth routing to and both old paths refused. At exactly
+ * three, normality cannot be assessed at all — Lilliefors is not tabulated below n = 4 — and the
+ * answer is "no evidence against it", not "not normal": three groups of three is a lab triplicate,
+ * where the rank alternative has so little power that its smallest attainable p is 0.027. Refusing
+ * the parametric route there would trade a calibration fix for an analysis that can never conclude.
+ * Zero variance returns false at any n: a constant sample is degenerate, not normal.
+ *
+ * `alpha` is fixed at 0.05 and is NOT the user's `options.alpha`. It is the convention behind a
+ * routing decision, not a significance level the reader is choosing for the reported test.
+ *
+ * @param {number[]} values
+ */
+ns.isNormal = function (values) {
+  const alpha = 0.05;
+  const stats = getStatsLib();
+  if (!stats?.kstest || !Array.isArray(values) || values.length < 3) return false;
+  if (values.length === 3) return sample.variance(values) > 0;
+  const variance = sample.variance(values);
+  if (!Number.isFinite(variance) || variance <= 0) return false;
+  const mean = sample.mean(values);
+  const sd = Math.sqrt(variance);
+  const z = values.map((v) => (v - mean) / sd);
+  try {
+    const result = stats.kstest(z, 'normal', 0, 1);
+    return ns.lillieforsPValue(result?.statistic, values.length) >= alpha;
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Descriptive summary for numeric vector.
  * @param {Array<string|number>} values
  */
@@ -76,6 +161,10 @@ ns.summarize_n = function (values, formatFn = null, options = {}) {
   if (n === 0 && missingCount === 0) return { columns: [], rows: [], summary: { n: 0 }, lang };
   const valuesByGroup = { Total: nums };
   const missingCounts = missingCount > 0 ? { Total: missingCount } : {};
+  // `stat_options` is the fallback for DIRECT callers only — `describeColumn` passes raw options
+  // straight through here without `getDefaultAnalysisOptions`, and that is the documented argument
+  // (docs/tutorials/descriptive.md) that `summarizeElementDatabases` uses. Through `runAnalysis`
+  // the specific option is always present, so this never falls through; it is not a panel option.
   const statOptions = options?.stat_options_numeric ?? options?.stat_options;
   const [variableHeader, descriptionHeader] = getTableHeaders(lang);
   const summaryRows = ns.getNumericalSummaryByGroup(
@@ -392,19 +481,7 @@ ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, optio
   // 2. Marginal normality (KS on z-scores). Mirrors the strategy used in summarize_n_q.
   const stats = getStatsLib();
   /** @param {number[]} arr */
-  const isMarginalNormal = (arr) => {
-    if (!stats || arr.length < 2) return false;
-    const mean = sample.mean(arr);
-    const variance = sample.variance(arr);
-    if (variance <= 0) return false;
-    const sd = Math.sqrt(variance);
-    const z = arr.map((/** @type {number} */ v) => (v - mean) / sd);
-    try {
-      const result = stats.kstest(z, 'normal', 0, 1);
-      return Number.isFinite(result?.pValue) && result.pValue >= 0.05;
-    } catch { return false; }
-  };
-  const parametric = isMarginalNormal(xs) && isMarginalNormal(ys);
+  const parametric = ns.isNormal(xs) && ns.isNormal(ys);
 
   // 3. Compute correlation.
   let r;
@@ -515,18 +592,6 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
 
   // Decide parametric branch.
   /** @param {number[]} arr */
-  const isMarginalNormal = (arr) => {
-    if (!stats || arr.length < 2) return false;
-    const mean = sample.mean(arr);
-    const variance = sample.variance(arr);
-    if (variance <= 0) return false;
-    const sd = Math.sqrt(variance);
-    const z = arr.map((/** @type {number} */ v) => (v - mean) / sd);
-    try {
-      const result = stats.kstest(z, 'normal', 0, 1);
-      return Number.isFinite(result?.pValue) && result.pValue >= 0.05;
-    } catch { return false; }
-  };
 
   let method = null;
   let p_value = NaN;
@@ -535,7 +600,7 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
   if (K === 2) {
     // Differences for paired comparison.
     const diff = aligned[0].map((v, i) => v - aligned[1][i]);
-    const parametric = isMarginalNormal(diff);
+    const parametric = ns.isNormal(diff);
     if (parametric && stats) {
       // A paired t IS a one-sample t on the differences, so stdlib's `ttest` is the whole test.
       // It agreed with the hand-rolled `mean / (sd / √n)` against `jStat.studentt.cdf` to 1e-12.
@@ -771,24 +836,9 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
     };
   }
 
-  // 3) Normality via K-S on z-scores
+  // 3) Normality: every group must pass, through the shared Lilliefors gate.
   const jStat = getJStat();
-  const zScores = (data) => {
-    const mean = sample.mean(data);
-    const sd = sample.sd(data);
-    return sd > 0 ? data.map(x => (x - mean) / sd) : data.map(() => 0);
-  };
-  let allNormal = true;
-  try {
-    for (const group of groupsWithData) {
-      const vals = groupMap[group];
-      if (vals.length >= 3) {
-        const z = zScores(vals);
-        const result = stats.kstest(z, 'normal', 0, 1);
-        if (result.pValue < 0.05) { allNormal = false; break; }
-      } else { allNormal = false; break; }
-    }
-  } catch { allNormal = false; }
+  const allNormal = groupsWithData.every((group) => ns.isNormal(groupMap[group]));
 
   // 4) Homoscedasticity (Bartlett)
   let homo = false;
