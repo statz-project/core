@@ -323,13 +323,11 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
       p_value = 1;
       test_stat = 0;
     } else if (discordant < 25) {
-      // Exact binomial: 2 * P(X <= min(b,c)) with p = 0.5
+      // Exact binomial at p = 0.5. stdlib's two-sided rule is the method of small p-values, which
+      // coincides with the `min(1, 2 × P(X ≤ k))` this replaces because the null here is always
+      // symmetric — verified identical across the range, the capped-at-1 cases included.
       const k = Math.min(b, c);
-      let cumProb = 0;
-      for (let i = 0; i <= k; i++) {
-        cumProb += binomialPMF(discordant, i, 0.5);
-      }
-      p_value = Math.min(1, 2 * cumProb);
+      p_value = stats ? stats.binomialTest(k, discordant, { p: 0.5 }).pValue : NaN;
       method = translate('tests.mcnemar', lang);
       test_stat = Math.abs(b - c);
     } else {
@@ -399,19 +397,5 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
   };
 };
 
-/**
- * Binomial PMF: P(X = k) where X ~ Bin(n, p).
- * @param {number} n
- * @param {number} k
- * @param {number} p
- * @returns {number}
- */
-const binomialPMF = (n, k, p) => {
-  if (k < 0 || k > n) return 0;
-  // log factorial via Math.lgamma surrogate using accumulated product (n small here, <25)
-  let logC = 0;
-  for (let i = 1; i <= k; i++) logC += Math.log((n - k + i) / i);
-  return Math.exp(logC + k * Math.log(p) + (n - k) * Math.log(1 - p));
-};
 
 export default ns;

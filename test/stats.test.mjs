@@ -2023,3 +2023,67 @@ test("summarize_n counts every value it cannot summarise, so n plus missing is t
   // Nothing missing means no n_missing row at all, which is the pre-existing behaviour.
   assert.equal(read(['1', '2', '3']).missing, 0);
 });
+
+
+test("the tests taken from curated libraries keep their contract", () => {
+  // Three own implementations were replaced by library calls. Two were adopted for their own sake
+  // and had to leave the numbers alone; the third changes them, which is why it was adopted.
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: type, var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const paired = (D) => {
+    const A = D.map((_, i) => 100 + i);
+    const B = A.map((a, i) => a - D[i]);
+    return Statz.runAnalysis([], [sig('ha', 'antes'), sig('hb', 'depois')],
+      { dbA: { columns: [mk('ha', 'antes', 'n', A), mk('hb', 'depois', 'n', B)] } },
+      Statz.getDefaultAnalysisOptions({ lang: 'pt_br' })).result.analysis[0].table;
+  };
+
+  // Wilcoxon signed-rank: EXACT for small n. The hand-rolled normal approximation returned 0.0117
+  // and 0.0051 for these two, anti-conservative in the n range where the test is most used.
+  const w1 = paired([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 9.0]);
+  assert.equal(w1.test_used, 'Wilcoxon (postos com sinais)');
+  assert.equal(w1.p_value.toFixed(4), '0.0078');
+  const w2 = paired([0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 20]);
+  assert.equal(w2.p_value.toFixed(4), '0.0020');
+  // The reported statistic follows the library's convention (W+, R's V), not the old min(W+, W−).
+  assert.equal(w1.test_statistic, 36);
+
+  // Paired t: a one-sample t on the differences, so the library computes the same thing. Pinned to
+  // the value the hand-rolled mean / (sd / √n) against jStat.studentt.cdf produced.
+  const t = paired([1.2, -0.5, 2.1, 0.8, -0.3, 1.9, 0.4, 1.1]);
+  assert.equal(t.test_used, 't pareado');
+  assert.equal(t.p_value.toFixed(4), '0.0400');
+  assert.equal(t.test_statistic.toFixed(4), '2.5173');
+
+  // McNemar exact: stdlib's two-sided rule coincides with min(1, 2 × P(X ≤ k)) at p = 0.5.
+  const t1 = ['no', 'no', 'no', 'yes', 'no', 'no', 'no', 'no', 'no', 'no', 'no', 'no'];
+  const t2 = ['yes', 'yes', 'yes', 'yes', 'no', 'yes', 'yes', 'yes', 'no', 'no', 'no', 'yes'];
+  const mc = Statz.runAnalysis([], [sig('q1', 't1'), sig('q2', 't2')],
+    { dbA: { columns: [mk('q1', 't1', 'q', t1), mk('q2', 't2', 'q', t2)] } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br' })).result.analysis[0].table;
+  assert.equal(mc.test_used, 'McNemar');
+  assert.equal(mc.p_value, 0.0156);
+
+  // Correlation via ss.sampleCorrelation, both branches.
+  const N = [3, 7, 8, 5, 12, 14, 21, 13, 18, 11, 9, 16];
+  const corr = (X, Y) => Statz.runAnalysis([sig('hx', 'X')], [sig('hy', 'Y')],
+    { dbA: { columns: [mk('hx', 'X', 'n', X), mk('hy', 'Y', 'n', Y)] } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br' })).result.analysis[0].table;
+  assert.equal(corr(N, N.map((v) => (v * 1.9) + (v % 3))).correlation, 0.9962);
+  // A constant vector leaves r undefined; `sampleCorrelation` says NaN and the old formula said 0.
+  // The 0 is preserved on purpose — NaN would reach a rendered cell.
+  assert.equal(corr(N, N.map(() => 5)).correlation, 0);
+
+  // A MISSING library must fail visibly rather than report 0, which would read as "no correlation".
+  const saved = Statz.simpleStatistics;
+  try {
+    Statz.simpleStatistics = null;
+    assert.ok(Number.isNaN(corr(N, N.map((v) => v * 1.9)).correlation), 'no library ⇒ NaN, not 0');
+  } finally {
+    Statz.simpleStatistics = saved;
+  }
+  assert.equal(corr(N, N.map((v) => (v * 1.9) + (v % 3))).correlation, 0.9962, 'restored');
+});

@@ -66,7 +66,14 @@ export const STDLIB_STATS_PARTS = {
   anova1: 'anova1',
   kruskalTest: 'kruskal-test',
   bartlettTest: 'bartlett-test',
-  kstest: 'kstest'
+  kstest: 'kstest',
+  // Curated replacements for tests the core used to compute itself. `wilcoxon` is the one that
+  // changes numbers: it is exact for small n where the hand-rolled version used a normal
+  // approximation. `ttest` and `binomialTest` were adopted for their own sake — both agreed with
+  // the code they replaced to floating-point noise.
+  wilcoxon: 'wilcoxon',
+  ttest: 'ttest',
+  binomialTest: 'binomial-test'
 };
 
 // Nested access: json/contingency.js reads `stats.base.dists.chisquare.cdf`.

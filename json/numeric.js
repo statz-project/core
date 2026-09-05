@@ -330,17 +330,19 @@ const computeRanks = (xs) => {
  * @returns {number}
  */
 const pearsonR = (xs, ys) => {
-  const n = xs.length;
-  let sumX = 0, sumY = 0;
-  for (let i = 0; i < n; i++) { sumX += xs[i]; sumY += ys[i]; }
-  const mx = sumX / n, my = sumY / n;
-  let num = 0, dx2 = 0, dy2 = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = xs[i] - mx, dy = ys[i] - my;
-    num += dx * dy; dx2 += dx * dx; dy2 += dy * dy;
-  }
-  const denom = Math.sqrt(dx2 * dy2);
-  return denom > 0 ? num / denom : 0;
+  // simple-statistics' `sampleCorrelation`, which divides the covariance by the two sample SDs —
+  // the n − 1 factors cancel, so it agreed with the raw Σ(dx·dy)/√(Σdx²·Σdy²) this replaces to
+  // within 1e-15. Spearman reuses it over ranks, exactly as before.
+  //
+  // Two guards, for the two ways it can fail to return a number. A MISSING library returns NaN so
+  // the failure is visible: the formula needed no library at all, and quietly reporting 0 would
+  // read as "no correlation" rather than as a broken bundle. A CONSTANT vector leaves r genuinely
+  // undefined — `sampleCorrelation` says NaN, the old formula said 0 — and the 0 is kept because
+  // nothing downstream distinguishes them and changing it would put NaN into a rendered cell.
+  const ss = getSS();
+  if (!ss?.sampleCorrelation) return NaN;
+  const r = ss.sampleCorrelation(xs, ys);
+  return Number.isFinite(r) ? r : 0;
 };
 
 /**
@@ -535,20 +537,23 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
     const diff = aligned[0].map((v, i) => v - aligned[1][i]);
     const parametric = isMarginalNormal(diff);
     if (parametric && stats) {
-      // Paired t-test: t = mean(diff) / (sd(diff)/sqrt(n)), df = n-1.
-      const meanD = sample.mean(diff);
-      const sdD = sample.sd(diff);
-      const se = sdD / Math.sqrt(n);
-      const t = se > 0 ? meanD / se : 0;
-      test_stat = t;
-      p_value = jStat && se > 0 ? 2 * (1 - jStat.studentt.cdf(Math.abs(t), n - 1)) : NaN;
+      // A paired t IS a one-sample t on the differences, so stdlib's `ttest` is the whole test.
+      // It agreed with the hand-rolled `mean / (sd / √n)` against `jStat.studentt.cdf` to 1e-12.
+      const result = stats.ttest(diff);
+      test_stat = result.statistic;
+      p_value = result.pValue;
       method = translate('tests.pairedT', lang);
     } else {
-      // Wilcoxon signed-rank.
-      const result = wilcoxonSignedRank(diff, jStat);
+      // stdlib's Wilcoxon is EXACT for small n; the hand-rolled one used a normal approximation
+      // with a tie correction, which is what stdlib falls back to itself once n passes its exact
+      // threshold. The approximation ran consistently anti-conservative where the test is most
+      // used: on real fixtures it reported 0.0117 and 0.0051 where the exact values are 0.0078 and
+      // 0.0020. Note the reported statistic changes convention with it — stdlib reports W+ (R's V)
+      // where the old code reported min(W+, W−).
+      const result = stats ? stats.wilcoxon(diff) : null;
       method = translate('tests.wilcoxonSigned', lang);
-      p_value = result.p;
-      test_stat = result.W;
+      p_value = result ? result.pValue : NaN;
+      test_stat = result ? result.statistic : NaN;
     }
   } else {
     // K ≥ 3: Friedman.
@@ -613,38 +618,6 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
   };
 };
 
-/**
- * Wilcoxon signed-rank test on a vector of differences.
- * Two-sided, with mid-rank tie correction and normal approximation for the p-value.
- * @param {number[]} diff
- * @param {any} jStat
- * @returns {{W:number, p:number}}
- */
-const wilcoxonSignedRank = (diff, jStat) => {
-  const nonZero = diff.filter((d) => d !== 0);
-  const n = nonZero.length;
-  if (n < 1) return { W: 0, p: NaN };
-  const abs = nonZero.map((d) => Math.abs(d));
-  const ranks = computeRanks(abs);
-  let Wplus = 0;
-  for (let i = 0; i < n; i++) if (nonZero[i] > 0) Wplus += ranks[i];
-  const Wminus = (n * (n + 1)) / 2 - Wplus;
-  const W = Math.min(Wplus, Wminus);
-  const mean = (n * (n + 1)) / 4;
-  // Tie correction
-  const tieCounts = new Map();
-  ranks.forEach((r) => { tieCounts.set(r, (tieCounts.get(r) || 0) + 1); });
-  let tieSum = 0;
-  tieCounts.forEach((t) => { if (t > 1) tieSum += t ** 3 - t; });
-  const variance = (n * (n + 1) * (2 * n + 1)) / 24 - tieSum / 48;
-  const se = Math.sqrt(variance);
-  let p = NaN;
-  if (jStat && se > 0) {
-    const z = (W - mean) / se;
-    p = 2 * jStat.normal.cdf(-Math.abs(z), 0, 1);
-  }
-  return { W, p };
-};
 
 /**
  * Friedman test on K paired numeric vectors (already row-aligned, same length n).
