@@ -7,6 +7,49 @@ import factors from './factors.js';
 const ns = {};
 
 /**
+ * Sample statistics, defined once.
+ *
+ * Every one of these was written inline at several call sites, and each duplication drifted on its
+ * own: the variance divisor was n at two sites and n − 1 at four, and quantiles were taken from
+ * `ss.quantileSorted` in the grouped tables but from a hand-written linear interpolation in the
+ * paired one — the two disagree, so the same values reported a different IQR depending on which
+ * table asked. Naming the object `sample` states the assumption these all share: Statz describes
+ * samples, never populations, so the variance is the unbiased estimator.
+ *
+ * `quantile` interpolates linearly over p × (n − 1), which is R's type 7 — the default in R, numpy,
+ * pandas and Excel's QUARTILE.INC, and the definition a user checking our output against theirs
+ * will most likely be holding. `ss.quantileSorted` implements a different rule and is no longer
+ * used for this. These are deliberately not delegated to jStat: the descriptive path reaches them
+ * through `getNumericalSummaryByGroup`, which needs no statistics library today, and its cells are
+ * built inside a try/catch that would turn a missing library into a silent "—" rather than an error.
+ */
+const sample = {
+  /** @param {number[]} arr */
+  mean: (arr) => arr.reduce((a, b) => a + b, 0) / arr.length,
+  /** Unbiased variance (n − 1). NaN below two values, where it is undefined. @param {number[]} arr */
+  variance: (arr) => {
+    if (arr.length < 2) return NaN;
+    const m = sample.mean(arr);
+    return arr.reduce((a, b) => a + ((b - m) ** 2), 0) / (arr.length - 1);
+  },
+  /** @param {number[]} arr */
+  sd: (arr) => Math.sqrt(sample.variance(arr)),
+  /** @param {number[]} arr */
+  median: (arr) => sample.quantile(arr, 0.5),
+  /** R type 7. @param {number[]} arr @param {number} p */
+  quantile: (arr, p) => {
+    const s = [...arr].sort((a, b) => a - b);
+    if (s.length === 0) return NaN;
+    const pos = p * (s.length - 1);
+    const lo = Math.floor(pos);
+    const hi = Math.ceil(pos);
+    return s[lo] + ((s[hi] - s[lo]) * (pos - lo));
+  },
+  /** @param {number[]} arr */
+  iqr: (arr) => sample.quantile(arr, 0.75) - sample.quantile(arr, 0.25)
+};
+
+/**
  * Descriptive summary for numeric vector.
  * @param {Array<string|number>} values
  */
@@ -20,13 +63,13 @@ ns.summarize_n = function (values, formatFn = null, options = {}) {
       nums.push(parsed);
       return;
     }
-    if (value !== undefined && value !== null && value !== '' && typeof value === 'string' && value.trim() === '') {
-      missingCount += 1;
-      return;
-    }
-    if (value === undefined || value === null || value === '' || Number.isNaN(parsed)) {
-      missingCount += 1;
-    }
+    // Anything that is not a finite number is missing to a numeric summary. This is the shape
+    // `summarize_n_q` already uses, and it subsumes `factors.isMissingValue`: a blank,
+    // whitespace-only, null or undefined cell never parses, so testing that predicate separately
+    // only restates the condition. The three branches this replaces enumerated those cases plus a
+    // failed parse and still let one through — a raw ±Infinity matched none of them, so it was
+    // dropped from `n` without being counted, and n_missing silently disagreed with the total.
+    missingCount += 1;
   });
   const n = nums.length;
   const lang = normalizeLanguage(options?.lang);
@@ -75,12 +118,12 @@ ns.getNumericalSummaryByGroup = function (valuesByGroup, options, formatFn = nul
   const formatDefault = (val) => formatNumberLocale(val, 1, lang);
   const getStats = (vals) => {
     const sorted = [...vals].sort((a, b) => a - b); const count = vals.length; if (count === 0) return null;
-    const mean = count > 0 ? (vals.reduce((a, b) => a + b, 0) / count) : NaN;
-    const sd = count > 1 ? Math.sqrt(vals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / count) : NaN;
-    const median = ss?.medianSorted ? ss.medianSorted(sorted) : NaN;
-    const q1 = ss?.quantileSorted ? ss.quantileSorted(sorted, 0.25) : NaN;
-    const q3 = ss?.quantileSorted ? ss.quantileSorted(sorted, 0.75) : NaN;
-    const iqr = (q3 ?? NaN) - (q1 ?? NaN);
+    const mean = sample.mean(vals);
+    const sd = sample.sd(vals);
+    const median = sample.median(sorted);
+    const q1 = sample.quantile(sorted, 0.25);
+    const q3 = sample.quantile(sorted, 0.75);
+    const iqr = q3 - q1;
     const mode = (() => { try { return ss?.modeSorted ? ss.modeSorted(sorted) : null; } catch { return null; } })();
     const min = sorted[0]; const max = sorted[count - 1];
     return { n: count, mean, sd, median, q1, q3, iqr, mode, min, max };
@@ -160,8 +203,8 @@ const describeGroups = (groupMap) => Object.keys(groupMap)
   .map((name) => {
     const values = groupMap[name];
     const n = values.length;
-    const mean = values.reduce((sum, v) => sum + v, 0) / n;
-    const variance = values.reduce((sum, v) => sum + ((v - mean) ** 2), 0) / (n - 1);
+    const mean = sample.mean(values);
+    const variance = sample.variance(values);
     return { name, n, mean, variance };
   });
 
@@ -349,8 +392,8 @@ ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, optio
   /** @param {number[]} arr */
   const isMarginalNormal = (arr) => {
     if (!stats || arr.length < 2) return false;
-    const mean = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + b, 0) / arr.length;
-    const variance = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + (b - mean) ** 2, 0) / arr.length;
+    const mean = sample.mean(arr);
+    const variance = sample.variance(arr);
     if (variance <= 0) return false;
     const sd = Math.sqrt(variance);
     const z = arr.map((/** @type {number} */ v) => (v - mean) / sd);
@@ -472,8 +515,8 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
   /** @param {number[]} arr */
   const isMarginalNormal = (arr) => {
     if (!stats || arr.length < 2) return false;
-    const mean = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + b, 0) / arr.length;
-    const variance = arr.reduce((/** @type {number} */ a, /** @type {number} */ b) => a + (b - mean) ** 2, 0) / arr.length;
+    const mean = sample.mean(arr);
+    const variance = sample.variance(arr);
     if (variance <= 0) return false;
     const sd = Math.sqrt(variance);
     const z = arr.map((/** @type {number} */ v) => (v - mean) / sd);
@@ -493,8 +536,8 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
     const parametric = isMarginalNormal(diff);
     if (parametric && stats) {
       // Paired t-test: t = mean(diff) / (sd(diff)/sqrt(n)), df = n-1.
-      const meanD = diff.reduce((a, b) => a + b, 0) / n;
-      const sdD = Math.sqrt(diff.reduce((a, b) => a + (b - meanD) ** 2, 0) / (n - 1));
+      const meanD = sample.mean(diff);
+      const sdD = sample.sd(diff);
       const se = sdD / Math.sqrt(n);
       const t = se > 0 ? meanD / se : 0;
       test_stat = t;
@@ -520,49 +563,47 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
   const pValueLabel = translate('table.columns.pValue', lang) || 'p-value';
   const fmt = (/** @type {number} */ v, decimals = 2) => Number.isFinite(v) ? formatNumberLocale(v, decimals, lang) : '';
   /** @param {number[]} arr */
-  const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
-  /** @param {number[]} arr */
-  const sd = (arr) => {
-    const m = mean(arr);
-    return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / (arr.length - 1));
-  };
-  /** @param {number[]} arr */
-  const median = (arr) => {
-    const s = [...arr].sort((a, b) => a - b);
-    const mid = Math.floor(s.length / 2);
-    return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
-  };
-  /** @param {number[]} arr */
-  const iqr = (arr) => {
-    const s = [...arr].sort((a, b) => a - b);
-    const q = (p) => {
-      const pos = p * (s.length - 1);
-      const lo = Math.floor(pos); const hi = Math.ceil(pos); const frac = pos - lo;
-      return s[lo] + (s[hi] - s[lo]) * frac;
-    };
-    return q(0.75) - q(0.25);
-  };
 
-  const rowMeanSD = { [groupLabel]: 'Mean ± SD' };
-  const rowMedIQR = { [groupLabel]: 'Median ± IQR' };
-  const rowN = { [groupLabel]: 'n' };
-  for (let k = 0; k < K; k++) {
-    const col = labels[k];
-    rowMeanSD[col] = `${fmt(mean(aligned[k]))} ± ${fmt(sd(aligned[k]))}`;
-    rowMedIQR[col] = `${fmt(median(aligned[k]))} ± ${fmt(iqr(aligned[k]))}`;
-    rowN[col] = String(n);
-  }
-  rowMeanSD[pValueLabel] = '';
-  rowMedIQR[pValueLabel] = '';
-  // Left empty like every other summarizer: the p-value belongs to the TABLE, not to a row, and
-  // `combineAnalysisAsSingleTable` renders it once on the predictor header row — localised through
-  // formatPValue and carrying the test symbol that ties it to the footer legend. Writing it here
-  // too printed the same number twice in one table, the second copy raw.
-  rowN[pValueLabel] = '';
+  // Which statistics appear is the user's call: `has_paired_n` is listed in the `appliesTo` of
+  // `stat_options_by_group`, so the panel offers the choice — but this builder emitted a fixed
+  // Mean ± SD / Median ± IQR / n whatever was selected, with the first two labels hardcoded in
+  // English inside an otherwise localised table.
+  const statOptions = options?.stat_options_by_group ?? options?.stat_options ?? ['mean_sd'];
+  const statLabels = {
+    min: translate('stats.labels.min', lang),
+    max: translate('stats.labels.max', lang),
+    mean_sd: translate('stats.labels.mean_sd', lang),
+    median_iqr: translate('stats.labels.median_iqr', lang),
+    n: translate('stats.labels.n', lang)
+  };
+  // The cells are built here rather than delegated to `getNumericalSummaryByGroup`, which serves the
+  // grouped tables: the two differ only in presentation now that both read `sample` — this one
+  // renders at 2 decimals against that one's 1 — and folding them together would change what one of
+  // them prints for reasons unrelated to any of this. `n_missing` is absent by design — the moments are row-aligned, so an
+  // individual missing any one of them is dropped from all of them and the count would be the same
+  // in every column; it belongs to the table's `n`, not to a per-moment row. Selecting it there
+  // yields no row, the same as the grouped helper does when no missing counts reach it.
+  const cellFor = {
+    min: (/** @type {number[]} */ vals) => fmt(Math.min(...vals)),
+    max: (/** @type {number[]} */ vals) => fmt(Math.max(...vals)),
+    mean_sd: (/** @type {number[]} */ vals) => `${fmt(sample.mean(vals))} ± ${fmt(sample.sd(vals))}`,
+    median_iqr: (/** @type {number[]} */ vals) => `${fmt(sample.median(vals))} ± ${fmt(sample.iqr(vals))}`,
+    n: () => String(n)
+  };
+  const rows = statOptions.filter((/** @type {string} */ stat) => cellFor[stat]).map((/** @type {string} */ stat) => {
+    const row = { [groupLabel]: statLabels[stat] || stat };
+    labels.forEach((/** @type {string} */ col, /** @type {number} */ k) => { row[col] = cellFor[stat](aligned[k]); });
+    // Left empty like every other summarizer: the p-value belongs to the TABLE, not to a row, and
+    // `combineAnalysisAsSingleTable` renders it once on the predictor header row — localised through
+    // formatPValue and carrying the test symbol that ties it to the footer legend. Writing it here
+    // too printed the same number twice in one table, the second copy raw.
+    row[pValueLabel] = '';
+    return row;
+  });
 
   return {
     columns: [groupLabel, ...labels, pValueLabel],
-    rows: [rowMeanSD, rowMedIQR, rowN],
+    rows,
     test_used: method,
     p_value: Number.isFinite(p_value) ? +p_value.toFixed(4) : NaN,
     test_statistic: Number.isFinite(test_stat) ? +test_stat.toFixed(4) : NaN,
@@ -760,8 +801,8 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   // 3) Normality via K-S on z-scores
   const jStat = getJStat();
   const zScores = (data) => {
-    const mean = jStat.mean(data);
-    const sd = jStat.stdev(data, true);
+    const mean = sample.mean(data);
+    const sd = sample.sd(data);
     return sd > 0 ? data.map(x => (x - mean) / sd) : data.map(() => 0);
   };
   let allNormal = true;

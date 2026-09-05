@@ -1360,7 +1360,11 @@ test("paired summaries carry the p-value on the table, never duplicated into a r
   const n = paired([mkCol('n1', 'antes', 'n', ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']),
                     mkCol('n2', 'depois', 'n', ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12'])],
     [sig('n1', 'antes'), sig('n2', 'depois')]);
-  assert.deepEqual(n.result.analysis[0].table.rows.map((r) => r['p-valor']), ['', '', '']);
+  // How MANY rows the numeric builder emits now follows `stat_options_by_group`, so this asserts
+  // the property under test — no row carries the p — instead of a fixed row count.
+  const numericRows = n.result.analysis[0].table.rows;
+  assert.ok(numericRows.length > 0, 'there are rows to check');
+  assert.deepEqual([...new Set(numericRows.map((r) => r['p-valor']))], ['']);
 
   // End to end: exactly one cell in the p-value column, on the header row, with the symbol.
   for (const result of [q.result, n.result]) {
@@ -1852,4 +1856,170 @@ test("the first column is named for what the tables put in it, not for having a 
     analysis: [{ predictor: 'Origin', response: 'NumResp', table: { warning: 'não pareado' } }]
   });
   assert.deepEqual(allWarnings.columns, [groupLabel]);
+});
+
+
+test("paired numeric summaries honour stat_options_by_group, with localised row labels", () => {
+  // Reported: whatever the panel offered, the table always came back Mean ± SD / Median ± IQR / n.
+  // `has_paired_n` is listed in that option's `appliesTo`, so the choice was offered and dropped,
+  // and the first two labels were hardcoded English sitting in an otherwise pt_br table.
+  const mk = (hash, label, values) => {
+    const c = Statz.makeColumn(values, { col_type: 'n', var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const A = ['3', '5', '7', '9', '11', '13', '15', '4', '6', '8', '10', '12', '14', '2', '1'];
+  const cols = [mk('h1', 'time 1', A), mk('h2', 'time 2', A.map((v) => String(+v + 2))),
+                mk('h3', 'time 3', A.map((v) => String(+v + 5)))];
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const all = [sig('h1', 'time 1'), sig('h2', 'time 2'), sig('h3', 'time 3')];
+  const table = (responses, opts) => Statz.runAnalysis([], responses, { dbA: { columns: cols } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', ...opts })).result.analysis[0].table;
+  const labelsOf = (t) => t.rows.map((r) => r['Variável']);
+
+  // Friedman (K = 3), the reported case: the default is one statistic, not three.
+  const def = table(all, {});
+  assert.equal(def.test_used, 'Friedman');
+  assert.deepEqual(labelsOf(def), ['Média ± DP']);
+  // The cell is unchanged by the refactor, sample sd and 2 decimals included: the grouped helper
+  // reports a POPULATION sd, so delegating to it would have quietly moved this number.
+  assert.equal(def.rows[0]['time 1'], '8,00 ± 4,47');
+
+  // The selection is honoured, and in the order it was given.
+  assert.deepEqual(labelsOf(table(all, { stat_options_by_group: ['n', 'median_iqr', 'mean_sd'] })),
+    ['n', 'Mediana ± IQR', 'Média ± DP']);
+  assert.deepEqual(labelsOf(table(all, { stat_options_by_group: ['min', 'max'] })), ['Mínimo', 'Máximo']);
+
+  // `n_missing` produces no row: the moments are row-aligned, so it would repeat one number across
+  // every column. Selecting it alongside others must not disturb them.
+  assert.deepEqual(labelsOf(table(all, { stat_options_by_group: ['min', 'n_missing', 'max'] })), ['Mínimo', 'Máximo']);
+
+  // Same builder for K = 2, so the paired t / Wilcoxon tables follow.
+  const two = table([sig('h1', 'time 1'), sig('h2', 'time 2')], { stat_options_by_group: ['n', 'min'] });
+  assert.deepEqual(labelsOf(two), ['n', 'Mínimo']);
+  assert.equal(two.rows[0]['time 2'], '15');
+
+  // Localised, not hardcoded: the same rows in English must not read the same as in Portuguese.
+  const english = table(all, { lang: 'en_us', stat_options_by_group: ['mean_sd', 'median_iqr'] });
+  assert.deepEqual(english.rows.map((r) => r[Statz.translate('table.columns.variable', 'en_us')]),
+    [Statz.translate('stats.labels.mean_sd', 'en_us'), Statz.translate('stats.labels.median_iqr', 'en_us')]);
+  assert.notDeepEqual(labelsOf(table(all, { stat_options_by_group: ['mean_sd', 'median_iqr'] })),
+    english.rows.map((r) => r[Statz.translate('table.columns.variable', 'en_us')]));
+});
+
+
+test("the standard deviation is the sample one on every path, displayed and inferential", () => {
+  // Statz describes samples, never populations, so the unbiased estimator is the right one wherever
+  // a spread is computed. `summarize_n_paired`, the paired t and `summarize_n_n` already divided by
+  // n − 1; `getNumericalSummaryByGroup` and the two normality checks divided by n, so the same
+  // variable printed a smaller spread when grouped than when paired, and two of the three K-S
+  // checks standardised differently from the third.
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: type, var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+
+  // mean 5, sample sd = sqrt(32/7) = 2.138, population sd = sqrt(32/8) = 2 — the two round apart at
+  // both the 1 decimal the grouped tables use and the 2 the paired one does.
+  const V = [2, 4, 4, 4, 5, 5, 7, 9];
+  const W = [10, 11, 12, 13, 14, 15, 16, 17];
+
+  const groups = ['a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'b', 'b', 'b'];
+  const gCols = [mk('hg', 'Grupo', 'q', groups), mk('hv', 'Valor', 'n', [...V, ...W])];
+  const grouped = Statz.runAnalysis([sig('hg', 'Grupo')], [sig('hv', 'Valor')], { dbA: { columns: gCols } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br' })).result.analysis[0].table;
+  const meanRow = grouped.rows.find((r) => r[grouped.columns[0]] === Statz.translate('stats.labels.mean_sd', 'pt_br'));
+  assert.equal(meanRow['a'], '5,0 ± 2,1', 'grouped: sample sd, not the 2,0 the population one gives');
+
+  // The same eight values as a paired moment report the same spread, at that builder's 2 decimals.
+  const pCols = [mk('h1', 'antes', 'n', V), mk('h2', 'depois', 'n', W)];
+  const paired = Statz.runAnalysis([], [sig('h1', 'antes'), sig('h2', 'depois')], { dbA: { columns: pCols } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br' })).result.analysis[0].table;
+  assert.equal(paired.rows[0]['antes'], '5,00 ± 2,14', 'paired: the same statistic, unchanged');
+
+  // Inferential side. These 18 differences sit either side of the 0.05 cut-off depending on the
+  // divisor used to standardise them: K-S returns 0.0462 with n and 0.0507 with n − 1, so the
+  // parametric route is taken only when the sample sd is used. Both call sites are covered — the
+  // paired one tests the differences, the correlation one tests each marginal.
+  const F = [2, -7, -10, -6, -8, -9, -6, -8, -6, 9, 4, -8, 7, 9, -5, -9, -8, -6];
+  const A = F.map((_, i) => 100 + i);
+  const B = A.map((a, i) => a - F[i]);
+  const Y = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 7, 8];
+  const cols = [mk('ha', 'antes', 'n', A), mk('hb', 'depois', 'n', B), mk('hf', 'X', 'n', F), mk('hy', 'Y', 'n', Y)];
+  const db = { dbA: { columns: cols } };
+  const opts = Statz.getDefaultAnalysisOptions({ lang: 'pt_br' });
+  assert.equal(Statz.runAnalysis([], [sig('ha', 'antes'), sig('hb', 'depois')], db, opts)
+    .result.analysis[0].table.test_used, 't pareado');
+  assert.equal(Statz.runAnalysis([sig('hf', 'X')], [sig('hy', 'Y')], db, opts)
+    .result.analysis[0].table.test_used, Statz.translate('tests.pearson', 'pt_br'));
+});
+
+
+test("quantiles follow R's type 7 on every path, so the same values report one IQR", () => {
+  // The grouped tables took their quartiles from `ss.quantileSorted` while the paired one
+  // interpolated linearly, and the two disagree: the same six values reported an IQR of 3 grouped
+  // and 2.5 paired. Linear interpolation over p × (n − 1) is R's type 7 — the default in R, numpy,
+  // pandas and Excel's QUARTILE.INC — so it is the one a user checking our output will hold.
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: type, var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const A = [1, 2, 3, 4, 5, 6];   // R: median 3.5, q1 2.25, q3 4.75, IQR 2.5
+  const B = [10, 11, 12, 13, 14, 15];
+  const cols = [mk('hg', 'G', 'q', ['a', 'a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'b']),
+                mk('hv', 'V', 'n', [...A, ...B])];
+  const db = { dbA: { columns: cols } };
+
+  // Grouped: 2,5, not the 3,0 `ss.quantileSorted` returns.
+  const grouped = Statz.runAnalysis([sig('hg', 'G')], [sig('hv', 'V')], db,
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', stat_options_by_group: ['median_iqr'] })).result.analysis[0].table;
+  assert.equal(grouped.rows[0]['a'], '3,5 ± 2,5');
+
+  // Descriptive reaches the same helper: over all twelve values R gives median 8, q1 3.75, q3 12.25.
+  const described = Statz.runAnalysis([sig('hv', 'V')], [], db,
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', stat_options_numeric: ['median_iqr'] })).result.analysis[0].table;
+  assert.equal(described.rows[0]['Descrição'], '8,0 ± 8,5');
+
+  // Paired reports the same statistic for the same values, at that builder's 2 decimals — which is
+  // the point of the unification: the number must not depend on which table asked for it.
+  const paired = Statz.runAnalysis([], [sig('h1', 'antes'), sig('h2', 'depois')],
+    { dbA: { columns: [mk('h1', 'antes', 'n', A), mk('h2', 'depois', 'n', B)] } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', stat_options_by_group: ['median_iqr'] })).result.analysis[0].table;
+  assert.equal(paired.rows[0]['antes'], '3,50 ± 2,50');
+});
+
+
+test("summarize_n counts every value it cannot summarise, so n plus missing is the total", () => {
+  // The missing branches enumerated blank / whitespace / null / failed-parse by hand — which is
+  // `factors.isMissingValue` restated, since none of those parse — and the enumeration had a gap:
+  // a raw ±Infinity matched no branch, so it entered neither `n` nor the n_missing row, which then
+  // disagreed with the number of values handed in. `summarize_n_q` never had the gap: it counts
+  // anything not finite in a single `else`.
+  const opts = { lang: 'pt_br', stat_options_numeric: ['n', 'n_missing'] };
+  const missingLabel = Statz.translate('stats.labels.n_missing', 'pt_br');
+  const read = (values) => {
+    const t = Statz.summarize_n(values, null, opts);
+    const cell = (label) => t.rows.find((r) => r['Variável'] === label)?.['Descrição'];
+    return { n: Number(cell('n') ?? 0), missing: Number(cell(missingLabel) ?? 0) };
+  };
+
+  for (const [name, values] of Object.entries({
+    blank: ['1', '2', '3', ''],
+    whitespace: ['1', '2', '3', '   '],
+    null: ['1', '2', '3', null],
+    text: ['1', '2', '3', 'N/A'],
+    infinityString: ['1', '2', '3', 'Infinity'],
+    infinityNumber: [1, 2, 3, Infinity],
+    negativeInfinity: [1, 2, 3, -Infinity],
+    nan: [1, 2, 3, NaN]
+  })) {
+    const { n, missing } = read(values);
+    assert.equal(n, 3, name);
+    assert.equal(missing, 1, `${name}: uncounted`);
+    assert.equal(n + missing, values.length, `${name}: n + missing must be the total`);
+  }
+
+  // Nothing missing means no n_missing row at all, which is the pre-existing behaviour.
+  assert.equal(read(['1', '2', '3']).missing, 0);
 });
