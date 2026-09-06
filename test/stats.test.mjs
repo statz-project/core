@@ -2271,3 +2271,147 @@ test("the normality gate reads D against the Lilliefors null, not a fully specif
                  0.13, 0.25, 0.39, 0.52, 0.67, 0.84, 1.04, 1.28, 1.64, 0.3];
   assert.equal(Statz.isNormal(CLEAN), true);
 });
+
+
+test("alpha reaches everything that judges significance, including the cell cut-off and the render", () => {
+  // Reported: raising alpha on a non-significant q × q did nothing visible. The option WAS read —
+  // it gates residuals and post-hoc — but the residual CELL test was pinned at 1.96, the two-sided
+  // z for 0.05, so one table was being judged at two significance levels at once.
+  const cell = (a, b, c, d) => {
+    const pred = [...Array(a).fill('x'), ...Array(b).fill('x'), ...Array(c).fill('y'), ...Array(d).fill('y')];
+    const resp = [...Array(a).fill('p'), ...Array(b).fill('q'), ...Array(c).fill('p'), ...Array(d).fill('q')];
+    return (alpha) => Statz.summarize_q_q(pred, resp, null, { alpha, lang: 'pt_br', with_residuals: true });
+  };
+  // p = 0.1351, adjusted residuals all ±1.494: below the z for 0.05 (1.96), above the z for 0.20 (1.282).
+  const reported = cell(11, 17, 22, 16);
+  assert.equal(reported(0.05).p_value, 0.1351);
+  assert.equal(reported(0.05).residuals_available, false, 'not significant at 0.05, nothing to show');
+  assert.equal(reported(0.20).residuals_available, true, 'significant at 0.20, and the cells clear 1.282');
+  assert.ok(reported(0.20).used_resid_greater && reported(0.20).used_resid_lower, 'symbols actually printed');
+
+  // `alpha` rides on the result in table mode only, from every path runAnalysis returns through.
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: type, var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const N = 40;
+  const cols = [
+    mk('hg', 'Grupo', 'q', Array.from({ length: N }, (_, i) => ['a', 'b'][i % 2])),
+    mk('hf', 'Forte', 'n', Array.from({ length: N }, (_, i) => (i % 2 ? (i * 3) + 40 : i))),
+    mk('hw', 'Fraco', 'n', Array.from({ length: N }, (_, i) => (i % 2 ? i + 2 : i)))
+  ];
+  const render = (alpha) => {
+    const { result } = Statz.runAnalysis([sig('hf', 'Forte'), sig('hw', 'Fraco')], [sig('hg', 'Grupo')],
+      { dbA: { columns: cols } }, Statz.getDefaultAnalysisOptions({ lang: 'pt_br', alpha }));
+    assert.equal(result.alpha, alpha, 'carried on the result for the exporter to read');
+    const combined = Statz.combineAnalysisAsSingleTable(result);
+    // The data stays plain text; only the HTML carries the emphasis.
+    assert.ok(combined.rows.every((r) => !String(r['p-valor'] ?? '').includes('<b>')), 'no markup in the data');
+    return Statz.exportCombinedAsHTML(combined, '', '', '').match(/<td><b>.*?<\/b><\/td>/g) || [];
+  };
+  // "Forte" separates the groups and "Fraco" barely does (p = 0.428). At 0.05 only the first is
+  // bold; at 0.5 both are, which is what makes the emphasis follow the reader rather than a constant.
+  // The < of <0,001 is escaped now: it is text, and an unescaped one is invalid markup.
+  assert.deepEqual(render(0.05), ['<td><b>&lt;0,001¹</b></td>']);
+  assert.deepEqual(render(0.5), ['<td><b>&lt;0,001¹</b></td>', '<td><b>0,428¹</b></td>']);
+});
+
+
+test("user text reaches the HTML escaped, and only the header cell stays markup", () => {
+  // A variable named `Faixa <etaria>` used to be emitted as `<b>Faixa <etaria></b>`: the browser
+  // read `<etaria>` as an unknown tag and dropped the word from the rendered table. Level names go
+  // through the same path as column headers, and `formatPValue` produces a literal `<` of its own.
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: type, var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const N = 40;
+  const cols = [
+    mk('hg', 'Faixa <etaria>', 'q', Array.from({ length: N }, (_, i) => (i % 3 ? 'sim' : 'nao'))),
+    mk('hd', 'Desfecho', 'q', Array.from({ length: N }, (_, i) => (i % 2 ? '<18 anos' : '>=18 anos')))
+  ];
+  const { result } = Statz.runAnalysis([sig('hg', 'Faixa <etaria>')], [sig('hd', 'Desfecho')],
+    { dbA: { columns: cols } }, Statz.getDefaultAnalysisOptions({ lang: 'pt_br' }));
+  const combined = Statz.combineAnalysisAsSingleTable(result);
+  const html = Statz.exportCombinedAsHTML(combined, '', '', '');
+
+  assert.ok(html.includes('<th>&lt;18 anos</th>'), html.slice(0, 200));
+  assert.ok(html.includes('<th>&gt;=18 anos</th>'));
+  assert.ok(html.includes('<b>Faixa &lt;etaria&gt;</b>'), 'the label is escaped INSIDE the marker');
+  // No raw angle bracket survives anywhere the user could have put one.
+  assert.ok(!/<(?:etaria|18)/.test(html), 'no user text is parsed as a tag');
+  // The `<b>` marker itself is not escaped — `isPredictorHeaderRow` keys off it.
+  assert.ok(Statz.isPredictorHeaderRow(combined.rows[0][combined.columns[0]]));
+
+  // And the data stays data: entities belong to the rendering, not to `combined.rows`.
+  assert.ok(combined.columns.includes('<18 anos'), JSON.stringify(combined.columns));
+  assert.ok(!JSON.stringify(combined.columns).includes('&lt;'));
+});
+
+test("confidence intervals are built at the level that pairs with alpha", () => {
+  // 1.96 was pinned in both interval sites while the test beside them ran at whatever the reader
+  // chose, so a 2×2 decided at 0.20 still reported a 95% interval — two statements about one table.
+  assert.equal(Statz.formatConfidenceLevel(0.05, 'pt_br'), '95');
+  assert.equal(Statz.formatConfidenceLevel(0.20, 'pt_br'), '80');
+  assert.equal(Statz.formatConfidenceLevel(0.01, 'pt_br'), '99');
+  // A level that is not whole keeps one decimal, localised.
+  assert.equal(Statz.formatConfidenceLevel(0.025, 'pt_br'), '97,5');
+  assert.equal(Statz.formatConfidenceLevel(0.025, 'en_us'), '97.5');
+
+  // q × q effect sizes: label and bounds both move, and a wider alpha means a narrower interval.
+  const A = [...Array(30).fill('x'), ...Array(12).fill('x'), ...Array(14).fill('y'), ...Array(28).fill('y')];
+  const B = [...Array(30).fill('p'), ...Array(12).fill('q'), ...Array(14).fill('p'), ...Array(28).fill('q')];
+  const effect = (alpha) => Statz.summarize_q_q(A, B, null, { alpha, lang: 'pt_br', with_effect_sizes: true });
+  const at05 = effect(0.05);
+  const at20 = effect(0.20);
+  assert.ok(at05.columns.includes('IC 95%'), JSON.stringify(at05.columns));
+  assert.ok(at20.columns.includes('IC 80%'), JSON.stringify(at20.columns));
+  assert.ok(at20.effect_sizes.odds_ratio.ci_lower > at05.effect_sizes.odds_ratio.ci_lower);
+  assert.ok(at20.effect_sizes.odds_ratio.ci_upper < at05.effect_sizes.odds_ratio.ci_upper);
+  assert.equal(at05.effect_sizes.odds_ratio.value, at20.effect_sizes.odds_ratio.value, 'the estimate is the same');
+
+  // n × n: the Fisher-z interval follows too, which is why has_nn now gates the option.
+  const X = [3, 7, 8, 5, 12, 14, 21, 13, 18, 11, 9, 16, 4, 19, 6];
+  const Y = [5, 4, 12, 9, 8, 20, 15, 11, 24, 7, 14, 13, 10, 16, 3];
+  const corr = (alpha) => Statz.summarize_n_n(X.map(String), Y.map(String), null, { alpha, lang: 'pt_br' });
+  const labelOf = (t) => t.rows.find((r) => /IC/.test(r['Variável']))['Variável'];
+  assert.equal(labelOf(corr(0.05)), 'IC 95%');
+  assert.equal(labelOf(corr(0.20)), 'IC 80%');
+  assert.ok(corr(0.20).ci_lower > corr(0.05).ci_lower);
+  assert.ok(corr(0.20).ci_upper < corr(0.05).ci_upper);
+  assert.equal(corr(0.20).correlation, corr(0.05).correlation);
+});
+
+
+test("alpha is offered wherever a p-value is emphasised, paired analyses included", () => {
+  // The bold p-value reaches EVERY analysis with a p-value, but the option was catalogued only for
+  // the flags whose residuals or post-hoc read it. A paired element reporting p = 0.057 to a reader
+  // working at 0.075 therefore had a threshold applied to its table and no way to set it — leaving
+  // a flag out of the gate does not spare the user a useless control, it takes away a live one.
+  const paired = ['has_paired_n', 'has_paired_q'];
+  for (const flag of paired) {
+    assert.equal(Statz.getAvailableOptions([flag], 'table').some((o) => o.name === 'alpha'), true, flag);
+    assert.equal(Statz.getAvailableOptions([flag], 'chart').some((o) => o.name === 'alpha'), false, `${flag} in chart mode`);
+  }
+
+  const mk = (hash, label, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: 'n', var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (h, l) => JSON.stringify({ database_id: 'dbA', col_hash: h, col_label: l, col_var_index: null });
+  const A = [26, 13, 23, 38, 21, 36, 35, 14, 36, 40];
+  const B = [27, 16, 23, 38, 22, 38, 38, 17, 35, 39];
+  const render = (alpha) => {
+    const { result } = Statz.runAnalysis([], [sig('ha', 'antes'), sig('hb', 'depois')],
+      { dbA: { columns: [mk('ha', 'antes', A), mk('hb', 'depois', B)] } },
+      Statz.getDefaultAnalysisOptions({ lang: 'pt_br', alpha }));
+    assert.equal(result.analysis[0].table.p_value, 0.0571, 'the same test either way');
+    return Statz.exportCombinedAsHTML(Statz.combineAnalysisAsSingleTable(result), '', '', '')
+      .match(/<td><b>[^<]*<\/b><\/td>/g) || [];
+  };
+  // p = 0.0571 sits between the two thresholds, so the emphasis follows the reader and not a constant.
+  assert.deepEqual(render(0.05), []);
+  assert.deepEqual(render(0.075), ['<td><b>0,057¹</b></td>']);
+});

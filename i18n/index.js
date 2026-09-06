@@ -25,7 +25,7 @@ const MESSAGES = {
         "significant": "Significativo",
         "oddsRatio": "Odds Ratio",
         "riskRatio": "Risk Ratio",
-        "ci95": "IC 95%"
+        "ciLevel": "IC {level}%"
       },
       "effectSizes": {
         "ref": "Ref"
@@ -224,7 +224,7 @@ const MESSAGES = {
         "significant": "Significant",
         "oddsRatio": "Odds Ratio",
         "riskRatio": "Risk Ratio",
-        "ci95": "95% CI"
+        "ciLevel": "{level}% CI"
       },
       "effectSizes": {
         "ref": "Ref"
@@ -423,7 +423,7 @@ const MESSAGES = {
         "significant": "Significativo",
         "oddsRatio": "Odds Ratio",
         "riskRatio": "Risk Ratio",
-        "ci95": "IC 95%"
+        "ciLevel": "IC {level}%"
       },
       "effectSizes": {
         "ref": "Ref"

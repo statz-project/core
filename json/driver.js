@@ -1643,6 +1643,10 @@ const responseLevelKeys = (db, column) => {
  * stored as text.
  * @param {any} mergedOptions
  */
+const tableDisplayOptions = (mergedOptions) => (
+  mergedOptions?.mode === 'chart' ? null : { alpha: Number(mergedOptions?.alpha) || 0.05 }
+);
+
 const chartDisplayOptions = (mergedOptions) => (
   mergedOptions?.mode === 'chart'
     ? {
@@ -1706,7 +1710,8 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
       return /** @type {any} */ ({
         result: {
           analysis: notices, test_legend: [], lang,
-          ...(noticeChartOptions ? { chart_options: noticeChartOptions } : {})
+          ...(noticeChartOptions ? { chart_options: noticeChartOptions } : {}),
+          ...(tableDisplayOptions(mergedOptions) ?? {})
         },
         flags: Array.from(flagsUsed)
       });
@@ -1758,7 +1763,8 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
       return /** @type {any} */ ({
         result: {
           analysis: aggregatedEntries, test_legend, lang,
-          ...(broadcastChartOptions ? { chart_options: broadcastChartOptions } : {})
+          ...(broadcastChartOptions ? { chart_options: broadcastChartOptions } : {}),
+          ...(tableDisplayOptions(mergedOptions) ?? {})
         },
         flags: Array.from(flagsUsed)
       });
@@ -1898,6 +1904,7 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const finalResult = { analysis: result, test_legend, lang };
   const chart_options = chartDisplayOptions(mergedOptions);
   if (chart_options) finalResult.chart_options = chart_options;
+  Object.assign(finalResult, tableDisplayOptions(mergedOptions) ?? {});
   return { result: finalResult, flags: Array.from(flagsUsed) };
 };
 

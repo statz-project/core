@@ -1,5 +1,5 @@
 // @ts-check
-import { getJStat, getSS, getStatsLib, formatNumberLocale, formatPValue, PVALUE_DECIMALS, PVALUE_THRESHOLD } from './_env.js';
+import { getJStat, getSS, getStatsLib, formatNumberLocale, formatPValue, formatConfidenceLevel, PVALUE_DECIMALS, PVALUE_THRESHOLD } from './_env.js';
 import { getBinaryLabels, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
 import variants from './variants.js';
 import factors from './factors.js';
@@ -495,12 +495,18 @@ ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, optio
   }
   const p_value = correlationPValue(r, n);
 
-  // 4. CI 95% via Fisher's z-transformation.
+  // 4. Confidence interval via Fisher's z-transformation, at the level that pairs with `alpha`.
+  // Pinned at 1.96 before, which put a 95% interval next to a p-value the reader was judging at
+  // some other threshold. `has_nn` joins the option's `appliesTo` for the same reason: alpha now
+  // does something here, so the panel has to offer it.
+  const alpha = Number(options?.alpha) || 0.05;
   let ci_lower = NaN, ci_upper = NaN;
   if (n > 3 && Math.abs(r) < 1) {
+    const jStatLib = getJStat();
+    const zCrit = jStatLib?.normal?.inv ? Math.abs(jStatLib.normal.inv(1 - (alpha / 2), 0, 1)) : 1.96;
     const z = 0.5 * Math.log((1 + r) / (1 - r));
     const se = 1 / Math.sqrt(n - 3);
-    const zLow = z - 1.96 * se; const zHigh = z + 1.96 * se;
+    const zLow = z - zCrit * se; const zHigh = z + zCrit * se;
     ci_lower = (Math.exp(2 * zLow) - 1) / (Math.exp(2 * zLow) + 1);
     ci_upper = (Math.exp(2 * zHigh) - 1) / (Math.exp(2 * zHigh) + 1);
   }
@@ -524,7 +530,7 @@ ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, optio
   const rows = [
     { [statisticLabel]: 'n', [valueLabel]: String(n) },
     { [statisticLabel]: 'r', [valueLabel]: fmt(r) },
-    { [statisticLabel]: translate('table.columns.ci95', lang), [valueLabel]: ciText },
+    { [statisticLabel]: translate('table.columns.ciLevel', lang, { level: formatConfidenceLevel(alpha, lang) }), [valueLabel]: ciText },
     { [statisticLabel]: translate('table.columns.pValue', lang), [valueLabel]: pText }
   ];
   return {

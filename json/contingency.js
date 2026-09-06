@@ -1,5 +1,5 @@
 // @ts-check
-import { getStatsLib, formatNumberLocale } from './_env.js';
+import { getStatsLib, getJStat, formatNumberLocale, formatConfidenceLevel } from './_env.js';
 import { getDefaultMissingLabel, normalizeLanguage, translate } from '../i18n/index.js';
 import factors from './factors.js';
 
@@ -42,8 +42,13 @@ ns.fisherExact2x2 = function (a, b, c, d) {
  * @param {number} d observed[1][1]
  * @returns {{odds_ratio:{value:number,ci_lower:number,ci_upper:number}, risk_ratio:{value:number,ci_lower:number,ci_upper:number}}}
  */
-ns.computeEffectSizes2x2 = function (a, b, c, d) {
-  const Z = 1.96; // 95% CI
+ns.computeEffectSizes2x2 = function (a, b, c, d, alpha = 0.05) {
+  // The interval follows `alpha`, like everything else that judges significance here. It was pinned
+  // at 1.96 while the test beside it ran at whatever the reader chose, so a table decided at 0.20
+  // still reported a 95% interval — and an OR whose interval excludes 1 at one level while the
+  // p-value is read at another says two different things about the same 2×2.
+  const jStat = getJStat();
+  const Z = jStat?.normal?.inv ? Math.abs(jStat.normal.inv(1 - (alpha / 2), 0, 1)) : 1.96;
   // Haldane–Anscombe correction when any cell is zero
   if (a === 0 || b === 0 || c === 0 || d === 0) {
     a += 0.5; b += 0.5; c += 0.5; d += 0.5;
@@ -175,15 +180,25 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     }
     if (Number.isFinite(p_value) && p_value < alpha) {
       const matrix = ns.computeAdjustedResiduals(observed, expected, rowSums, colSums, total);
-      residuals_available = matrix.some(row => row.some(value => value > 1.96 || value < -1.96));
+      // The cell cut-off follows `alpha`, like the omnibus gate just above it. It was pinned at
+      // 1.96 — the two-sided z for 0.05 — which made the option half-connected: raising alpha to
+      // 0.20 opened this branch for a table at p = 0.135 and then found nothing to mark, because
+      // its residuals are ±1.494 and the cell test was still being run at 0.05. One table, two
+      // significance levels, and an option that visibly did nothing. Falls back to 1.96 when jStat
+      // is absent, which is both the conventional value and the previous behaviour.
+      const jStat = getJStat();
+      const residualCutoff = jStat?.normal?.inv
+        ? Math.abs(jStat.normal.inv(1 - (alpha / 2), 0, 1))
+        : 1.96;
+      residuals_available = matrix.some(row => row.some(value => Math.abs(value) > residualCutoff));
       // `used_resid_*` keeps its narrower meaning — a symbol was actually printed — because the
       // exporter's footer legend keys off it, and a legend for symbols nobody can see is worse
       // than no legend. Same reason `posthoc_residuals` stays null when the display is off.
       if (withResiduals) {
         residuals = matrix;
         residualsAnnotated = matrix.map(row => row.map(value => {
-          if (value > 1.96) { used_resid_greater = true; return residualSymbols.greater; }
-          if (value < -1.96) { used_resid_lower = true; return residualSymbols.lower; }
+          if (value > residualCutoff) { used_resid_greater = true; return residualSymbols.greater; }
+          if (value < -residualCutoff) { used_resid_lower = true; return residualSymbols.lower; }
           return '';
         }));
       }
@@ -193,7 +208,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     // computation is skipped outright, the same contract `with_residuals` has with
     // `posthoc_residuals` (null rather than computed-and-hidden).
     const effect_sizes = (is2x2 && withEffectSizes)
-      ? ns.computeEffectSizes2x2(observed[0][0], observed[0][1], observed[1][0], observed[1][1])
+      ? ns.computeEffectSizes2x2(observed[0][0], observed[0][1], observed[1][0], observed[1][1], alpha)
       : null;
     return { method, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower, residuals_available, effect_sizes };
   })();
@@ -203,7 +218,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
   const effectSizeCol = showEffectSizes
     ? translate(effectSizeType === 'risk_ratio' ? 'table.columns.riskRatio' : 'table.columns.oddsRatio', lang)
     : null;
-  const ciCol = showEffectSizes ? translate('table.columns.ci95', lang) : null;
+  const ciCol = showEffectSizes ? translate('table.columns.ciLevel', lang, { level: formatConfidenceLevel(alpha, lang) }) : null;
   const columns = showEffectSizes
     ? [groupLabel, ...colLevels, effectSizeCol, ciCol, pValueLabel]
     : [groupLabel, ...colLevels, pValueLabel];

@@ -50,14 +50,15 @@ const CATEGORICAL_X_AXIS = [
   'has_q', 'has_l', 'has_qq', 'has_nq', 'has_qn', 'has_ql', 'has_paired_q', 'has_paired_n'
 ];
 
-// Qualitative-shape flags — cells that render a "Not informed" bucket / missing category.
-// Numeric analyses express missing counts via stat_options_* with `n_missing`, not via
-// include_missing / missing_label, so `has_n` is deliberately excluded.
-// Cells whose table routes through `summarize_q_q` (residual gate) or `summarize_n_q` (post-hoc
-// gate) — the only two summarisers that read `alpha`. Verified by counting its occurrences:
-// summarize_n_n, summarize_n_paired and summarize_q_paired never touch it, so a correlation or a
-// McNemar/Cochran element has no threshold to set.
-const ALPHA_GATED = ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_nq', 'has_qn', 'has_ln', 'has_nl'];
+// `alpha` applies wherever a p-value is produced, which is every inferential analysis. It gates the
+// residual branch and its cell cut-off in `summarize_q_q`, the post-hoc branch in `summarize_n_q`,
+// the level of both confidence intervals, and — the reason the paired shapes are here — which
+// p-values the HTML exporter sets in bold. That last one reaches EVERY analysis with a p-value, so
+// leaving a flag out does not spare the user a meaningless control: it applies a threshold to their
+// table and denies them the means to set it. A paired test reporting p = 0.060 to a reader working
+// at 0.075 was being told, in bold or its absence, something the reader had no way to correct.
+// Only the descriptive flags stay out, having no p-value to judge.
+const ALPHA_GATED = ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_nq', 'has_qn', 'has_ln', 'has_nl', 'has_nn', 'has_paired_n', 'has_paired_q'];
 // Dunn's adjustment is a `summarize_n_q` concern only — including the list-expanded cells that
 // delegate to it.
 // `adjust_kruskal` corrects the Dunn pairwise comparisons, so the only cell it can affect is one

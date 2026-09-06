@@ -329,12 +329,16 @@ test("alpha and adjust_kruskal are table-only, and only where a gate reads them"
     assert.equal(offered(flag, 'chart', 'adjust_kruskal'), false, `adjust_kruskal in chart mode (${flag})`);
   }
 
-  // alpha: the cells routing to summarize_q_q (residuals) or summarize_n_q (post-hoc).
-  for (const flag of ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_nq', 'has_qn', 'has_ln', 'has_nl']) {
+  // alpha: every analysis that produces a p-value. Residuals and post-hoc reach only some of them,
+  // and the confidence intervals only two, but the exporter's bold p-value reaches all — so a flag
+  // left out here would still have a threshold applied to its table with no way to set it. A paired
+  // test reporting p = 0.060 to a reader working at 0.075 is the case that made this concrete.
+  for (const flag of ['has_qq', 'has_lq', 'has_ql', 'has_ll', 'has_nq', 'has_qn', 'has_ln', 'has_nl',
+                      'has_nn', 'has_paired_n', 'has_paired_q']) {
     assert.equal(offered(flag, 'table', 'alpha'), true, flag);
   }
-  // Correlation has no threshold to set, and McNemar / Cochran have neither residuals nor post-hoc.
-  for (const flag of ['has_nn', 'has_paired_n', 'has_paired_q', 'has_q']) {
+  // The descriptive shapes have no p-value to judge.
+  for (const flag of ['has_q', 'has_n', 'has_l']) {
     assert.equal(offered(flag, 'table', 'alpha'), false, flag);
   }
 

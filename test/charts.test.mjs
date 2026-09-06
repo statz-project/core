@@ -3339,10 +3339,14 @@ test("chart_options is a chart-mode payload, and only chart mode carries it", ()
 
   const table = run('table');
   assert.ok(!('chart_options' in table), `table mode carries ${Object.keys(table)}`);
-  assert.deepEqual(Object.keys(table), ['analysis', 'test_legend', 'lang']);
+  // `alpha` is the mirror image: table mode carries it so the exporter can emphasise a p-value that
+  // cleared the reader's own threshold, and chart mode does not, having no p-values to mark.
+  assert.deepEqual(Object.keys(table), ['analysis', 'test_legend', 'lang', 'alpha']);
+  assert.equal(table.alpha, 0.05);
 
   // Chart mode still carries it, with both flags the exporter reads.
   const chart = run('chart');
+  assert.ok(!('alpha' in chart), `chart mode carries ${Object.keys(chart)}`);
   assert.deepEqual(Object.keys(chart.chart_options).sort(), ['show_title', 'width_mode']);
   assert.equal(chart.chart_options.show_title, false, 'chart_show_title default');
   assert.equal(chart.chart_options.width_mode, 'auto', 'chart_width_mode default');

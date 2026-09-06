@@ -228,6 +228,9 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
   const firstColLabel = hasGrouping ? translate('table.columns.group', lang) : translate('table.columns.variable', lang);
   const pValueLabel = translate('table.columns.pValue', lang);
   const missingValue = translate('table.missingValue', lang);
+  // `alpha` rides on the result in table mode. An older payload has none, and 0.05 is what it was
+  // analysed under, so the fallback reproduces it rather than guessing.
+  const alpha = Number(resultObj?.alpha) || 0.05;
   const combined = { columns: [firstColLabel], rows: [], test_legend: [], posthoc_legend: [], resid_symbol_greater_used: false, resid_symbol_lower_used: false, lang };
   if (!Array.isArray(resultArray)) return combined;
   const legendMap = new Map();
@@ -244,7 +247,11 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
     const table = obj?.table;
     if (!table) return;
     const headerLabel = obj.predictor ?? obj.response ?? '—';
-    const predLabel = `<b>${headerLabel}</b>`;
+    // The `<b>` wrapper is the marker `isPredictorHeaderRow` looks for, so this cell IS an HTML
+    // fragment by contract — which makes escaping the label inside it this function's job. A
+    // variable named `Faixa <etaria>` used to reach the page as `<b>Faixa <etaria></b>`, where the
+    // browser read `<etaria>` as an unknown tag and dropped the word from the rendered table.
+    const predLabel = `<b>${escapeHtml(headerLabel)}</b>`;
     // Warning entries (paired rejection cases, l × l without subset, multi-DB missing response)
     // carry only `table.warning` — no columns/rows. Render as a flagged row spanning all columns.
     if (/** @type {any} */ (table).warning) {
@@ -266,6 +273,11 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
       } else if (col === pValueLabel && typeof table.p_value === 'number') {
         const formatted = formatPValue(table.p_value, PVALUE_DECIMALS, PVALUE_THRESHOLD, lang);
         rowIntro[col] = `${formatted}${table.test_symbol ?? ''}`;
+        // Flagged here, emphasised in the HTML exporter. The cell stays plain text: `combined.rows`
+        // is data that several callers read back — one of them pulls the test symbol off the end of
+        // this very string — and markup buried in it would have to be stripped by every one of
+        // them. `_test_symbol` and `_warning_text` set the precedent for a rendering hint.
+        /** @type {any} */ (rowIntro)._p_significant = table.p_value < alpha;
       } else if (col === pValueLabel) {
         rowIntro[col] = missingValue;
       } else {
@@ -330,18 +342,22 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
  */
 ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = '') {
   if (!combined || !combined.columns || !combined.rows) return '';
+  // Significant p-values are bold, at whatever `alpha` the analysis ran under. With one predictor
+  // that says little; with fifteen it is how a reader finds the significant rows without reading
+  // every number in the column.
+  const pValueColumn = translate('table.columns.pValue', normalizeLanguage(combined.lang));
   const langCandidate = combined?.lang;
   const lang = normalizeLanguage(langCandidate);
   const resolvedTitle = title ?? translate('table.title', lang);
   let html = '';
   html += `<table><thead><tr>`;
-  combined.columns.forEach(col => { html += `<th>${col}</th>`; });
+  combined.columns.forEach(col => { html += `<th>${escapeHtml(col)}</th>`; });
   html += `</tr></thead>`;
   html += `<tbody>`;
   combined.rows.forEach(row => {
     if (ns.isWarningRow(row)) {
       const warnText = /** @type {any} */ (row)._warning_text;
-      html += `<tr><td colspan="${combined.columns.length}" style="background:#fff8e1;color:#856404;padding:8px;">⚠ ${warnText}</td></tr>`;
+      html += `<tr><td colspan="${combined.columns.length}" style="background:#fff8e1;color:#856404;padding:8px;">⚠ ${escapeHtml(warnText)}</td></tr>`;
       return;
     }
     html += `<tr>`;
@@ -364,7 +380,13 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = 
         html += `<td colspan="${colspan}">${val}</td>`;
         skip = colspan - 1;
       } else {
-        html += `<td>${val}</td>`;
+        // Escaped here rather than upstream: `combined.rows` is data, and entities in it would
+        // reach every other consumer. The one cell that is deliberately markup takes the branch
+        // above and is emitted as-is.
+        const safe = escapeHtml(val);
+        html += (col === pValueColumn && /** @type {any} */ (row)._p_significant)
+          ? `<td><b>${safe}</b></td>`
+          : `<td>${safe}</td>`;
       }
     }
     html += `</tr>`;

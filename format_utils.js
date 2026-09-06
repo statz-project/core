@@ -72,3 +72,15 @@ export function resolveSeparators(lang = "pt_br") {
   const group = parts.find((part) => part.type === "group")?.value || ",";
   return `${decimal}${group}`;
 }
+
+/**
+ * The confidence level that pairs with a significance level, as it should read in a column label:
+ * 95 for alpha 0.05, 80 for 0.20, 97.5 for 0.025. Localised, and without a trailing zero on the
+ * whole numbers that cover almost every case — "IC 95,0%" would be noise.
+ * @param {number} alpha
+ * @param {string=} lang
+ */
+export function formatConfidenceLevel(alpha, lang) {
+  const level = Number(((1 - alpha) * 100).toFixed(2));
+  return formatNumberLocale(level, Number.isInteger(level) ? 0 : 1, lang);
+}
