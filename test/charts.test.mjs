@@ -3400,3 +3400,202 @@ test("chart_include_zero reaches every numeric axis it claims, scatter included"
     assert.ok(description.length > 0, `${lang}: the option keeps a description`);
   }
 });
+
+
+test("the Likert chart honours the options the panel offers for it", () => {
+  // Four were being offered and could not act: no y-axis title for `chart_show_yaxis_title` to
+  // hide or `chart_title_wrap` to break, no data labels for `chart_label_format` to shape, and a
+  // legend centred on the plot area rather than the figure — which on this chart means it started
+  // at the 0% gridline, leaving the 140px of variable labels beside it as dead space.
+  const LEVELS = ['discordo totalmente', 'discordo', 'neutro', 'concordo', 'concordo totalmente'];
+  const mk = (hash, label, step) => {
+    const c = Statz.makeColumn(Array.from({ length: 40 }, (_, i) => LEVELS[(i * step) % 5]),
+      { col_type: 'q', var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const cols = [mk('h1', 'O atendimento foi rapido', 1), mk('h2', 'As instalacoes estavam limpas', 2),
+                mk('h3', 'Recomendaria a familiares', 3)];
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const spec = (opts) => {
+    const entry = Statz.runAnalysis(cols.map(sig), [], { dbA: { columns: cols } },
+      Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart', chart_likert_enabled: true, ...opts }))
+      .result.analysis[0].chart;
+    assert.equal(entry.type, 'likert', 'still the Likert short-circuit');
+    return entry.spec;
+  };
+
+  // The y-axis carries one variable per row, so its title can only be the generic one — naming any
+  // single variable would be wrong for the others. Which is also why it is OFF by default here and
+  // nowhere else: a word that repeats what the tick text already says, on the side where the
+  // labels live, in the one chart shape short of horizontal space. The option stays offered.
+  const varTitle = Statz.translate('chart.axisLabels.variable', 'pt_br');
+  assert.equal(spec({}).layout.yaxis.title.text, '', 'off unless asked for');
+  assert.equal(spec({ chart_show_yaxis_title: true }).layout.yaxis.title.text, varTitle, 'and available');
+  assert.equal(spec({ chart_show_yaxis_title: false }).layout.yaxis.title.text, '');
+  // Only the ABSENT case moved: `getDefaultAnalysisOptions` still answers true on its own, and a
+  // chart that is not Likert still gets its title without being asked.
+  assert.equal(Statz.getDefaultAnalysisOptions({}).chart_show_yaxis_title, true);
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_likert_enabled: true }).chart_show_yaxis_title, false);
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_likert_enabled: true, chart_show_yaxis_title: true })
+    .chart_show_yaxis_title, true, 'an explicit choice survives');
+  const bars = Statz.runAnalysis([sig(cols[0])], [], { dbA: { columns: cols } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart' })).result.analysis[0].chart.spec;
+  assert.ok(bars.layout.yaxis.title.text, 'a plain bar chart is untouched');
+
+  // Data labels, in all three formats, localised and only on segments that have something in them.
+  assert.deepEqual(spec({ chart_label_format: 'n' }).data[0].text, ['8', '8', '8']);
+  assert.deepEqual(spec({ chart_label_format: 'p' }).data[0].text, ['20,0%', '20,0%', '20,0%']);
+  assert.deepEqual(spec({ chart_label_format: 'np' }).data[0].text, ['8 (20,0%)', '8 (20,0%)', '8 (20,0%)']);
+  assert.equal(spec({}).data[0].textposition, 'inside');
+  // An empty level prints nothing rather than a 0 landing on its neighbours. Reachable only with a
+  // DECLARED level order, where a level can be listed and unobserved — an inferred order is the
+  // intersection of what each variable actually shows, so it can never contain an empty segment.
+  const withGap = charts.chart_likert(
+    [{ label: 'A', values: [LEVELS[0], LEVELS[0], LEVELS[1], LEVELS[1]] },
+     { label: 'B', values: [LEVELS[0], LEVELS[0], LEVELS[0], LEVELS[1]] }],
+    { lang: 'pt_br', chart_label_format: 'n' },
+    { levels: [LEVELS[0], LEVELS[1], LEVELS[2]] }
+  ).spec;
+  const empty = withGap.data.find((tr) => tr.name === LEVELS[2]);
+  assert.deepEqual(empty.text, ['', ''], 'a level nobody chose is labelled with nothing');
+  assert.deepEqual(withGap.data[0].text, ['2', '3'], 'and the others still count');
+
+  // The legend is centred and horizontal, and carries NO `xref`. Container-referencing it looks
+  // like the cure for the dead space the left margin leaves beside it, and is not: in the pinned
+  // Plotly the width the entries wrap within is the plot area regardless, and at the top position
+  // the reposition feeds automargin until the plot is squeezed and every entry sits on its own row.
+  for (const position of ['top', 'bottom']) {
+    const legend = spec({ chart_legend_position: position }).layout.legend;
+    assert.equal(legend.orientation, 'h', position);
+    assert.equal(legend.x, 0.5, position);
+    assert.equal(legend.xanchor, 'center', position);
+    assert.ok(!('xref' in legend), `${position} must not reference the container horizontally`);
+  }
+  // The bottom position still pins its VERTICAL reference to the container — a different attribute,
+  // and the one that keeps it clear of the wrapped tick stack.
+  assert.equal(spec({ chart_legend_position: 'bottom' }).layout.legend.yref, 'container');
+  assert.ok(!('yref' in spec({ chart_legend_position: 'top' }).layout.legend));
+
+  // The left margin is a FLOOR, and `automargin` is what sizes it. At 140 — the widest floor of
+  // any builder — a chart of short variable names paid for labels it does not have, and every one
+  // of those pixels comes off the plot area, which is also the width a centred horizontal legend
+  // wraps within. The floor cannot be verified by rendering here, so this pins the two facts that
+  // make it a floor: the number, and the automargin that overrides it upward.
+  assert.equal(spec({ chart_show_yaxis_title: true }).layout.margin.l, 70);
+  assert.equal(spec({}).layout.yaxis.automargin, true, 'Plotly does the measuring');
+  // With the title hidden — the default here — the driver reclaims its 25px, clamped at 40.
+  assert.equal(spec({}).layout.margin.l, 45);
+  // Long labels are unaffected by the floor: automargin asks for what it needs either way, so the
+  // emitted number is the same and only the rendered margin differs.
+  const long = [mk('h1', 'Likert one: Nam libero tempore cum soluta nobis est eligendi optio', 1),
+                mk('h2', 'Likert two', 2), mk('h3', 'Likert three', 3)];
+  const longSpec = Statz.runAnalysis(long.map(sig), [], { dbA: { columns: long } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart', chart_likert_enabled: true }))
+    .result.analysis[0].chart.spec;
+  assert.equal(longSpec.layout.margin.l, 45);
+
+  // And the wrapping option names what it actually wraps HERE: the variable labels.
+  const label = (opts) => Statz.getOptionLabel('chart_x_label_wrap', 'pt_br', 'chart', opts);
+  const describe = (opts) => Statz.getOptionDescription('chart_x_label_wrap', 'pt_br', 'chart', opts);
+  assert.notEqual(label({ chart_likert_enabled: true }), label({ chart_likert_enabled: false }));
+  assert.match(label({ chart_likert_enabled: true }), /variáveis/);
+  assert.notEqual(describe({ chart_likert_enabled: true }), describe({ chart_likert_enabled: false }));
+  // Keyed on the option VALUE, not on eligibility: with the toggle off the axis really does hold
+  // categories, and a caller with no options bag keeps the previous wording.
+  assert.match(label({ chart_likert_enabled: false }), /categoria/);
+  assert.equal(Statz.getOptionLabel('chart_x_label_wrap', 'pt_br', 'chart'), label({ chart_likert_enabled: false }));
+  // Only this option is Likert-aware; the rest still resolve by mode alone.
+  assert.equal(Statz.getOptionLabel('percent_by', 'pt_br', 'chart', { chart_likert_enabled: true }),
+    Statz.getOptionLabel('percent_by', 'pt_br', 'chart'));
+});
+
+
+test("Likert wording resolves per option, and only where it was registered", () => {
+  // Reported from the panel: passing the options bag to `getOptionDescription` did not change
+  // `chart_show_yaxis_title`. Nothing was broken — only `chart_x_label_wrap` had Likert wording
+  // registered, so every other option correctly fell through to its default text.
+  const on = { chart_likert_enabled: true };
+  const off = { chart_likert_enabled: false };
+  const desc = (name, opts) => optionsMetadata.getOptionDescription(name, 'pt_br', 'chart', opts);
+  const label = (name, opts) => optionsMetadata.getOptionLabel(name, 'pt_br', 'chart', opts);
+
+  // The two options that carry it, and what each of them overrides.
+  assert.notEqual(desc('chart_show_yaxis_title', on), desc('chart_show_yaxis_title', off));
+  assert.match(desc('chart_show_yaxis_title', on), /Variável/);
+  // Its LABEL is untouched: that axis does carry a title, so the name was never wrong — the two
+  // keys resolve independently and registering only one is the normal case.
+  assert.equal(label('chart_show_yaxis_title', on), label('chart_show_yaxis_title', off));
+  assert.notEqual(label('chart_x_label_wrap', on), label('chart_x_label_wrap', off));
+  assert.notEqual(label('chart_title_wrap', on), label('chart_title_wrap', off));
+
+  // The two wrapping controls must not read as one. Their Likert labels landed a plural apart
+  // — "Quebra dos rótulos das variáveis" beside "Quebra do rótulo da variável" — while acting on
+  // different things: one wraps the names ON the axis, the other the axis TITLES.
+  for (const lang of ['pt_br', 'en_us', 'es_es']) {
+    const a = optionsMetadata.getOptionLabel('chart_x_label_wrap', lang, 'chart', on);
+    const b = optionsMetadata.getOptionLabel('chart_title_wrap', lang, 'chart', on);
+    assert.notEqual(a, b, lang);
+    // Not merely different: different in more than an inflection. Compare the word multisets.
+    const words = (t) => new Set(t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\W+/).filter(Boolean));
+    const shared = [...words(a)].filter((w) => words(b).has(w));
+    assert.ok(shared.length < Math.min(words(a).size, words(b).size),
+      `${lang}: "${a}" and "${b}" share every word`);
+  }
+
+  // Everything else falls through, which is what made the report look like a bug.
+  for (const name of ['chart_legend_position', 'chart_label_format', 'percent_by']) {
+    assert.equal(label(name, on), label(name, off), name);
+    assert.equal(desc(name, on), desc(name, off), name);
+  }
+
+  // And the lang argument is the reader's, not `DEFAULT_LANG` — the panel expression that prompted
+  // this passed the constant and would have got English whatever else it did.
+  assert.equal(Statz.DEFAULT_LANG, 'en_us');
+  assert.notEqual(optionsMetadata.getOptionDescription('chart_show_yaxis_title', 'pt_br', 'chart', on),
+    optionsMetadata.getOptionDescription('chart_show_yaxis_title', Statz.DEFAULT_LANG, 'chart', on));
+});
+
+
+test("a bottom legend keeps its clearance whether or not an axis title sits above it", () => {
+  // Reported on Likert: with `chart_show_xaxis_title` off and a wrapped legend entry, the tick
+  // labels ran into the top of the legend. The reservation was doing its arithmetic correctly —
+  // the flaw was that nothing separated the axis stack from the legend except the legend's OWN
+  // padding. With a title present the slack came from that title's line being short and centred;
+  // hide it and the ticks became the last element with nothing between them and the entries.
+  const LEVELS = ['agree', 'high agree', 'low agree', 'neutral', 'super high agree', 'super low agree'];
+  const mk = (hash, label, off) => {
+    const c = Statz.makeColumn(Array.from({ length: 60 }, (_, i) => LEVELS[(i + off) % 6]),
+      { col_type: 'q', var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const cols = [mk('h1', 'Likert one', 0), mk('h2', 'Likert two', 1), mk('h3', 'Likert three', 2)];
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const bottom = (opts) => {
+    const spec = Statz.runAnalysis(cols.map(sig), [], { dbA: { columns: cols } },
+      Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart', chart_likert_enabled: true,
+        chart_legend_position: 'bottom', ...opts })).result.analysis[0].chart.spec;
+    return { b: spec.layout.margin.b, lines: Math.max(...spec.data.map((t) => String(t.name).split('<br>').length)) };
+  };
+
+  const wrapped = { chart_legend_labels_wrap: 2 };
+  const flat = { chart_legend_labels_wrap: 9 };
+  assert.equal(bottom({ ...wrapped, chart_show_xaxis_title: false }).lines, 2, 'the entries do wrap');
+  assert.equal(bottom({ ...flat, chart_show_xaxis_title: false }).lines, 1);
+
+  // 1. Hiding the title costs exactly the title — its line plus its standoff — and nothing more.
+  //    That difference being constant is what says the legend's clearance is not coming from it.
+  const titleCost = 30;
+  for (const wrap of [wrapped, flat]) {
+    assert.equal(bottom({ ...wrap, chart_show_xaxis_title: true }).b
+      - bottom({ ...wrap, chart_show_xaxis_title: false }).b, titleCost, JSON.stringify(wrap));
+  }
+  // 2. Each extra line of legend text costs one line, whatever else is on the chart.
+  const lineCost = 18;
+  for (const showTitle of [true, false]) {
+    assert.equal(bottom({ ...wrapped, chart_show_xaxis_title: showTitle }).b
+      - bottom({ ...flat, chart_show_xaxis_title: showTitle }).b, lineCost, `title=${showTitle}`);
+  }
+  // 3. The reported configuration: one line of numeric ticks, no title, a two-line legend. The
+  //    clearance is the term that used to be missing — without it this reserved 66 and the text met.
+  assert.equal(bottom({ ...wrapped, chart_show_xaxis_title: false }).b, 78);
+});

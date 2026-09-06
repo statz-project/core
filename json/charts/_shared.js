@@ -249,6 +249,16 @@ export function buildLegendLayout(options, meta = {}) {
   };
   if (position === 'top') {
     legend.orientation = 'h';
+    // `legend.xref` is deliberately NOT set, though 2.35.2 does support it. A horizontal legend
+    // referenced to the plot area inherits the left margin as dead space — on the Likert chart that
+    // is over 100px of variable labels — and referencing the container looks like the fix. It is
+    // not: the width the entries WRAP within is computed separately, and for a centred legend it is
+    // the plot area either way. The shipped bundle reads
+    //     _maxWidth = Math.max(L ? … : O ? … : gs.w, 2*itemGap)
+    // where the L and O branches need x < 0 or x > 1, i.e. a legend anchored outside the plot. So
+    // container-referencing buys no extra room, and at the top position it costs: the reposition
+    // feeds Plotly's automargin, the plot area narrows, `gs.w` narrows with it, and a six-level
+    // scale ends up one entry per row with the plot squeezed beside it.
     legend.x = 0.5;
     legend.xanchor = 'center';
     legend.y = 1.15;

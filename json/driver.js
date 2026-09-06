@@ -830,7 +830,26 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   // "Count" / "Value" / var labels — thanks to the consolidation feature).
   /** @type {any} */ (normalized).chart_show_title = (/** @type {any} */ (normalized).chart_show_title) === true;
   /** @type {any} */ (normalized).chart_show_xaxis_title = (/** @type {any} */ (normalized).chart_show_xaxis_title) !== false;
-  /** @type {any} */ (normalized).chart_show_yaxis_title = (/** @type {any} */ (normalized).chart_show_yaxis_title) !== false;
+  // The y-axis title defaults ON everywhere except Likert, where it defaults OFF. That axis holds
+  // one variable per row, so its title can only be the generic "Variable" — a word that says
+  // nothing the tick text has not already said, in the one chart shape where horizontal space is
+  // the scarce resource, since the labels themselves live on that side. The option stays offered:
+  // this changes what happens when the user has not chosen, not what they can choose.
+  //
+  // Only the ABSENT case moves. An explicit value — true or false — is honoured as before, which is
+  // why this cannot be written with the `!== false` coercion the line above uses: that reads an
+  // absent key and an explicit `true` as the same thing.
+  //
+  // Keyed on the toggle rather than on the rendered chart type, because normalisation happens
+  // before any chart is built. The gap that leaves: `chart_likert_enabled` can be on while the
+  // short-circuit does not fire (fewer than two `q` predictors, or no shared levels), and those
+  // fallback bar charts then start without their y-axis title too. Turning the option on restores
+  // it, and the alternative — a third "auto" state carried through the options bag — would put a
+  // non-boolean into an option the panel renders as a checkbox and the drift test pins as boolean.
+  const rawYTitle = (/** @type {any} */ (normalized).chart_show_yaxis_title);
+  /** @type {any} */ (normalized).chart_show_yaxis_title = (rawYTitle === undefined || rawYTitle === null)
+    ? (/** @type {any} */ (normalized).chart_likert_enabled) !== true
+    : rawYTitle !== false;
   // Legend styling (multi-trace charts: q×q, paired_q, likert). Defaults chosen to
   // fix the "legend consumes half the plot width" issue: top-oriented legend recovers
   // horizontal space; wrap=2 keeps 3+ word labels compact.
@@ -1845,7 +1864,14 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const AXIS_LINE_PX = 16;        // one line of tick or axis-title text
   const AXIS_TITLE_GAP_PX = 14;   // Plotly's standoff between the ticks and the axis title
   const LEGEND_LINE_PX = 18;      // one line of legend text at font.size 11
-  const LEGEND_PAD_PX = 14;       // legend's own padding plus its gap from the axis title
+  const LEGEND_PAD_PX = 14;       // the legend's own internal padding
+  // Clearance between the axis stack and the legend, independent of whether a title sits at the
+  // bottom of that stack. It used to be absent, and `LEGEND_PAD_PX` — the legend's own padding —
+  // was the only thing between them. With an x-axis title the slack came from the title's line
+  // being short and centred; hide it and the tick labels ran into the top of a wrapped legend.
+  // Reported on the Likert chart, where the ticks are the last element whenever
+  // `chart_show_xaxis_title` is off and `chart_legend_labels_wrap` has broken an entry in two.
+  const AXIS_LEGEND_GAP_PX = 12;
   const isBottomLegend = (/** @type {any} */ (mergedOptions).chart_legend_position) === 'bottom';
   /** Rendered line count of a `<br>`-wrapped label. */
   const lineCount = (/** @type {any} */ text) => {
@@ -1895,7 +1921,7 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
         maxLines(traces.map((/** @type {any} */ t) => t?.name)),
         lineCount(layout.legend.title?.text)
       );
-      const legendBand = LEGEND_PAD_PX + (legendLines * LEGEND_LINE_PX);
+      const legendBand = AXIS_LEGEND_GAP_PX + LEGEND_PAD_PX + (legendLines * LEGEND_LINE_PX);
       layout.margin.b = Math.max(layout.margin.b ?? 0, axisStack + legendBand);
     }
   });

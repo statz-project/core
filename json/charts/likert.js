@@ -9,7 +9,8 @@
 //   - all predictors share the same level set (intersection-based; partial overlap rejected)
 //   - options.chart_likert_enabled === true
 // Falls back to per-predictor chart_q if any condition fails.
-import { getThemePalette, wrapText, buildLegendLayout, getLegendLabelsWrap } from './_shared.js';
+import { getThemePalette, wrapText, buildLegendLayout, getLegendLabelsWrap, formatBarLabel } from './_shared.js';
+import { normalizeLanguage, translate } from '../../i18n/index.js';
 
 /**
  * Diverging-friendly palette for stacked Likert levels. Uses 5 colors that read as a
@@ -51,6 +52,11 @@ export function chart_likert(vars, options = {}, meta = {}) {
     ? levels.map((_, i) => LIKERT_PALETTE_FALLBACK[i % LIKERT_PALETTE_FALLBACK.length])
     : themePalette;
 
+  // Counts are kept alongside the percentages: `chart_label_format` can ask for 'n' or 'np', and a
+  // 100%-stacked bar that could only ever report its own percentage would leave two thirds of that
+  // option meaningless.
+  /** @type {number[][]} */
+  const countMatrix = [];
   /** @type {number[][]} per-level percentages, one row per variable */
   const pctMatrix = vars.map((v) => {
     const counts = new Array(levels.length).fill(0);
@@ -60,11 +66,15 @@ export function chart_likert(vars, options = {}, meta = {}) {
       const idx = levels.indexOf(t);
       if (idx >= 0) { counts[idx] += 1; total += 1; }
     });
+    countMatrix.push(counts);
     return counts.map((c) => total > 0 ? (c / total) * 100 : 0);
   });
 
   const varLabels = vars.map((v) => wrapText(v.label, labelWrap));
   const legendWrap = getLegendLabelsWrap(options);
+  const lang = normalizeLanguage(options.lang);
+  const labelFormat = options.chart_label_format ?? 'n';
+  const titleWrap = Number.isFinite(Number(options.chart_title_wrap)) ? Number(options.chart_title_wrap) : 8;
 
   // One trace per level (stacked horizontally). y values are variable labels;
   // x values are the percentages for that level across each variable.
@@ -76,14 +86,37 @@ export function chart_likert(vars, options = {}, meta = {}) {
     y: varLabels,
     x: vars.map((_, vi) => pctMatrix[vi][li]),
     marker: { color: palette[li] },
+    // Empty segments get no label: a 0 printed on a zero-width slice lands on its neighbours.
+    // Everything else is labelled inside the segment, the only place a 100%-stacked bar has room.
+    text: vars.map((_, vi) => (countMatrix[vi][li] > 0
+      ? formatBarLabel(countMatrix[vi][li], pctMatrix[vi][li], labelFormat, lang)
+      : '')),
+    textposition: 'inside',
+    insidetextanchor: 'middle',
+    textfont: { size: 10 },
     hovertemplate: `${lv}: %{x:.1f}%<extra></extra>`
   }));
 
   const layout = {
     barmode: 'stack',
     xaxis: { title: { text: '%' }, range: [0, 100], ticksuffix: '%' },
-    yaxis: { title: { text: '' }, automargin: true, autorange: 'reversed' },
-    margin: { t: 30, r: 30, b: 50, l: 140 },
+    // One variable per row, so the axis title is the generic "Variable" — naming any single one
+    // would be wrong for the others, the reasoning `chart_paired_n` applies to its moments. It also
+    // gives `chart_show_yaxis_title` and `chart_title_wrap` something to act on: both were offered
+    // for this chart and could do nothing, the title being an empty string.
+    yaxis: {
+      title: { text: wrapText(translate('chart.axisLabels.variable', lang), titleWrap) },
+      automargin: true,
+      autorange: 'reversed'
+    },
+    // A FLOOR, not a reservation. `yaxis.automargin` is on, so Plotly grows the left margin to
+    // whatever the variable labels actually need; the only thing this number can do is stop it
+    // shrinking below itself. At 140 — the widest floor of any builder, the others sitting between
+    // 60 and 100 — a chart of short names ("Q1", "Q2") paid for labels it does not have, and every
+    // pixel of that is taken off the plot area, which is also the width a centred horizontal legend
+    // wraps within. 70 matches the text-labelled builders and leaves the sizing to the thing that
+    // can measure. Long labels are unaffected: automargin asks for what it asks for either way.
+    margin: { t: 30, r: 30, b: 50, l: 70 },
     // Legend layout: uses the same helper as chart_q_q / chart_paired_q. Likert had no
     // conceptual "group variable" title (levels ARE the categories), so no meta.title
     // is passed — the title stays empty even when chart_show_legend_title is true.

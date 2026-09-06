@@ -108,15 +108,15 @@ const MESSAGES = {
       "chart_label_format": { "label": "Formato dos rótulos", "description": "Mostrar contagem, porcentagem ou ambos nas barras." },
       "chart_paired_show_lines": { "label": "Linhas individuais (pareado)", "description": "Conectar pontos do mesmo indivíduo entre momentos em análise pareada." },
       "chart_likert_enabled": { "label": "Modo Likert", "description": "Quando todas as preditoras são qualitativas com os mesmos níveis, gerar um único gráfico empilhado horizontal." },
-      "chart_title_wrap": { "label": "Quebra do rótulo da variável", "description": "Quebrar o rótulo da variável nos títulos dos eixos a cada N palavras." },
+      "chart_title_wrap": { "label": "Quebra do rótulo da variável", "description": "Quebrar o rótulo da variável nos títulos dos eixos a cada N palavras.", "likertLabel": "Quebra dos títulos dos eixos", "likertDescription": "Quebrar os títulos dos eixos a cada N palavras." },
       "chart_bar_orientation": { "label": "Orientação das barras", "description": "Automática: vertical, passando a horizontal quando há muitas categorias ou rótulos largos. Vertical ou Horizontal forçam a orientação." },
       "chart_width_mode": { "label": "Largura dos gráficos", "description": "Automática: dois gráficos por linha. Largura total: um gráfico por linha, ocupando toda a largura do elemento." },
-      "chart_x_label_wrap": { "label": "Quebra dos rótulos de categoria", "description": "Quebrar os rótulos das categorias a cada N palavras." },
+      "chart_x_label_wrap": { "label": "Quebra dos rótulos de categoria", "description": "Quebrar os rótulos das categorias a cada N palavras." , "likertLabel": "Quebra dos rótulos das variáveis", "likertDescription": "Quebrar o rótulo de cada variável do eixo a cada N palavras."},
       "chart_include_zero": { "label": "Eixos numéricos incluem zero", "description": "Forçar os eixos numéricos a começar em zero." },
       "chart_interactive": { "label": "Gráfico interativo", "description": "Habilitar zoom, arrasto de eixos e cursor de dados no gráfico renderizado. Desabilitado por padrão (gráfico estático)." },
       "chart_show_title": { "label": "Exibir título principal", "description": "Mostrar o rótulo da(s) variável(is) acima de cada gráfico." },
       "chart_show_xaxis_title": { "label": "Exibir título do eixo X", "description": "Mostrar o rótulo do eixo X no gráfico." },
-      "chart_show_yaxis_title": { "label": "Exibir título do eixo Y", "description": "Mostrar o rótulo do eixo Y." },
+      "chart_show_yaxis_title": { "label": "Exibir título do eixo Y", "description": "Mostrar o rótulo do eixo Y.", "likertDescription": "Mostrar o título “Variável” ao lado dos nomes das variáveis." },
       "chart_legend_position": { "label": "Posição da legenda", "description": "Onde renderizar a legenda em gráficos multi-série: topo, direita ou base." },
       "chart_show_legend_title": { "label": "Exibir título da legenda", "description": "Mostrar o rótulo da variável de agrupamento acima das entradas da legenda; desabilite quando os níveis já forem auto-explicativos (ex: 'óbito/alta')." },
       "chart_legend_title_wrap": { "label": "Quebra do título da legenda", "description": "Quebrar o título da legenda a cada N palavras." },
@@ -126,7 +126,8 @@ const MESSAGES = {
       "axisLabels": {
         "count": "Contagem",
         "value": "Valor",
-        "moment": "Momento"
+        "moment": "Momento",
+        "variable": "Variável"
       }
     },
     "posthoc": {
@@ -307,15 +308,15 @@ const MESSAGES = {
       "chart_label_format": { "label": "Label format", "description": "Show count, percentage, or both in bar charts." },
       "chart_paired_show_lines": { "label": "Subject lines (paired)", "description": "Connect each subject's points across moments in paired analyses." },
       "chart_likert_enabled": { "label": "Likert mode", "description": "When all predictors are qualitative with the same levels, produce a single horizontal stacked chart." },
-      "chart_title_wrap": { "label": "Variable label wrap", "description": "Wrap the variable label in axis titles every N words." },
+      "chart_title_wrap": { "label": "Variable label wrap", "description": "Wrap the variable label in axis titles every N words.", "likertLabel": "Axis title wrapping", "likertDescription": "Wrap the axis titles every N words." },
       "chart_bar_orientation": { "label": "Bar orientation", "description": "Auto: vertical, switching to horizontal when there are many categories or wide labels. Vertical or Horizontal force it." },
       "chart_width_mode": { "label": "Chart width", "description": "Auto: two charts per row. Full width: one chart per row, spanning the whole element." },
-      "chart_x_label_wrap": { "label": "Category label wrap", "description": "Wrap category labels every N words." },
+      "chart_x_label_wrap": { "label": "Category label wrap", "description": "Wrap category labels every N words." , "likertLabel": "Variable label wrapping", "likertDescription": "Break each variable label on the axis every N words."},
       "chart_include_zero": { "label": "Numeric axes include zero", "description": "Force the numeric axes to start at zero." },
       "chart_interactive": { "label": "Interactive chart", "description": "Enable zoom, axis drag, and data cursor on the rendered chart. Disabled by default (static chart)." },
       "chart_show_title": { "label": "Show main title", "description": "Show the variable label(s) above each chart." },
       "chart_show_xaxis_title": { "label": "Show X-axis title", "description": "Show the X-axis title on the chart." },
-      "chart_show_yaxis_title": { "label": "Show Y-axis title", "description": "Show the Y-axis title." },
+      "chart_show_yaxis_title": { "label": "Show Y-axis title", "description": "Show the Y-axis title.", "likertDescription": "Show the “Variable” title beside the variable names." },
       "chart_legend_position": { "label": "Legend position", "description": "Where to render the legend on multi-series charts: top, right or bottom." },
       "chart_show_legend_title": { "label": "Show legend title", "description": "Show the grouping-variable label above the legend entries; disable when levels are self-explanatory (e.g., 'alive/dead')." },
       "chart_legend_title_wrap": { "label": "Legend title wrap", "description": "Wrap the legend title every N words." },
@@ -325,7 +326,8 @@ const MESSAGES = {
       "axisLabels": {
         "count": "Count",
         "value": "Value",
-        "moment": "Moment"
+        "moment": "Moment",
+        "variable": "Variable"
       }
     },
     "posthoc": {
@@ -506,15 +508,15 @@ const MESSAGES = {
       "chart_label_format": { "label": "Formato de etiquetas", "description": "Mostrar conteo, porcentaje o ambos en las barras." },
       "chart_paired_show_lines": { "label": "Líneas individuales (pareado)", "description": "Conectar puntos del mismo individuo entre momentos en análisis pareado." },
       "chart_likert_enabled": { "label": "Modo Likert", "description": "Cuando todas las predictoras son cualitativas con los mismos niveles, generar un único gráfico apilado horizontal." },
-      "chart_title_wrap": { "label": "Quiebre de la etiqueta de variable", "description": "Quebrar la etiqueta de la variable en los títulos de los ejes cada N palabras." },
+      "chart_title_wrap": { "label": "Quiebre de la etiqueta de variable", "description": "Quebrar la etiqueta de la variable en los títulos de los ejes cada N palabras.", "likertLabel": "Quiebre de los títulos de los ejes", "likertDescription": "Quebrar los títulos de los ejes cada N palabras." },
       "chart_bar_orientation": { "label": "Orientación de las barras", "description": "Automática: vertical, pasando a horizontal cuando hay muchas categorías o etiquetas anchas. Vertical u Horizontal la fuerzan." },
       "chart_width_mode": { "label": "Ancho de los gráficos", "description": "Automático: dos gráficos por fila. Ancho completo: un gráfico por fila, ocupando todo el elemento." },
-      "chart_x_label_wrap": { "label": "Quiebre de etiquetas de categoría", "description": "Quebrar las etiquetas de categoría cada N palabras." },
+      "chart_x_label_wrap": { "label": "Quiebre de etiquetas de categoría", "description": "Quebrar las etiquetas de categoría cada N palabras." , "likertLabel": "Quiebre de las etiquetas de las variables", "likertDescription": "Quebrar la etiqueta de cada variable del eje cada N palabras."},
       "chart_include_zero": { "label": "Los ejes numéricos incluyen cero", "description": "Forzar los ejes numéricos a empezar en cero." },
       "chart_interactive": { "label": "Gráfico interactivo", "description": "Habilitar zoom, arrastre de ejes y cursor de datos en el gráfico renderizado. Desactivado por defecto (gráfico estático)." },
       "chart_show_title": { "label": "Mostrar título principal", "description": "Mostrar la etiqueta de la(s) variable(s) sobre cada gráfico." },
       "chart_show_xaxis_title": { "label": "Mostrar título del eje X", "description": "Mostrar el título del eje X en el gráfico." },
-      "chart_show_yaxis_title": { "label": "Mostrar título del eje Y", "description": "Mostrar el título del eje Y." },
+      "chart_show_yaxis_title": { "label": "Mostrar título del eje Y", "description": "Mostrar el título del eje Y.", "likertDescription": "Mostrar el título “Variable” junto a los nombres de las variables." },
       "chart_legend_position": { "label": "Posición de la leyenda", "description": "Dónde renderizar la leyenda en gráficos multi-serie: arriba, derecha o abajo." },
       "chart_show_legend_title": { "label": "Mostrar título de la leyenda", "description": "Mostrar la etiqueta de la variable de agrupación sobre las entradas de la leyenda; desactive cuando los niveles ya sean auto-explicativos (ej: 'vivo/muerto')." },
       "chart_legend_title_wrap": { "label": "Quiebre del título de la leyenda", "description": "Quebrar el título de la leyenda cada N palabras." },
@@ -524,7 +526,8 @@ const MESSAGES = {
       "axisLabels": {
         "count": "Conteo",
         "value": "Valor",
-        "moment": "Momento"
+        "moment": "Momento",
+        "variable": "Variable"
       }
     },
     "posthoc": {

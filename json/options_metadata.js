@@ -281,6 +281,12 @@ ns.OPTION_METADATA = {
   // title spans the whole plot width while a category tick gets only its own slot, so the two want
   // different numbers.
   chart_title_wrap: {
+    // On the Likert chart the axis titles are "%" and the generic "Variable" — neither is a variable
+    // LABEL, so the default wording names something that is not there. Worse, it landed a plural
+    // apart from `chart_x_label_wrap`'s Likert label ("Quebra dos rótulos das variáveis" beside
+    // "Quebra do rótulo da variável"), two controls over different things reading as one.
+    likertLabelKey: 'options.chart_title_wrap.likertLabel',
+    likertDescriptionKey: 'options.chart_title_wrap.likertDescription',
     category: 'chart', type: 'number', default: 8, enum: null,
     appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_title_wrap.label', descriptionKey: 'options.chart_title_wrap.description'
@@ -306,6 +312,8 @@ ns.OPTION_METADATA = {
     labelKey: 'options.chart_width_mode.label', descriptionKey: 'options.chart_width_mode.description'
   },
   chart_x_label_wrap: {
+    likertLabelKey: 'options.chart_x_label_wrap.likertLabel',
+    likertDescriptionKey: 'options.chart_x_label_wrap.likertDescription',
     category: 'chart', type: 'number', default: 3, enum: null,
     appliesTo: CATEGORICAL_X_AXIS, modeGate: 'chart',
     labelKey: 'options.chart_x_label_wrap.label', descriptionKey: 'options.chart_x_label_wrap.description'
@@ -339,6 +347,10 @@ ns.OPTION_METADATA = {
     labelKey: 'options.chart_show_xaxis_title.label', descriptionKey: 'options.chart_show_xaxis_title.description'
   },
   chart_show_yaxis_title: {
+    // No `likertLabelKey`: the label stays accurate there — that axis does carry a title. What
+    // changes is the answer to "what do I get, and why does it start off?", which the description
+    // owns. The two keys resolve independently, so registering one alone is the normal case.
+    likertDescriptionKey: 'options.chart_show_yaxis_title.likertDescription',
     category: 'chart', type: 'boolean', default: true, enum: null,
     appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_show_yaxis_title.label', descriptionKey: 'options.chart_show_yaxis_title.description'
@@ -410,15 +422,42 @@ ns.getAvailableOptions = function (flags, mode = 'table') {
 };
 
 /**
+ * Which i18n key describes an option right now. Three layers, most specific first.
+ *
+ * The `likert*` layer exists because one option can name different things depending on ANOTHER
+ * option's value: `chart_x_label_wrap` wraps whatever sits on the category axis, and in Likert mode
+ * that axis holds the VARIABLE names rather than the level names. Calling it "category labels"
+ * there sends the reader looking for a control over something else.
+ *
+ * The condition is the option's VALUE, not a flag. `has_likert_eligible` only says the data COULD
+ * be rendered that way, and while the toggle is off the axis really does hold categories — keying
+ * on the flag would mislabel the more common case to fix the rarer one.
+ *
+ * `options` is optional, so a caller with no bag to hand keeps the previous behaviour.
+ * @param {any} meta
+ * @param {'label'|'description'} kind
+ * @param {string=} mode
+ * @param {any=} options
+ */
+const resolveWordingKey = (meta, kind, mode, options) => {
+  const suffix = kind === 'label' ? 'Label' : 'Description';
+  if (options && options.chart_likert_enabled === true && meta['likert' + suffix + 'Key']) {
+    return meta['likert' + suffix + 'Key'];
+  }
+  if (mode === 'chart' && meta['chart' + suffix + 'Key']) return meta['chart' + suffix + 'Key'];
+  return meta[kind + 'Key'];
+};
+
+/**
  * Localized label lookup for a single option. Convenience wrapper around `translate`.
  * @param {string} optionName
  * @param {string=} lang
  * @returns {string}
  */
-ns.getOptionLabel = function (optionName, lang, mode = undefined) {
+ns.getOptionLabel = function (optionName, lang, mode = undefined, options = undefined) {
   const meta = ns.OPTION_METADATA[optionName];
   if (!meta) return optionName;
-  return translate((mode === 'chart' && meta.chartLabelKey) || meta.labelKey, lang);
+  return translate(resolveWordingKey(meta, 'label', mode, options), lang);
 };
 
 /**
@@ -427,10 +466,10 @@ ns.getOptionLabel = function (optionName, lang, mode = undefined) {
  * @param {string=} lang
  * @returns {string}
  */
-ns.getOptionDescription = function (optionName, lang, mode = undefined) {
+ns.getOptionDescription = function (optionName, lang, mode = undefined, options = undefined) {
   const meta = ns.OPTION_METADATA[optionName];
   if (!meta) return '';
-  return translate((mode === 'chart' && meta.chartDescriptionKey) || meta.descriptionKey, lang);
+  return translate(resolveWordingKey(meta, 'description', mode, options), lang);
 };
 
 /**
