@@ -3460,6 +3460,29 @@ test("the Likert chart honours the options the panel offers for it", () => {
   assert.deepEqual(empty.text, ['', ''], 'a level nobody chose is labelled with nothing');
   assert.deepEqual(withGap.data[0].text, ['2', '3'], 'and the others still count');
 
+  // The legend reads in the same direction as the bars. Plotly forces `traceorder: 'reversed'` on
+  // any bar trace under `barmode: 'stack'` — correct for a VERTICAL stack, where the first trace is
+  // the bottom segment and a legend read top-to-bottom follows the column. This stack is
+  // horizontal: the first trace is the LEFTMOST segment, so the default ran the legend backwards
+  // against both the bars and the level order the factor defines.
+  const stacked = spec({});
+  assert.equal(stacked.layout.barmode, 'stack', 'the condition that triggers Plotly default');
+  assert.equal(stacked.layout.legend.traceorder, 'normal');
+  // Trace order IS the segment order, left to right, and the legend now follows it. With no
+  // declared level order the set is the alphabetical intersection of what the variables show —
+  // which is what the x axis reads, so the two agree either way.
+  assert.deepEqual(stacked.data.map((t) => String(t.name).replace(/<br>/g, ' ')), [...LEVELS].sort());
+  // A DECLARED order is followed instead, and the legend still tracks it rather than inverting.
+  const declared = charts.chart_likert(
+    [{ label: 'A', values: [LEVELS[0], LEVELS[1], LEVELS[2]] },
+     { label: 'B', values: [LEVELS[0], LEVELS[1], LEVELS[2]] }],
+    { lang: 'pt_br' },
+    { levels: [LEVELS[2], LEVELS[0], LEVELS[1]] }
+  ).spec;
+  assert.equal(declared.layout.legend.traceorder, 'normal');
+  assert.deepEqual(declared.data.map((t) => String(t.name).replace(/<br>/g, ' ')),
+    [LEVELS[2], LEVELS[0], LEVELS[1]]);
+
   // The legend is centred and horizontal, and carries NO `xref`. Container-referencing it looks
   // like the cure for the dead space the left margin leaves beside it, and is not: in the pinned
   // Plotly the width the entries wrap within is the plot area regardless, and at the top position

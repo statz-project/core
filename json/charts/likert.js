@@ -120,7 +120,15 @@ export function chart_likert(vars, options = {}, meta = {}) {
     // Legend layout: uses the same helper as chart_q_q / chart_paired_q. Likert had no
     // conceptual "group variable" title (levels ARE the categories), so no meta.title
     // is passed — the title stays empty even when chart_show_legend_title is true.
-    legend: buildLegendLayout(options, {}),
+    // `traceorder: 'normal'` is a correction, not a preference. Plotly forces `'reversed'` on any
+    // bar trace under `barmode: 'stack'`:
+    //     (traceIs(trace, 'bar') && barmode === 'stack') && (traceorder = 'reversed')
+    // which is right for a VERTICAL stack — the first trace sits at the bottom, so a legend read
+    // top-to-bottom matches the column. This stack is horizontal: the first trace is the LEFTMOST
+    // segment, and reversing makes the legend run right-to-left against the bars and against the
+    // level order the factor defines. The chart is the only stacked one in the codebase, which is
+    // why this lives here rather than in `buildLegendLayout`.
+    legend: { ...buildLegendLayout(options, {}), traceorder: 'normal' },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff'
   };
