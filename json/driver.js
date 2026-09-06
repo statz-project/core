@@ -1626,6 +1626,32 @@ const responseLevelKeys = (db, column) => {
  * @param {Record<string,any>} options
  * @returns {{ result: CombinedAnalysis, flags: string[] }}
  */
+/**
+ * `chart_options` bag on the result, carrying HTML-level chart display flags for
+ * `exportCombinedAsChartHTML` to consume: `show_title` gates the `<div class="statz-chart-title">`
+ * heading above each cell (warning cells always keep theirs, so the user can identify which
+ * analysis was rejected), and `width_mode` picks the grid class.
+ *
+ * Built here rather than inline because `runAnalysis` returns from three places, and the two early
+ * ones — the multi-database broadcast and the notice-only case — used to build their result object
+ * by hand and skip the bag entirely. `exportCombinedAsChartHTML` reads an absent bag as "show
+ * titles", which is deliberate backward compatibility for payloads predating the toggle, so the
+ * omission did not fail loudly: it made `chart_show_title` inert for any element whose response was
+ * broadcast across databases, with the title stuck on whatever the toggle said.
+ *
+ * Emitted in chart mode only: a table result has no chart for these to describe, and Result_json is
+ * stored as text.
+ * @param {any} mergedOptions
+ */
+const chartDisplayOptions = (mergedOptions) => (
+  mergedOptions?.mode === 'chart'
+    ? {
+      show_title: mergedOptions.chart_show_title === true,
+      width_mode: mergedOptions.chart_width_mode === 'full' ? 'full' : 'auto'
+    }
+    : null
+);
+
 ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const mergedOptions = ns.getDefaultAnalysisOptions(options);
   const predictors = elementPredictors.map(JSON.parse); const responses = elementResponses.map(JSON.parse); const flagsUsed = new Set();
@@ -1676,8 +1702,12 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
       });
     }
     if (contributingDbIds.length === 0) {
+      const noticeChartOptions = chartDisplayOptions(mergedOptions);
       return /** @type {any} */ ({
-        result: { analysis: notices, test_legend: [], lang },
+        result: {
+          analysis: notices, test_legend: [], lang,
+          ...(noticeChartOptions ? { chart_options: noticeChartOptions } : {})
+        },
         flags: Array.from(flagsUsed)
       });
     }
@@ -1724,8 +1754,12 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
         }
       });
       const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+      const broadcastChartOptions = chartDisplayOptions(mergedOptions);
       return /** @type {any} */ ({
-        result: { analysis: aggregatedEntries, test_legend, lang },
+        result: {
+          analysis: aggregatedEntries, test_legend, lang,
+          ...(broadcastChartOptions ? { chart_options: broadcastChartOptions } : {})
+        },
         flags: Array.from(flagsUsed)
       });
     }
@@ -1862,18 +1896,8 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
   const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
   /** @type {any} */
   const finalResult = { analysis: result, test_legend, lang };
-  // `chart_options` bag on the result carries HTML-level chart display flags for
-  // `exportCombinedAsChartHTML` to consume (currently: `show_title` gates the
-  // <div class="statz-chart-title"> heading above each cell — warning cells always
-  // keep their heading so the user can identify which analysis was rejected; `width_mode`
-  // picks the grid class). Emitted in chart mode only: a table result has no chart for these
-  // to describe, and Result_json is stored as text, so the bag was pure noise there.
-  if (mergedOptions.mode === 'chart') {
-    finalResult.chart_options = {
-      show_title: (/** @type {any} */ (mergedOptions).chart_show_title) === true,
-      width_mode: (/** @type {any} */ (mergedOptions).chart_width_mode) === 'full' ? 'full' : 'auto'
-    };
-  }
+  const chart_options = chartDisplayOptions(mergedOptions);
+  if (chart_options) finalResult.chart_options = chart_options;
   return { result: finalResult, flags: Array.from(flagsUsed) };
 };
 

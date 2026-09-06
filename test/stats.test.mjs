@@ -808,6 +808,80 @@ test("runAnalysis: multi-DB Profile C broadcasts response across DBs (D2)", () =
   // Two entries — one per predictor DB
   assert.equal(result.analysis.length, 2);
   assert.ok(result.analysis.every(e => e.predictor_type === 'n' && e.response_type === 'q'));
+
+  // Each database must be analysed against ITS OWN response column, not the one the signature
+  // happened to name. The p-value cannot check this and neither can the means: PredB is exactly
+  // 10 × PredA, so the correct reading and the rebinding mistake both give t = -0.5, p = 0.6305,
+  // and means of 50 / 60. Only the SPREAD tells them apart. dbB's own outcome splits PredB into
+  // {10,20,50,80,90} and {30,40,60,70,100}, which have different spreads; borrowing dbA's
+  // alternating outcome would split it into odds and evens and print ± 31.6 on both groups.
+  const rowOf = Object.fromEntries(result.analysis.map((e) => [e.predictor, e.table.rows[0]]));
+  assert.equal(rowOf.PredB.yes, '50.0 ± 35.4');
+  assert.equal(rowOf.PredB.no, '60.0 ± 27.4');
+  assert.equal(rowOf.PredA.yes, '5.0 ± 3.2');
+  assert.equal(rowOf.PredA.no, '6.0 ± 3.2');
+
+  // The same, with the response stored under a DIFFERENT hash in each database — two separate
+  // uploads of a column with the same name. `col_hash` is the MD5 of that name, so a shared name
+  // usually means a shared hash and the per-database rebind looks redundant; here it is not, and
+  // dropping it would send dbA's hash into dbB, where nothing answers to it.
+  const dbA2 = { columns: [{ ...dbA.columns[0], col_hash: 'h_outcome_a' }, dbA.columns[1]] };
+  const dbB2 = { columns: [{ ...dbB.columns[0], col_hash: 'h_outcome_b' }, dbB.columns[1]] };
+  const renamed = driver.runAnalysis(
+    predictors,
+    [JSON.stringify({ database_id: 'dbA', col_hash: 'h_outcome_a', col_var_index: null, col_label: 'Outcome' })],
+    { dbA: dbA2, dbB: dbB2 }, {});
+  assert.ok(renamed.flags.includes('has_multi_db_broadcast'));
+  assert.equal(renamed.result.analysis.length, 2, 'neither database is lost to the hash mismatch');
+  const renamedRow = Object.fromEntries(renamed.result.analysis.map((e) => [e.predictor, e.table?.rows?.[0]]));
+  assert.equal(renamedRow.PredB.yes, '50.0 ± 35.4', 'the outcome column of dbB, still');
+  assert.equal(renamedRow.PredB.no, '60.0 ± 27.4');
+});
+
+test("chart_options rides on every path runAnalysis can return through", () => {
+  // Reported: with `has_multi_db_broadcast` the chart heading showed whatever `chart_show_title`
+  // said, in both positions. `runAnalysis` returns from three places and only the last one attached
+  // the bag; the broadcast and notice-only paths built their result by hand and skipped it. An
+  // absent bag is read by `exportCombinedAsChartHTML` as "show titles" — deliberate backward
+  // compatibility for payloads predating the toggle — so the omission failed silently.
+  const col = (hash, label, type, values) => ({
+    col_hash: hash, col_label: label, col_type: type, col_sep: '',
+    col_values: { col_compact: false, labels: null, codes: null, raw_values: values }, col_vars: []
+  });
+  const dbA = { columns: [col('h_out', 'Outcome', 'q', ['yes','no','yes','no','yes','no','yes','no','yes','no']),
+                          col('h_a', 'PredA', 'n', ['1','2','3','4','5','6','7','8','9','10'])] };
+  const dbB = { columns: [col('h_out', 'Outcome', 'q', ['yes','yes','no','no','yes','no','no','yes','yes','no']),
+                          col('h_b', 'PredB', 'n', ['10','20','30','40','50','60','70','80','90','100'])] };
+  const dbC = { columns: [col('h_c', 'PredC', 'n', ['1','2','3','4','5','6','7','8','9','10'])] };
+  const sig = (db, hash, label) => JSON.stringify({ database_id: db, col_hash: hash, col_var_index: null, col_label: label });
+  const outcome = [sig('dbA', 'h_out', 'Outcome')];
+
+  const run = (predictors, dbs, opts) => Statz.runAnalysis(predictors, outcome, dbs,
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', ...opts }));
+
+  // 1. broadcast, 2. notice-only (the response exists in no predictor database), 3. the plain path.
+  const paths = {
+    broadcast: [[sig('dbA', 'h_a', 'PredA'), sig('dbB', 'h_b', 'PredB')], { dbA, dbB }],
+    noticeOnly: [[sig('dbC', 'h_c', 'PredC')], { dbC }],
+    single: [[sig('dbA', 'h_a', 'PredA')], { dbA }]
+  };
+  for (const [name, [preds, dbs]] of Object.entries(paths)) {
+    for (const show of [true, false]) {
+      const { result } = run(preds, dbs, { mode: 'chart', chart_show_title: show });
+      assert.deepEqual(result.chart_options, { show_title: show, width_mode: 'auto' }, `${name}, show=${show}`);
+    }
+    // Table mode still carries no bag: there is no chart for it to describe.
+    assert.ok(!('chart_options' in run(preds, dbs, {}).result), `${name}: table mode stays clean`);
+  }
+  assert.ok(run(paths.broadcast[0], paths.broadcast[1], {}).flags.includes('has_multi_db_broadcast'));
+
+  // End to end, which is what the reader sees: the heading disappears when the toggle is off.
+  const titles = (show) => {
+    const { result } = run(paths.broadcast[0], paths.broadcast[1], { mode: 'chart', chart_show_title: show });
+    return (Statz.exportCombinedAsChartHTML(result, '', '', '').match(/class="statz-chart-title"/g) || []).length;
+  };
+  assert.equal(titles(true), 2, 'one heading per chart cell');
+  assert.equal(titles(false), 0);
 });
 
 test("runAnalysis: multi-DB Profile C with missing response → warning + the viable analyses", () => {
