@@ -40,7 +40,7 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
   const respLevels = presetResp ?? [...respSet].sort();
   if (predLevels.length === 0 || respLevels.length === 0) return null;
 
-  const labelFormat = ['n', 'p', 'np'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
+  const labelFormat = ['n', 'p', 'np', 'none'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
   // Same denominator the table uses, from the same option — a chart and a table of the same
   // cross-tab must not disagree about what a percentage is. This was hardcoded to the row total
   // while `summarize_q_q` honoured `percent_by` (normalized to 'col' by the driver), so switching

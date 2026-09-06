@@ -90,6 +90,10 @@ export function wrapText(text, nWords) {
  * @returns {string}
  */
 export function formatBarLabel(count, percent, format, lang = undefined) {
+  // 'none' draws no label at all. Returning the empty string rather than having each builder skip
+  // its `text` array keeps the decision in one place — every bar family already routes through here,
+  // and Plotly renders nothing for an empty string.
+  if (format === 'none') return '';
   const pct = formatNumberLocale(percent, 1, normalizeLanguage(lang));
   if (format === 'p') return `${pct}%`;
   if (format === 'np') return `${count} (${pct}%)`;
@@ -108,6 +112,11 @@ export function formatBarLabel(count, percent, format, lang = undefined) {
  * @returns {string}
  */
 export function resolveNumericAxisLabel(options) {
+  // 'none' resolves to the count title, which is the point: it suppresses the per-bar labels, not
+  // the axis — with the numbers gone from the plot the axis is the only thing left saying what the
+  // bar lengths mean, and the quantity is the one 'n' reports. Note the whitelist is not what does
+  // that: 'none' would reach the same branch listed or not, since anything other than 'p' and 'np'
+  // ends at the count. The list is here to catch a junk value, and 'none' is simply not junk.
   const format = ['n', 'p', 'np'].includes(options?.chart_label_format) ? options.chart_label_format : 'n';
   if (format === 'p') return '%';
   if (format === 'np') return 'n (%)';
@@ -395,7 +404,7 @@ export function computeCenter(values, mode) {
  */
 export function buildBarSpec({ labels, counts, total, options, meta }) {
   const theme = resolveTheme(options.chart_theme);
-  const labelFormat = ['n', 'p', 'np'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
+  const labelFormat = ['n', 'p', 'np', 'none'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
   const horizontal = resolveBarOrientation(labels, options) === 'h';
   const text = counts.map((c) => {

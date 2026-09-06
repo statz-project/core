@@ -806,7 +806,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   // Crossbar central tendency for the points layer: 'median' avoids outlier pull on
   // asymmetric distributions; anything other than 'median' falls back to 'mean'.
   /** @type {any} */ (normalized).chart_central_tendency = (/** @type {any} */ (normalized).chart_central_tendency) === 'median' ? 'median' : 'mean';
-  normalized.chart_label_format = ['n', 'p', 'np'].includes((/** @type {any} */ (normalized).chart_label_format))
+  normalized.chart_label_format = ['n', 'p', 'np', 'none'].includes((/** @type {any} */ (normalized).chart_label_format))
     ? (/** @type {any} */ (normalized).chart_label_format) : 'n';
   normalized.chart_paired_show_lines = (/** @type {any} */ (normalized).chart_paired_show_lines) !== false;
   normalized.chart_likert_enabled = (/** @type {any} */ (normalized).chart_likert_enabled) === true;

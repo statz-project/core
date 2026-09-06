@@ -38,7 +38,7 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
     return out;
   });
 
-  const labelFormat = ['n', 'p', 'np'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
+  const labelFormat = ['n', 'p', 'np', 'none'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
   const legendWrap = getLegendLabelsWrap(options);
   const palette = getThemePalette(options.chart_theme, 2);

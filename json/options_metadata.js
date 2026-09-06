@@ -261,8 +261,10 @@ ns.OPTION_METADATA = {
     labelKey: 'options.chart_central_tendency.label', descriptionKey: 'options.chart_central_tendency.description'
   },
   chart_label_format: {
+    // 'none' last: it is the opt-out, and it suppresses only the per-bar labels. The axis title
+    // still reads as the count, which is the quantity the bar lengths carry.
     category: 'chart', type: 'enum', default: 'n',
-    enum: ['n', 'p', 'np'],
+    enum: ['n', 'p', 'np', 'none'],
     appliesTo: ['has_q', 'has_l', 'has_qq', 'has_lq', 'has_ql', 'has_paired_q'], modeGate: 'chart',
     labelKey: 'options.chart_label_format.label', descriptionKey: 'options.chart_label_format.description'
   },

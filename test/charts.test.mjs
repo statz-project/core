@@ -3614,3 +3614,48 @@ test("a bottom legend keeps its clearance whether or not an axis title sits abov
   //    clearance is the term that used to be missing — without it this reserved 66 and the text met.
   assert.equal(bottom({ ...wrapped, chart_show_xaxis_title: false }).b, 78);
 });
+
+
+test("chart_label_format 'none' drops the bar labels and nothing else", () => {
+  // The reader can take the magnitudes from the bar lengths and the axis ticks; the per-bar text is
+  // sometimes just clutter. 'none' is 'n' with the labels withheld — same axis title, same ticks.
+  const mk = (hash, label, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: 'q', var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const q = mk('hq', 'Sexo', Array.from({ length: 30 }, (_, i) => ['f', 'm'][i % 2]));
+  const r = mk('hr', 'Desfecho', Array.from({ length: 30 }, (_, i) => (i % 3 ? 'vivo' : 'óbito')));
+  const LV = ['a', 'b', 'c'];
+  const lk = [0, 1, 2].map((o) => mk(`l${o}`, `V${o}`, Array.from({ length: 30 }, (_, i) => LV[(i + o) % 3])));
+  const opts = (format, extra) => Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart', chart_label_format: format, ...extra });
+  const bar = (f) => Statz.runAnalysis([sig(q)], [], { dbA: { columns: [q] } }, opts(f)).result.analysis[0].chart.spec;
+  const grouped = (f) => Statz.runAnalysis([sig(q)], [sig(r)], { dbA: { columns: [q, r] } }, opts(f)).result.analysis[0].chart.spec;
+  const likert = (f) => Statz.runAnalysis(lk.map(sig), [], { dbA: { columns: lk } },
+    opts(f, { chart_likert_enabled: true })).result.analysis[0].chart.spec;
+
+  // It survives normalisation — an unknown value still falls back to 'n'.
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_label_format: 'none' }).chart_label_format, 'none');
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_label_format: 'xyz' }).chart_label_format, 'n');
+  assert.deepEqual(optionsMetadata.OPTION_METADATA.chart_label_format.enum, ['n', 'p', 'np', 'none']);
+
+  // Every bar family goes quiet, and only the text does.
+  for (const build of [bar, grouped, likert]) {
+    const silent = build('none');
+    assert.ok(silent.data.every((t) => t.text.every((v) => v === '')), 'no label text');
+    // The bars themselves are untouched: same values, same count of traces as with labels on.
+    const loud = build('n');
+    assert.deepEqual(silent.data.map((t) => t.x), loud.data.map((t) => t.x));
+    assert.equal(silent.data.length, loud.data.length);
+  }
+
+  // The axis still says what the lengths mean, and says it the way 'n' does — the reading moved to
+  // the axis, so removing its title too would leave the chart unreadable.
+  assert.equal(bar('none').layout.yaxis.title.text, bar('n').layout.yaxis.title.text);
+  assert.equal(bar('none').layout.yaxis.title.text, Statz.translate('chart.axisLabels.count', 'pt_br'));
+  assert.notEqual(bar('p').layout.yaxis.title.text, bar('none').layout.yaxis.title.text);
+  assert.equal(grouped('none').layout.yaxis.title.text, grouped('n').layout.yaxis.title.text);
+  // Likert's percentage axis is fixed and owes nothing to this option.
+  assert.equal(likert('none').layout.xaxis.title.text, '%');
+  assert.equal(likert('p').layout.xaxis.title.text, '%');
+});
