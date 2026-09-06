@@ -1482,7 +1482,7 @@ test("renderCharts: without spec.config the defaults still apply (no staticPlot)
 // Consolidates axis titles across all chart types per the ANALYSIS.md matrix.
 // ---------------------------------------------------------------------------
 
-test("chart_q (vertical bar): y-axis title is 'Count' by default (chart_label_format='n')", () => {
+test("chart_q (vertical bar): y-axis title follows chart_label_format", () => {
   const q1 = {
     col_hash: "h_q1", col_label: "Group", col_type: "q", col_sep: "",
     col_values: { col_compact: false, labels: null, codes: null, raw_values: ["a","b","a","b","a"] },
@@ -1490,11 +1490,11 @@ test("chart_q (vertical bar): y-axis title is 'Count' by default (chart_label_fo
   };
   const dbs = { db: { columns: [q1] } };
   const predictors = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
-  const { result } = driver.runAnalysis(predictors, [], dbs, { mode: "chart" });
+  const { result } = driver.runAnalysis(predictors, [], dbs, { mode: "chart", chart_label_format: "n" });
   const layout = result.analysis[0].chart.spec.layout;
   // Vertical: x carries varLabel, y carries numeric label. Both non-empty now.
   assert.equal(layout.xaxis.title.text, "Group");
-  assert.equal(layout.yaxis.title.text, "Count", "y-axis title = i18n Count (default chart_label_format='n')");
+  assert.equal(layout.yaxis.title.text, "Count", "y-axis title = i18n Count when chart_label_format='n'");
 });
 
 test("chart_q: y-axis label follows chart_label_format ('p' → '%', 'np' → 'n (%)')", () => {
@@ -1529,12 +1529,12 @@ test("chart_q_q: y-axis (bar heights) labeled per chart_label_format — previou
     .result.analysis[0].chart.spec;
   // Default percent_by 'col' normalizes over the response, so the response is what groups the
   // bars — the axis follows the denominator so each group sums to 100%.
-  const byCol = chart({}).layout;
+  const byCol = chart({ chart_label_format: "n" }).layout;
   assert.equal(byCol.xaxis.title.text, "Outcome");
   assert.equal(byCol.yaxis.title.text, "Count", "grouped_bar y-axis carries numeric label");
   assert.equal(chart({}).layout.legend.title.text, "Sex", "and the predictor becomes the series");
   // 'row' normalizes over the predictor, so the two swap back.
-  const byRow = chart({ percent_by: "row" }).layout;
+  const byRow = chart({ percent_by: "row", chart_label_format: "n" }).layout;
   assert.equal(byRow.xaxis.title.text, "Sex");
   assert.equal(byRow.legend.title.text, "Outcome");
   assert.equal(byRow.yaxis.title.text, "Count", "the numeric axis is unaffected either way");
@@ -1557,7 +1557,7 @@ test("chart_paired_q: y-axis carries 'Count' label — previously empty", () => 
     JSON.stringify({ database_id: "db", col_hash: "h_t0", col_var_index: null, col_label: "T0", role: "response" }),
     JSON.stringify({ database_id: "db", col_hash: "h_t1", col_var_index: null, col_label: "T1", role: "response" })
   ];
-  const { result } = driver.runAnalysis([], resps, dbs, { mode: "chart" });
+  const { result } = driver.runAnalysis([], resps, dbs, { mode: "chart", chart_label_format: "n" });
   const layout = result.analysis[0].chart.spec.layout;
   assert.equal(layout.yaxis.title.text, "Count");
 });
@@ -1570,7 +1570,7 @@ test("chart_show_xaxis_title=false: blanks xaxis.title.text on every chart entry
   };
   const dbs = { db: { columns: [q1] } };
   const preds = [JSON.stringify({ database_id: "db", col_hash: "h_q1", col_var_index: null, col_label: "Group", role: "predictor" })];
-  const { result } = driver.runAnalysis(preds, [], dbs, { mode: "chart", chart_show_xaxis_title: false });
+  const { result } = driver.runAnalysis(preds, [], dbs, { mode: "chart", chart_show_xaxis_title: false, chart_label_format: "n" });
   assert.equal(result.analysis[0].chart.spec.layout.xaxis.title.text, "", "x-axis title blanked");
   // y-axis unaffected.
   assert.equal(result.analysis[0].chart.spec.layout.yaxis.title.text, "Count");
@@ -3636,7 +3636,9 @@ test("chart_label_format 'none' drops the bar labels and nothing else", () => {
 
   // It survives normalisation — an unknown value still falls back to 'n'.
   assert.equal(Statz.getDefaultAnalysisOptions({ chart_label_format: 'none' }).chart_label_format, 'none');
-  assert.equal(Statz.getDefaultAnalysisOptions({ chart_label_format: 'xyz' }).chart_label_format, 'n');
+  // An unknown value falls back to the DEFAULT, which is percentages — not to 'n'.
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_label_format: 'xyz' }).chart_label_format, 'p');
+  assert.equal(Statz.getDefaultAnalysisOptions({}).chart_label_format, 'p');
   assert.deepEqual(optionsMetadata.OPTION_METADATA.chart_label_format.enum, ['n', 'p', 'np', 'none']);
 
   // Every bar family goes quiet, and only the text does.
@@ -3658,4 +3660,16 @@ test("chart_label_format 'none' drops the bar labels and nothing else", () => {
   // Likert's percentage axis is fixed and owes nothing to this option.
   assert.equal(likert('none').layout.xaxis.title.text, '%');
   assert.equal(likert('p').layout.xaxis.title.text, '%');
+
+  // A builder called DIRECTLY never sees `getDefaultAnalysisOptions`, so it carries its own
+  // resolution — one shared helper rather than the five copies of the whitelist that used to sit
+  // in the bar family, each with its own hardcoded fallback. Absent and junk both land on the
+  // documented default, which is what makes those copies safe to have removed.
+  const direct = (format) => charts.chart_likert(
+    [{ label: 'A', values: ['x', 'x', 'y', 'y'] }, { label: 'B', values: ['x', 'y', 'y', 'y'] }],
+    format === undefined ? { lang: 'pt_br' } : { lang: 'pt_br', chart_label_format: format }
+  ).spec;
+  assert.deepEqual(direct(undefined).data[0].text, ['50,0%', '25,0%'], 'absent falls to the default');
+  assert.deepEqual(direct('xyz').data[0].text, direct(undefined).data[0].text, 'and so does junk');
+  assert.deepEqual(direct('n').data[0].text, ['2', '1'], 'a named format still wins');
 });

@@ -9,7 +9,7 @@
 //   - all predictors share the same level set (intersection-based; partial overlap rejected)
 //   - options.chart_likert_enabled === true
 // Falls back to per-predictor chart_q if any condition fails.
-import { getThemePalette, wrapText, buildLegendLayout, getLegendLabelsWrap, formatBarLabel } from './_shared.js';
+import { getThemePalette, wrapText, buildLegendLayout, getLegendLabelsWrap, formatBarLabel, resolveLabelFormat } from './_shared.js';
 import { normalizeLanguage } from '../../i18n/index.js';
 
 /**
@@ -73,7 +73,7 @@ export function chart_likert(vars, options = {}, meta = {}) {
   const varLabels = vars.map((v) => wrapText(v.label, labelWrap));
   const legendWrap = getLegendLabelsWrap(options);
   const lang = normalizeLanguage(options.lang);
-  const labelFormat = options.chart_label_format ?? 'n';
+  const labelFormat = resolveLabelFormat(options);
 
   // One trace per level (stacked horizontally). y values are variable labels;
   // x values are the percentages for that level across each variable.

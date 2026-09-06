@@ -806,8 +806,9 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   // Crossbar central tendency for the points layer: 'median' avoids outlier pull on
   // asymmetric distributions; anything other than 'median' falls back to 'mean'.
   /** @type {any} */ (normalized).chart_central_tendency = (/** @type {any} */ (normalized).chart_central_tendency) === 'median' ? 'median' : 'mean';
+  // Percentages by default — see LABEL_FORMAT_DEFAULT in charts/_shared.js for the reasoning.
   normalized.chart_label_format = ['n', 'p', 'np', 'none'].includes((/** @type {any} */ (normalized).chart_label_format))
-    ? (/** @type {any} */ (normalized).chart_label_format) : 'n';
+    ? (/** @type {any} */ (normalized).chart_label_format) : 'p';
   normalized.chart_paired_show_lines = (/** @type {any} */ (normalized).chart_paired_show_lines) !== false;
   normalized.chart_likert_enabled = (/** @type {any} */ (normalized).chart_likert_enabled) === true;
   normalized.chart_x_label_wrap = Number.isFinite(Number((/** @type {any} */ (normalized).chart_x_label_wrap)))

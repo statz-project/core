@@ -71,6 +71,23 @@ export function wrapText(text, nWords) {
   return lines.join('<br>');
 }
 
+/** Percentages by default: they compare across groups of different sizes, and the Likert chart
+ *  is a 100%-stacked bar whose segments reading as raw counts contradicted its own axis. */
+const LABEL_FORMAT_DEFAULT = 'p';
+
+/**
+ * The label format in force. One place, because five call sites used to carry their own copy of the
+ * whitelist AND of the fallback — the shape that let the standard deviation's divisor drift apart
+ * across the numeric module. A caller that skipped `getDefaultAnalysisOptions` still lands on the
+ * documented default rather than on whatever each builder happened to write.
+ * @param {any} options
+ * @returns {'n'|'p'|'np'|'none'}
+ */
+export function resolveLabelFormat(options) {
+  const value = options?.chart_label_format;
+  return ['n', 'p', 'np', 'none'].includes(value) ? value : LABEL_FORMAT_DEFAULT;
+}
+
 /**
  * Format a single bar's value label per chart_label_format option.
  *
@@ -112,12 +129,10 @@ export function formatBarLabel(count, percent, format, lang = undefined) {
  * @returns {string}
  */
 export function resolveNumericAxisLabel(options) {
-  // 'none' resolves to the count title, which is the point: it suppresses the per-bar labels, not
-  // the axis — with the numbers gone from the plot the axis is the only thing left saying what the
-  // bar lengths mean, and the quantity is the one 'n' reports. Note the whitelist is not what does
-  // that: 'none' would reach the same branch listed or not, since anything other than 'p' and 'np'
-  // ends at the count. The list is here to catch a junk value, and 'none' is simply not junk.
-  const format = ['n', 'p', 'np'].includes(options?.chart_label_format) ? options.chart_label_format : 'n';
+  // 'none' resolves to the count title: it suppresses the per-bar labels, not the axis — with the
+  // numbers gone from the plot the axis is the only thing left saying what the bar lengths mean,
+  // and the quantity is the one 'n' reports.
+  const format = resolveLabelFormat(options);
   if (format === 'p') return '%';
   if (format === 'np') return 'n (%)';
   return translate('chart.axisLabels.count', options?.lang);
@@ -404,7 +419,7 @@ export function computeCenter(values, mode) {
  */
 export function buildBarSpec({ labels, counts, total, options, meta }) {
   const theme = resolveTheme(options.chart_theme);
-  const labelFormat = ['n', 'p', 'np', 'none'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
+  const labelFormat = resolveLabelFormat(options);
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
   const horizontal = resolveBarOrientation(labels, options) === 'h';
   const text = counts.map((c) => {

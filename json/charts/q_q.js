@@ -1,7 +1,7 @@
 // @ts-check
 // Grouped bar chart for two qualitative variables (q × q). Mirrors r.plot.grouped_bar.
 // x-axis: predictor levels. One bar per response level inside each group (barmode='group').
-import { getThemePalette, wrapText, wrapTitle, formatBarLabel, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
+import { getThemePalette, wrapText, wrapTitle, formatBarLabel, resolveLabelFormat, resolveNumericAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
 import factors from '../factors.js';
 
 /**
@@ -40,7 +40,7 @@ export function chart_q_q(predictorVals, responseVals, options = {}, meta = {}) 
   const respLevels = presetResp ?? [...respSet].sort();
   if (predLevels.length === 0 || respLevels.length === 0) return null;
 
-  const labelFormat = ['n', 'p', 'np', 'none'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
+  const labelFormat = resolveLabelFormat(options);
   // Same denominator the table uses, from the same option — a chart and a table of the same
   // cross-tab must not disagree about what a percentage is. This was hardcoded to the row total
   // while `summarize_q_q` honoured `percent_by` (normalized to 'col' by the driver), so switching

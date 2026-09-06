@@ -2,7 +2,7 @@
 // Paired binary qualitative chart (Profile B): K moments × 2 binary levels.
 // Grouped bar with moments on the x-axis and one trace per binary level.
 // Mirrors r.plot.grouped_bar applied to a paired dataset.
-import { getThemePalette, wrapText, formatBarLabel, resolveNumericAxisLabel, resolveMomentAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
+import { getThemePalette, wrapText, formatBarLabel, resolveLabelFormat, resolveNumericAxisLabel, resolveMomentAxisLabel, buildLegendLayout, getLegendLabelsWrap, resolveBarOrientation } from './_shared.js';
 
 /**
  * @param {Array<Array<string|null|undefined>>} responses K arrays of binary values; one per moment.
@@ -38,7 +38,7 @@ export function chart_paired_q(responses, labels, options = {}, meta = {}) {
     return out;
   });
 
-  const labelFormat = ['n', 'p', 'np', 'none'].includes(options.chart_label_format) ? options.chart_label_format : 'n';
+  const labelFormat = resolveLabelFormat(options);
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
   const legendWrap = getLegendLabelsWrap(options);
   const palette = getThemePalette(options.chart_theme, 2);
