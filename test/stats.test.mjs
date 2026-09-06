@@ -6,6 +6,7 @@ import statistics from './helpers/stdlib_stats.mjs';
 import jStat from "jstat";
 import * as simpleStatistics from "simple-statistics";
 import driver from "../json/driver.js";
+import { getMessages, getSupportedLanguages } from "../i18n/index.js";
 
 globalThis.Statz = Statz;           // make the namespace discoverable
 
@@ -2414,4 +2415,49 @@ test("alpha is offered wherever a p-value is emphasised, paired analyses include
   // p = 0.0571 sits between the two thresholds, so the emphasis follows the reader and not a constant.
   assert.deepEqual(render(0.05), []);
   assert.deepEqual(render(0.075), ['<td><b>0,057¹</b></td>']);
+});
+
+
+test("the localized dictionaries do not leave English field names in user-facing text", () => {
+  // A handful of warnings had been written against the code's own vocabulary rather than the
+  // reader's: "A response ... nao esta presente em todos os databases dos predictors." Everywhere
+  // else those same two things are a "resposta" and a "preditora". Pinning each string would only
+  // freeze today's wording, so this checks the property instead: no key, present or future, may
+  // carry the English field name into a translated message.
+  const forbidden = /\b(responses?|predictors?|databases?)\b/i;
+  const strip = (text) => text.replace(/\{[^}]*\}/g, '');
+  const offenders = [];
+  const walk = (node, lang, path) => {
+    if (typeof node === 'string') {
+      // Interpolation placeholders are code, not prose: `{predictor}` names a variable the caller
+      // fills in and has to keep its key.
+      if (forbidden.test(strip(node))) offenders.push(`${lang}.${path}: ${node}`);
+      return;
+    }
+    if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) walk(v, lang, path ? `${path}.${k}` : k);
+    }
+  };
+  for (const lang of getSupportedLanguages()) {
+    if (lang === 'en_us') continue;
+    walk(getMessages(lang), lang, '');
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+
+  // The guard has to be able to fail, or it proves nothing.
+  assert.ok(forbidden.test(strip('A response nao esta presente.')));
+  assert.ok(forbidden.test(strip('respostas do mesmo database.')), 'the entity name counts too');
+  assert.ok(!forbidden.test(strip('Comparacoes para "{predictor}": {comparisons}')), 'placeholders exempt');
+
+  // And the strings that prompted this now read in the reader's language.
+  const missing = Statz.translate('warnings.multiDbMissingResponse', 'pt_br', { label: 'X' });
+  assert.match(missing, /resposta/);
+  assert.match(missing, /preditoras/);
+  assert.match(Statz.translate('popupVariables.warnings.predictorRequired', 'pt_br'), /preditora/);
+  assert.match(Statz.translate('popupVariables.warnings.predictorRequired', 'es_es'), /predictora/);
+  // `Database` is the Bubble entity's name, but this is prose the reader has to act on, and es_es
+  // had said "base de datos" all along — the two languages were describing the same thing
+  // differently. pt_br now matches.
+  assert.match(missing, /bancos de dados/);
+  assert.match(Statz.translate('warnings.multiDbMissingResponse', 'es_es', { label: 'X' }), /bases de datos/);
 });

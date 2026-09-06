@@ -66,9 +66,9 @@ const MESSAGES = {
         "pairedNonBinaryQ": "Análise pareada qualitativa requer níveis binários; obteve {levels} níveis.",
         "pairedListNotSupported": "Análise pareada para respostas de tipo lista ainda não é suportada.",
         "pairedTooFewMomentos": "Análise pareada requer ao menos 2 momentos.",
-        "llSubsetRequired": "Análise lista × lista requer um subconjunto de itens em ambos predictor e response.",
-        "multiDbMissingResponse": "A response “{label}” não está presente em todos os databases dos predictors.",
-        "pairedMultiDbNotAllowed": "Análise pareada requer todas as responses do mesmo database."
+        "llSubsetRequired": "Análise lista × lista requer um subconjunto de itens tanto na preditora quanto na resposta.",
+        "multiDbMissingResponse": "A resposta “{label}” não está presente em todos os bancos de dados das preditoras.",
+        "pairedMultiDbNotAllowed": "Análise pareada requer todas as respostas do mesmo banco de dados."
       },
       "mapping": {
         "invalid": "Mapeamento inválido para “{label}”",
@@ -185,11 +185,11 @@ const MESSAGES = {
     },
     "popupVariables": {
       "warnings": {
-        "pairedNeedsMomentos": "Análise pareada precisa de 2 ou mais responses deste database.",
-        "pairedSameDbRequired": "Análise pareada requer todas as responses do mesmo database.",
-        "singleResponseRequired": "Apenas uma response é permitida para análise inferencial.",
-        "pairedNoPredictors": "Análise pareada não usa predictors.",
-        "predictorRequired": "Selecione ao menos um predictor."
+        "pairedNeedsMomentos": "Análise pareada precisa de 2 ou mais respostas deste banco de dados.",
+        "pairedSameDbRequired": "Análise pareada requer todas as respostas do mesmo banco de dados.",
+        "singleResponseRequired": "Apenas uma resposta é permitida para análise inferencial.",
+        "pairedNoPredictors": "Análise pareada não usa preditoras.",
+        "predictorRequired": "Selecione ao menos uma preditora."
       }
     },
     "stats": {
@@ -464,9 +464,9 @@ const MESSAGES = {
         "pairedNonBinaryQ": "El análisis pareado cualitativo requiere niveles binarios; obtuvo {levels} niveles.",
         "pairedListNotSupported": "El análisis pareado para respuestas de tipo lista aún no es compatible.",
         "pairedTooFewMomentos": "El análisis pareado requiere al menos 2 momentos.",
-        "llSubsetRequired": "El análisis lista × lista requiere un subconjunto de elementos en ambos predictor y response.",
-        "multiDbMissingResponse": "La response “{label}” no está presente en todas las bases de datos de los predictors.",
-        "pairedMultiDbNotAllowed": "El análisis pareado requiere todas las responses de la misma base de datos."
+        "llSubsetRequired": "El análisis lista × lista requiere un subconjunto de elementos tanto en la predictora como en la respuesta.",
+        "multiDbMissingResponse": "La respuesta “{label}” no está presente en todas las bases de datos de las predictoras.",
+        "pairedMultiDbNotAllowed": "El análisis pareado requiere todas las respuestas de la misma base de datos."
       },
       "mapping": {
         "invalid": "Asignación no válida para “{label}”",
@@ -583,11 +583,11 @@ const MESSAGES = {
     },
     "popupVariables": {
       "warnings": {
-        "pairedNeedsMomentos": "El análisis pareado necesita 2 o más responses de esta base de datos.",
-        "pairedSameDbRequired": "El análisis pareado requiere todas las responses de la misma base de datos.",
-        "singleResponseRequired": "Sólo se permite una response para el análisis inferencial.",
-        "pairedNoPredictors": "El análisis pareado no usa predictors.",
-        "predictorRequired": "Seleccione al menos un predictor."
+        "pairedNeedsMomentos": "El análisis pareado necesita 2 o más respuestas de esta base de datos.",
+        "pairedSameDbRequired": "El análisis pareado requiere todas las respuestas de la misma base de datos.",
+        "singleResponseRequired": "Sólo se permite una respuesta para el análisis inferencial.",
+        "pairedNoPredictors": "El análisis pareado no usa predictoras.",
+        "predictorRequired": "Seleccione al menos una predictora."
       }
     },
     "stats": {
