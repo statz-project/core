@@ -10,7 +10,7 @@
 //   - options.chart_likert_enabled === true
 // Falls back to per-predictor chart_q if any condition fails.
 import { getThemePalette, wrapText, buildLegendLayout, getLegendLabelsWrap, formatBarLabel } from './_shared.js';
-import { normalizeLanguage, translate } from '../../i18n/index.js';
+import { normalizeLanguage } from '../../i18n/index.js';
 
 /**
  * Diverging-friendly palette for stacked Likert levels. Uses 5 colors that read as a
@@ -74,7 +74,6 @@ export function chart_likert(vars, options = {}, meta = {}) {
   const legendWrap = getLegendLabelsWrap(options);
   const lang = normalizeLanguage(options.lang);
   const labelFormat = options.chart_label_format ?? 'n';
-  const titleWrap = Number.isFinite(Number(options.chart_title_wrap)) ? Number(options.chart_title_wrap) : 8;
 
   // One trace per level (stacked horizontally). y values are variable labels;
   // x values are the percentages for that level across each variable.
@@ -100,15 +99,16 @@ export function chart_likert(vars, options = {}, meta = {}) {
   const layout = {
     barmode: 'stack',
     xaxis: { title: { text: '%' }, range: [0, 100], ticksuffix: '%' },
-    // One variable per row, so the axis title is the generic "Variable" — naming any single one
-    // would be wrong for the others, the reasoning `chart_paired_n` applies to its moments. It also
-    // gives `chart_show_yaxis_title` and `chart_title_wrap` something to act on: both were offered
-    // for this chart and could do nothing, the title being an empty string.
-    yaxis: {
-      title: { text: wrapText(translate('chart.axisLabels.variable', lang), titleWrap) },
-      automargin: true,
-      autorange: 'reversed'
-    },
+    // No y-axis title, deliberately. A generic "Variable" was tried here so that
+    // `chart_show_yaxis_title` would have something to act on, and it could not be made to default
+    // OFF in the panel's flow: an element is created in TABLE mode, where the panel pre-populates
+    // every option including this chart-only one, so the bag reaches the chart carrying an explicit
+    // `true` that was never a choice. `getDefaultAnalysisOptions` only reaches a default when the
+    // key is absent, so no default — conditional or not — can override it. The title would show on
+    // every Likert chart until each was unchecked by hand, costing the horizontal space this shape
+    // has least of, to say a word the variable names already say. `getAvailableOptions` hides the
+    // option here for the same reason: nothing it can do.
+    yaxis: { title: { text: '' }, automargin: true, autorange: 'reversed' },
     // A FLOOR, not a reservation. `yaxis.automargin` is on, so Plotly grows the left margin to
     // whatever the variable labels actually need; the only thing this number can do is stop it
     // shrinking below itself. At 140 — the widest floor of any builder, the others sitting between

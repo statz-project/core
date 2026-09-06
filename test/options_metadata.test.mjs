@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import driver from "../json/driver.js";
+import { Statz } from "../index.js";
 import optionsMetadata from "../json/options_metadata.js";
 
 const { OPTION_METADATA, getAvailableOptions } = optionsMetadata;
@@ -440,4 +441,28 @@ test("adjust_kruskal is offered only where Dunn actually ran", () => {
     assert.equal(offered([shape]), false, `${shape} alone`);
     assert.equal(offered([shape, 'has_kruskal_sign']), true, `${shape} with Dunn`);
   }
+});
+
+
+test("an option the Likert chart cannot act on is hidden, not defaulted", () => {
+  // A conditional DEFAULT was tried first and cannot work in this panel: the element is created in
+  // table mode, where every option is pre-populated, so a chart-only key reaches the chart carrying
+  // an explicit value and `getDefaultAnalysisOptions` never reaches a default for it. Hiding the
+  // option is the workable form of the same intent, and it is honest — the chart really does give
+  // these two nothing to act on.
+  const flags = ['has_q', 'has_likert_eligible'];
+  const names = (opts) => optionsMetadata.getAvailableOptions(flags, 'chart', opts).map((o) => o.name);
+  const hidden = names({ chart_likert_enabled: false }).filter((n) => !names({ chart_likert_enabled: true }).includes(n));
+  assert.deepEqual(hidden.sort(), ['chart_show_yaxis_title', 'chart_title_wrap']);
+
+  // Gated on the VALUE, and absent bag means no hiding — existing callers are unaffected.
+  assert.deepEqual(names(undefined), names({ chart_likert_enabled: false }));
+  assert.deepEqual(names({}), names({ chart_likert_enabled: false }));
+  // Table mode is untouched: these are chart-only options and were never listed there anyway.
+  assert.deepEqual(optionsMetadata.getAvailableOptions(flags, 'table', { chart_likert_enabled: true }),
+    optionsMetadata.getAvailableOptions(flags, 'table'));
+
+  // And `getOptionDefault` takes no context: there is no context-dependent default left to ask about.
+  assert.equal(optionsMetadata.getOptionDefault.length, 2);
+  assert.equal(optionsMetadata.getOptionDefault('chart_show_yaxis_title', 'pt_br'), true);
 });

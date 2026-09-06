@@ -281,12 +281,10 @@ ns.OPTION_METADATA = {
   // title spans the whole plot width while a category tick gets only its own slot, so the two want
   // different numbers.
   chart_title_wrap: {
-    // On the Likert chart the axis titles are "%" and the generic "Variable" — neither is a variable
-    // LABEL, so the default wording names something that is not there. Worse, it landed a plural
-    // apart from `chart_x_label_wrap`'s Likert label ("Quebra dos rótulos das variáveis" beside
-    // "Quebra do rótulo da variável"), two controls over different things reading as one.
-    likertLabelKey: 'options.chart_title_wrap.likertLabel',
-    likertDescriptionKey: 'options.chart_title_wrap.likertDescription',
+    // Hidden under Likert for the same reason as the y-axis title it used to wrap: the only axis
+    // title left there is "%", a single word that can never wrap. It also removes the collision
+    // this option had with `chart_x_label_wrap`'s Likert label, which was a plural apart from it.
+    likertHidden: true,
     category: 'chart', type: 'number', default: 8, enum: null,
     appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_title_wrap.label', descriptionKey: 'options.chart_title_wrap.description'
@@ -347,10 +345,8 @@ ns.OPTION_METADATA = {
     labelKey: 'options.chart_show_xaxis_title.label', descriptionKey: 'options.chart_show_xaxis_title.description'
   },
   chart_show_yaxis_title: {
-    // No `likertLabelKey`: the label stays accurate there — that axis does carry a title. What
-    // changes is the answer to "what do I get, and why does it start off?", which the description
-    // owns. The two keys resolve independently, so registering one alone is the normal case.
-    likertDescriptionKey: 'options.chart_show_yaxis_title.likertDescription',
+    // The Likert chart emits no y-axis title, so there is nothing here to show or hide.
+    likertHidden: true,
     category: 'chart', type: 'boolean', default: true, enum: null,
     appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_show_yaxis_title.label', descriptionKey: 'options.chart_show_yaxis_title.description'
@@ -406,12 +402,17 @@ ns.OPTION_METADATA = {
  * @param {'table'|'chart'=} mode Current Element mode (defaults to 'table').
  * @returns {Array<OptionMetadata & {name: string}>}
  */
-ns.getAvailableOptions = function (flags, mode = 'table') {
+ns.getAvailableOptions = function (flags, mode = 'table', options = undefined) {
   const flagSet = new Set(Array.isArray(flags) ? flags : []);
+  const likert = options?.chart_likert_enabled === true;
   /** @type {Array<OptionMetadata & {name:string}>} */
   const out = [];
   for (const [name, meta] of Object.entries(ns.OPTION_METADATA)) {
     if (meta.modeGate && meta.modeGate !== mode) continue;
+    // `likertHidden` marks an option the Likert chart gives nothing to act on. Gated on the option
+    // VALUE, like the Likert wording above, because the flag only says the data COULD be drawn that
+    // way. Passing no bag keeps every option visible, which is the previous behaviour.
+    if (likert && meta.likertHidden) continue;
     if (meta.appliesTo.length > 0) {
       const overlaps = meta.appliesTo.some((f) => flagSet.has(f));
       if (!overlaps) continue;
@@ -484,9 +485,13 @@ ns.getOptionDescription = function (optionName, lang, mode = undefined, options 
  * Intended for UI widget initialization: `working_options[name] ?? getOptionDefault(name, lang)`
  * produces the value the user expects to see whether or not the Element has saved options.
  *
+ * The declared default for an option. Note there are no CONTEXT-dependent defaults: one was tried
+ * for `chart_show_yaxis_title` under Likert and could not work, because `getDefaultAnalysisOptions`
+ * reaches a default only when the key is ABSENT and the panel pre-populates every option while the
+ * element is still in table mode. An option the Likert chart cannot act on is hidden instead — see
+ * `likertHidden`.
  * @param {string} optionName
  * @param {string=} lang
- * @returns {any} The resolved default; `undefined` for unknown option names.
  */
 ns.getOptionDefault = function (optionName, lang) {
   const meta = ns.OPTION_METADATA[optionName];

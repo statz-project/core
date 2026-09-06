@@ -3424,20 +3424,23 @@ test("the Likert chart honours the options the panel offers for it", () => {
     return entry.spec;
   };
 
-  // The y-axis carries one variable per row, so its title can only be the generic one — naming any
-  // single variable would be wrong for the others. Which is also why it is OFF by default here and
-  // nowhere else: a word that repeats what the tick text already says, on the side where the
-  // labels live, in the one chart shape short of horizontal space. The option stays offered.
-  const varTitle = Statz.translate('chart.axisLabels.variable', 'pt_br');
-  assert.equal(spec({}).layout.yaxis.title.text, '', 'off unless asked for');
-  assert.equal(spec({ chart_show_yaxis_title: true }).layout.yaxis.title.text, varTitle, 'and available');
-  assert.equal(spec({ chart_show_yaxis_title: false }).layout.yaxis.title.text, '');
-  // Only the ABSENT case moved: `getDefaultAnalysisOptions` still answers true on its own, and a
-  // chart that is not Likert still gets its title without being asked.
-  assert.equal(Statz.getDefaultAnalysisOptions({}).chart_show_yaxis_title, true);
-  assert.equal(Statz.getDefaultAnalysisOptions({ chart_likert_enabled: true }).chart_show_yaxis_title, false);
-  assert.equal(Statz.getDefaultAnalysisOptions({ chart_likert_enabled: true, chart_show_yaxis_title: true })
-    .chart_show_yaxis_title, true, 'an explicit choice survives');
+  // No y-axis title, and the option that would control it is not offered. A generic "Variable"
+  // was tried here and could not be made to default OFF: the panel creates the element in TABLE
+  // mode and pre-populates every option, so this chart-only key arrives carrying an explicit
+  // `true` that was never a choice, and a default is only consulted when the key is ABSENT. The
+  // title would have shown on every Likert chart until unchecked by hand.
+  assert.equal(spec({}).layout.yaxis.title.text, '');
+  assert.equal(spec({ chart_show_yaxis_title: true }).layout.yaxis.title.text, '', 'not even on request');
+  const likertOn = { chart_likert_enabled: true };
+  const offered = (opts) => optionsMetadata.getAvailableOptions(['has_q', 'has_likert_eligible'], 'chart', opts)
+    .map((o) => o.name);
+  for (const name of ['chart_show_yaxis_title', 'chart_title_wrap']) {
+    assert.ok(!offered(likertOn).includes(name), `${name} must not be offered under Likert`);
+    assert.ok(offered({ chart_likert_enabled: false }).includes(name), `${name} stays elsewhere`);
+  }
+  // No bag means no hiding, which is what every existing caller gets.
+  assert.deepEqual(offered(undefined), offered({ chart_likert_enabled: false }));
+  // A plain bar chart still has its title and its controls.
   const bars = Statz.runAnalysis([sig(cols[0])], [], { dbA: { columns: cols } },
     Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart' })).result.analysis[0].chart.spec;
   assert.ok(bars.layout.yaxis.title.text, 'a plain bar chart is untouched');
@@ -3506,8 +3509,9 @@ test("the Likert chart honours the options the panel offers for it", () => {
   // make it a floor: the number, and the automargin that overrides it upward.
   assert.equal(spec({ chart_show_yaxis_title: true }).layout.margin.l, 70);
   assert.equal(spec({}).layout.yaxis.automargin, true, 'Plotly does the measuring');
-  // With the title hidden — the default here — the driver reclaims its 25px, clamped at 40.
-  assert.equal(spec({}).layout.margin.l, 45);
+  // No reclaim happens: the driver only takes back the 25px when a title was actually being drawn,
+  // and this chart never draws one. The floor stands as written.
+  assert.equal(spec({}).layout.margin.l, 70);
   // Long labels are unaffected by the floor: automargin asks for what it needs either way, so the
   // emitted number is the same and only the rendered margin differs.
   const long = [mk('h1', 'Likert one: Nam libero tempore cum soluta nobis est eligendi optio', 1),
@@ -3515,7 +3519,7 @@ test("the Likert chart honours the options the panel offers for it", () => {
   const longSpec = Statz.runAnalysis(long.map(sig), [], { dbA: { columns: long } },
     Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart', chart_likert_enabled: true }))
     .result.analysis[0].chart.spec;
-  assert.equal(longSpec.layout.margin.l, 45);
+  assert.equal(longSpec.layout.margin.l, 70);
 
   // And the wrapping option names what it actually wraps HERE: the variable labels.
   const label = (opts) => Statz.getOptionLabel('chart_x_label_wrap', 'pt_br', 'chart', opts);
@@ -3542,31 +3546,19 @@ test("Likert wording resolves per option, and only where it was registered", () 
   const desc = (name, opts) => optionsMetadata.getOptionDescription(name, 'pt_br', 'chart', opts);
   const label = (name, opts) => optionsMetadata.getOptionLabel(name, 'pt_br', 'chart', opts);
 
-  // The two options that carry it, and what each of them overrides.
-  assert.notEqual(desc('chart_show_yaxis_title', on), desc('chart_show_yaxis_title', off));
-  assert.match(desc('chart_show_yaxis_title', on), /Variável/);
-  // Its LABEL is untouched: that axis does carry a title, so the name was never wrong — the two
-  // keys resolve independently and registering only one is the normal case.
-  assert.equal(label('chart_show_yaxis_title', on), label('chart_show_yaxis_title', off));
+  // One option carries it now. `chart_show_yaxis_title` and `chart_title_wrap` had wording too and
+  // lost it: they are hidden under Likert instead, which is what an option that cannot act deserves.
   assert.notEqual(label('chart_x_label_wrap', on), label('chart_x_label_wrap', off));
-  assert.notEqual(label('chart_title_wrap', on), label('chart_title_wrap', off));
+  assert.notEqual(desc('chart_x_label_wrap', on), desc('chart_x_label_wrap', off));
+  assert.equal(desc('chart_show_yaxis_title', on), desc('chart_show_yaxis_title', off));
 
-  // The two wrapping controls must not read as one. Their Likert labels landed a plural apart
-  // — "Quebra dos rótulos das variáveis" beside "Quebra do rótulo da variável" — while acting on
-  // different things: one wraps the names ON the axis, the other the axis TITLES.
-  for (const lang of ['pt_br', 'en_us', 'es_es']) {
-    const a = optionsMetadata.getOptionLabel('chart_x_label_wrap', lang, 'chart', on);
-    const b = optionsMetadata.getOptionLabel('chart_title_wrap', lang, 'chart', on);
-    assert.notEqual(a, b, lang);
-    // Not merely different: different in more than an inflection. Compare the word multisets.
-    const words = (t) => new Set(t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\W+/).filter(Boolean));
-    const shared = [...words(a)].filter((w) => words(b).has(w));
-    assert.ok(shared.length < Math.min(words(a).size, words(b).size),
-      `${lang}: "${a}" and "${b}" share every word`);
-  }
+  // `chart_title_wrap` no longer carries Likert wording: it is hidden there instead, which also
+  // settled the collision it had with the label above — the two were a plural apart while acting
+  // on different things. An option that cannot act is removed, not renamed.
+  assert.equal(label('chart_title_wrap', on), label('chart_title_wrap', off));
 
   // Everything else falls through, which is what made the report look like a bug.
-  for (const name of ['chart_legend_position', 'chart_label_format', 'percent_by']) {
+  for (const name of ['chart_title_wrap', 'chart_show_yaxis_title', 'chart_legend_position', 'chart_label_format', 'percent_by']) {
     assert.equal(label(name, on), label(name, off), name);
     assert.equal(desc(name, on), desc(name, off), name);
   }

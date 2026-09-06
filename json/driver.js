@@ -830,26 +830,7 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   // "Count" / "Value" / var labels — thanks to the consolidation feature).
   /** @type {any} */ (normalized).chart_show_title = (/** @type {any} */ (normalized).chart_show_title) === true;
   /** @type {any} */ (normalized).chart_show_xaxis_title = (/** @type {any} */ (normalized).chart_show_xaxis_title) !== false;
-  // The y-axis title defaults ON everywhere except Likert, where it defaults OFF. That axis holds
-  // one variable per row, so its title can only be the generic "Variable" — a word that says
-  // nothing the tick text has not already said, in the one chart shape where horizontal space is
-  // the scarce resource, since the labels themselves live on that side. The option stays offered:
-  // this changes what happens when the user has not chosen, not what they can choose.
-  //
-  // Only the ABSENT case moves. An explicit value — true or false — is honoured as before, which is
-  // why this cannot be written with the `!== false` coercion the line above uses: that reads an
-  // absent key and an explicit `true` as the same thing.
-  //
-  // Keyed on the toggle rather than on the rendered chart type, because normalisation happens
-  // before any chart is built. The gap that leaves: `chart_likert_enabled` can be on while the
-  // short-circuit does not fire (fewer than two `q` predictors, or no shared levels), and those
-  // fallback bar charts then start without their y-axis title too. Turning the option on restores
-  // it, and the alternative — a third "auto" state carried through the options bag — would put a
-  // non-boolean into an option the panel renders as a checkbox and the drift test pins as boolean.
-  const rawYTitle = (/** @type {any} */ (normalized).chart_show_yaxis_title);
-  /** @type {any} */ (normalized).chart_show_yaxis_title = (rawYTitle === undefined || rawYTitle === null)
-    ? (/** @type {any} */ (normalized).chart_likert_enabled) !== true
-    : rawYTitle !== false;
+  /** @type {any} */ (normalized).chart_show_yaxis_title = (/** @type {any} */ (normalized).chart_show_yaxis_title) !== false;
   // Legend styling (multi-trace charts: q×q, paired_q, likert). Defaults chosen to
   // fix the "legend consumes half the plot width" issue: top-oriented legend recovers
   // horizontal space; wrap=2 keeps 3+ word labels compact.
