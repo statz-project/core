@@ -1,6 +1,6 @@
 // @ts-check
 import { getStatsLib, getJStat, formatNumberLocale, formatConfidenceLevel } from './_env.js';
-import { getDefaultMissingLabel, normalizeLanguage, translate } from '../i18n/index.js';
+import { getDefaultMissingLabel, getTestLabel, normalizeLanguage, translate } from '../i18n/index.js';
 import factors from './factors.js';
 
 const ns = {};
@@ -149,6 +149,10 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     const is2x2 = rows === 2 && cols === 2;
     const hasSmallExpected = expected.flat().some(v => v < 5);
     let method = null;
+    let method_key = null;
+    // Key and label set together — same setter as numeric.js. `test_used` is translated and so
+    // cannot identify a test across languages; `test_key` is the stable id the i18n key implies.
+    const setTest = (/** @type {string} */ key) => { method_key = key; method = getTestLabel(key, lang); };
     let p_value = null;
     let residuals = null;
     let residualsAnnotated = null;
@@ -171,11 +175,11 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
       // No test: method and p_value stay null.
     } else if (is2x2 && hasSmallExpected) {
       const p = ns.fisherExact2x2(observed[0][0], observed[0][1], observed[1][0], observed[1][1]);
-      method = translate('tests.fisherExact', lang);
+      setTest('fisherExact');
       p_value = +p.toFixed(4);
     } else {
       const result = stats?.chi2test(observed, { correct: false });
-      method = translate('tests.chiSquare', lang);
+      setTest('chiSquare');
       p_value = +(result?.pValue?.toFixed?.(4) ?? NaN);
     }
     if (Number.isFinite(p_value) && p_value < alpha) {
@@ -210,7 +214,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     const effect_sizes = (is2x2 && withEffectSizes)
       ? ns.computeEffectSizes2x2(observed[0][0], observed[0][1], observed[1][0], observed[1][1], alpha)
       : null;
-    return { method, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower, residuals_available, effect_sizes };
+    return { method, method_key, p_value, residuals, residualsAnnotated, used_resid_greater, used_resid_lower, residuals_available, effect_sizes };
   })();
   const annotated = test.residualsAnnotated || [];
   const showEffectSizes = !!test.effect_sizes && rowLevels.length === 2 && colLevels.length === 2;
@@ -252,6 +256,7 @@ ns.summarize_q_q = function (predictorVals, responseVals, formatFn, options = {}
     columns,
     rows,
     test_used: test.method,
+    test_key: test.method_key,
     p_value: test.p_value,
     posthoc_residuals: test.residuals,
     used_resid_greater: test.used_resid_greater,
@@ -321,6 +326,9 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
   if (n < 1) return null;
 
   let method = null;
+  let method_key = null;
+  // Key and label set together — see the setter in `summarize_q_q` above.
+  const setTest = (/** @type {string} */ key) => { method_key = key; method = getTestLabel(key, lang); };
   let p_value = NaN;
   let test_stat = null;
 
@@ -334,7 +342,7 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
     }
     const discordant = b + c;
     if (discordant === 0) {
-      method = translate('tests.mcnemar', lang);
+      setTest('mcnemar');
       p_value = 1;
       test_stat = 0;
     } else if (discordant < 25) {
@@ -343,13 +351,13 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
       // symmetric — verified identical across the range, the capped-at-1 cases included.
       const k = Math.min(b, c);
       p_value = stats ? stats.binomialTest(k, discordant, { p: 0.5 }).pValue : NaN;
-      method = translate('tests.mcnemar', lang);
+      setTest('mcnemar');
       test_stat = Math.abs(b - c);
     } else {
       // McNemar χ² with continuity correction.
       const chi = Math.pow(Math.abs(b - c) - 1, 2) / discordant;
       test_stat = chi;
-      method = translate('tests.mcnemar', lang);
+      setTest('mcnemar');
       p_value = stats ? 1 - stats.base.dists.chisquare.cdf(chi, 1) : NaN;
     }
   } else {
@@ -374,7 +382,7 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
       p_value = stats ? 1 - stats.base.dists.chisquare.cdf(Q, K - 1) : NaN;
     }
     test_stat = Q;
-    method = translate('tests.cochranQ', lang);
+    setTest('cochranQ');
   }
 
   // Build display table — rows = level breakdown per momento, cols = momentos + p-value.
@@ -404,6 +412,7 @@ ns.summarize_q_binary_paired = function (responses, labels, formatFn = null, opt
     columns: [groupLabel, ...labels, pValueLabel],
     rows: rowsByLevel,
     test_used: method,
+    test_key: method_key,
     p_value: Number.isFinite(p_value) ? +p_value.toFixed(4) : NaN,
     test_statistic: Number.isFinite(test_stat) ? +test_stat.toFixed(4) : NaN,
     n,

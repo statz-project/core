@@ -6,6 +6,7 @@ import statistics from './helpers/stdlib_stats.mjs';
 import jStat from "jstat";
 import * as simpleStatistics from "simple-statistics";
 import driver from "../json/driver.js";
+import { readFileSync } from "node:fs";
 import { getMessages, getSupportedLanguages } from "../i18n/index.js";
 
 globalThis.Statz = Statz;           // make the namespace discoverable
@@ -2460,4 +2461,85 @@ test("the localized dictionaries do not leave English field names in user-facing
   // differently. pt_br now matches.
   assert.match(missing, /bancos de dados/);
   assert.match(Statz.translate('warnings.multiDbMissingResponse', 'es_es', { label: 'X' }), /bases de datos/);
+});
+
+
+test("test_key identifies the test across languages, where test_used cannot", () => {
+  // `test_used` is the TRANSLATED name — a pt_br run stores "Qui-quadrado", an en_us run
+  // "Chi-square" — so nothing downstream could recognise a test without parsing prose, and a
+  // display-copy edit would silently break whatever tried. `test_key` is the stable id the i18n
+  // key already implied; the two are now written by one setter so they cannot drift apart.
+  const mk = (hash, label, type, values) => {
+    const c = Statz.makeColumn(values.map(String), { col_type: type, var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const N = 40;
+  const grp = mk('hg', 'Grupo', 'q', Array.from({ length: N }, (_, i) => ['a', 'b', 'c'][i % 3]));
+  const num = mk('hn', 'Valor', 'n', Array.from({ length: N }, (_, i) => ((i % 3) * 10) + (i % 7)));
+  const out = mk('hq', 'Desfecho', 'q', Array.from({ length: N }, (_, i) => (i % 4 ? 'vivo' : 'obito')));
+  const run = (preds, resps, cols, lang) => Statz.runAnalysis(preds, resps, { dbA: { columns: cols } },
+    Statz.getDefaultAnalysisOptions({ lang }));
+
+  const cases = [
+    { name: 'n × q', preds: [sig(num)], resps: [sig(grp)], cols: [num, grp], key: 'anova' },
+    { name: 'q × q', preds: [sig(grp)], resps: [sig(out)], cols: [grp, out], key: 'chiSquare' }
+  ];
+  for (const c of cases) {
+    const pt = run(c.preds, c.resps, c.cols, 'pt_br');
+    const en = run(c.preds, c.resps, c.cols, 'en_us');
+    assert.equal(pt.result.analysis[0].table.test_key, c.key, c.name);
+    assert.equal(en.result.analysis[0].table.test_key, c.key, `${c.name}: same key in another language`);
+    // The legend carries it too, beside the symbol the reader sees.
+    assert.deepEqual(pt.result.test_legend.map((e) => e.key), [c.key]);
+    assert.deepEqual(en.result.test_legend.map((e) => e.key), [c.key]);
+    // And the reader can recover the ids from a stored payload, in either language.
+    assert.deepEqual(Statz.getTestKeysFromResult(pt.result), [c.key]);
+    assert.deepEqual(Statz.getTestKeysFromResult(en.result), [c.key]);
+  }
+  // The point of the whole exercise: the DISPLAY name is free to differ, the key is not.
+  const ptChi = run(cases[1].preds, cases[1].resps, cases[1].cols, 'pt_br').result.analysis[0].table;
+  const enChi = run(cases[1].preds, cases[1].resps, cases[1].cols, 'en_us').result.analysis[0].table;
+  assert.notEqual(ptChi.test_used, enChi.test_used);
+  assert.equal(ptChi.test_key, enChi.test_key);
+
+  // Every key emitted must be one the i18n dictionary knows, or a badge would point at nothing.
+  for (const t of [ptChi, enChi]) assert.ok(Statz.TEST_KEYS.includes(t.test_key), t.test_key);
+
+  // A failed computation is not a test: no key, so nothing downstream offers help for it.
+  const degenerate = Statz.summarize_n_q(['1', '2'], ['a', 'a'], null, new Set(), { lang: 'pt_br' });
+  assert.equal(degenerate.test_key ?? null, null, JSON.stringify(degenerate.test_used));
+});
+
+test("getTestKeysFromResult falls back to the localized names for payloads written before the key", () => {
+  // Elements already stored in the database have no `key` on their legend entries. Inverting the
+  // translated names against the locale the result was produced in recovers the ids exactly, and
+  // an unmatched name yields NO id rather than a wrong one.
+  const legacy = { lang: 'pt_br', test_legend: [{ method: 'Qui-quadrado', symbol: '¹' }, { method: 'ANOVA', symbol: '²' }] };
+  assert.deepEqual(Statz.getTestKeysFromResult(legacy).sort(), ['anova', 'chiSquare']);
+  const legacyEn = { lang: 'en_us', test_legend: [{ method: 'Chi-square', symbol: '¹' }] };
+  assert.deepEqual(Statz.getTestKeysFromResult(legacyEn), ['chiSquare']);
+  // Wrong locale, or a name nobody recognises: silence, not a guess.
+  assert.deepEqual(Statz.getTestKeysFromResult({ lang: 'en_us', test_legend: [{ method: 'Qui-quadrado' }] }), []);
+  assert.deepEqual(Statz.getTestKeysFromResult({ lang: 'pt_br', test_legend: [{ method: 'Coisa nenhuma' }] }), []);
+  // A carried key always wins over the fallback, even when the display name would also match.
+  assert.deepEqual(Statz.getTestKeysFromResult(
+    { lang: 'pt_br', test_legend: [{ method: 'Qui-quadrado', key: 'fisherExact' }] }), ['fisherExact']);
+  // Degenerate inputs do not throw.
+  for (const bad of [null, undefined, {}, { test_legend: null }, { test_legend: [] }]) {
+    assert.deepEqual(Statz.getTestKeysFromResult(bad), []);
+  }
+});
+
+test("the tests dictionary has no key that no analysis can produce", () => {
+  // `tests.rmAnova` sat in all three locales with no call site — the paired K>2 route uses Friedman.
+  // A help badge for a test that cannot run is worse than no badge, so the dictionary and the
+  // emitting code have to agree. This asserts the direction that rots silently.
+  const emitted = new Set();
+  const src = [readFileSync(new URL('../json/numeric.js', import.meta.url), 'utf8'),
+               readFileSync(new URL('../json/contingency.js', import.meta.url), 'utf8')].join(' ');
+  for (const m of src.matchAll(/setTest\('([A-Za-z]+)'\)/g)) emitted.add(m[1]);
+  for (const m of src.matchAll(/getTestLabel\('([A-Za-z]+)'/g)) emitted.add(m[1]);
+  assert.deepEqual([...Statz.TEST_KEYS].sort(), [...emitted].sort(),
+    'every tests.* key must be emitted by some branch, and every branch must use a known key');
 });

@@ -1764,7 +1764,13 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
           r.table.test_symbol = symbolMap[r.table.test_used];
         }
       });
-      const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+      // The symbol map is keyed on the DISPLAY name, which dedupes correctly within one run. The
+      // stable key rides alongside so a consumer can recognise the test without parsing prose.
+      const keyByMethod = new Map(aggregatedEntries
+        .filter((/** @type {any} */ r) => r.table?.test_used)
+        .map((/** @type {any} */ r) => [r.table.test_used, r.table.test_key ?? null]));
+      const test_legend = Object.entries(symbolMap)
+        .map(([method, symbol]) => ({ method, symbol, key: keyByMethod.get(method) ?? null }));
       const broadcastChartOptions = chartDisplayOptions(mergedOptions);
       return /** @type {any} */ ({
         result: {
@@ -1912,7 +1918,11 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
       layout.margin.b = Math.max(layout.margin.b ?? 0, axisStack + legendBand);
     }
   });
-  const test_legend = Object.entries(symbolMap).map(([method, symbol]) => ({ method, symbol }));
+  const keyByMethod = new Map(result
+    .filter((/** @type {any} */ r) => r.table?.test_used)
+    .map((/** @type {any} */ r) => [r.table.test_used, r.table.test_key ?? null]));
+  const test_legend = Object.entries(symbolMap)
+    .map(([method, symbol]) => ({ method, symbol, key: keyByMethod.get(method) ?? null }));
   /** @type {any} */
   const finalResult = { analysis: result, test_legend, lang };
   const chart_options = chartDisplayOptions(mergedOptions);
@@ -1929,6 +1939,30 @@ ns.runAnalysis = function (elementPredictors, elementResponses, dbs, options) {
  * @param {{ lang?: string, formatFn?: Function, maxRows?: number, structured?: boolean }} [options]
  * @returns {Array<Record<string, string>> | Array<{label:string, summary:string}>}
  */
+/**
+ * The stable ids of the tests an analysis actually ran, read off a `Result_json`.
+ *
+ * Prefers the `key` carried on each `test_legend` entry. Falls back, for payloads written before
+ * that key existed, to inverting the localized names against the locale the result was produced in
+ * — `result.lang` is stored, and `translate('tests', lang)` returns the whole node, so the inverse
+ * map is exact. The fallback is deliberately lossy: a name it cannot match yields NO id rather than
+ * a wrong one, because a help badge naming the wrong test is worse than a missing badge.
+ *
+ * Lives here rather than in a caller so the legacy path is written and tested once, and can be
+ * deleted in one place when no old payloads remain.
+ * @param {any} result
+ * @returns {string[]}
+ */
+ns.getTestKeysFromResult = function (result) {
+  const legend = Array.isArray(result?.test_legend) ? result.test_legend : [];
+  const carried = legend.map((/** @type {any} */ e) => e?.key).filter(Boolean);
+  if (carried.length) return [...new Set(carried)];
+  const dict = translate('tests', result?.lang);
+  if (!dict || typeof dict !== 'object') return [];
+  const inverse = new Map(Object.entries(dict).map(([k, v]) => [v, k]));
+  return [...new Set(legend.map((/** @type {any} */ e) => inverse.get(e?.method)).filter(Boolean))];
+};
+
 ns.describeColumn = function (column, variantIndex = null, options = {}) {
   if (!column || typeof column !== 'object') return [];
   let baseColumn = column;

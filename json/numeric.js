@@ -1,6 +1,6 @@
 // @ts-check
 import { getJStat, getSS, getStatsLib, formatNumberLocale, formatPValue, formatConfidenceLevel, PVALUE_DECIMALS, PVALUE_THRESHOLD } from './_env.js';
-import { getBinaryLabels, getTableHeaders, normalizeLanguage, translate } from '../i18n/index.js';
+import { getBinaryLabels, getTableHeaders, getTestLabel, normalizeLanguage, translate } from '../i18n/index.js';
 import variants from './variants.js';
 import factors from './factors.js';
 
@@ -259,9 +259,10 @@ ns.computeMannWhitney = function (x, y, correct = false, options = {}) {
     options = {};
   }
   const lang = normalizeLanguage(options?.lang);
-  const methodLabel = translate('tests.mannWhitney', lang);
+  const methodLabel = getTestLabel('mannWhitney', lang);
+  const methodKey = 'mannWhitney';
   try {
-    if (!x?.length || !y?.length) { return { pValue: null, statistic: null, method: methodLabel }; }
+    if (!x?.length || !y?.length) { return { pValue: null, statistic: null, method: methodLabel, methodKey }; }
     const jStat = getJStat();
     const nx = x.length; const ny = y.length;
     const combined = [...x.map(val => ({ val, group: 'x' })), ...y.map(val => ({ val, group: 'y' }))];
@@ -273,8 +274,8 @@ ns.computeMannWhitney = function (x, y, correct = false, options = {}) {
     const mu = (nx * ny) / 2; const sigma = Math.sqrt((nx * ny * (nx + ny + 1)) / 12);
     let z = (U - mu) / sigma; if (correct) { z = (Math.abs(U - mu) - 0.5) / sigma; }
     const pValue = 2 * (1 - jStat.normal.cdf(Math.abs(z), 0, 1));
-    return { pValue, statistic: U, method: methodLabel };
-  } catch { return { pValue: null, statistic: null, method: methodLabel }; }
+    return { pValue, statistic: U, method: methodLabel, methodKey };
+  } catch { return { pValue: null, statistic: null, method: methodLabel, methodKey }; }
 };
 
 /** Stack grouped numeric arrays into x values and y group labels. */
@@ -486,12 +487,17 @@ ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, optio
   // 3. Compute correlation.
   let r;
   let method;
+  let method_key = null;
+  // Sets the key and the label together. `test_used` carries the TRANSLATED name, so it cannot
+  // identify a test across languages; `test_key` is the stable id the i18n key already implies.
+  // Going through one setter is what keeps the two from ever being written apart.
+  const setTest = (/** @type {string} */ key) => { method_key = key; method = getTestLabel(key, lang); };
   if (parametric) {
     r = pearsonR(xs, ys);
-    method = translate('tests.pearson', lang);
+    setTest('pearson');
   } else {
     r = pearsonR(computeRanks(xs), computeRanks(ys));
-    method = translate('tests.spearman', lang);
+    setTest('spearman');
   }
   const p_value = correlationPValue(r, n);
 
@@ -537,6 +543,7 @@ ns.summarize_n_n = function (predictorVals, responseVals, formatFn = null, optio
     columns: [statisticLabel, valueLabel],
     rows,
     test_used: method,
+    test_key: method_key,
     p_value: Number.isFinite(p_value) ? +p_value.toFixed(4) : NaN,
     correlation: +r.toFixed(4),
     ci_lower: Number.isFinite(ci_lower) ? +ci_lower.toFixed(4) : NaN,
@@ -600,6 +607,12 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
   /** @param {number[]} arr */
 
   let method = null;
+  let method_key = null;
+  // Sets the key and the label together. `test_used` carries the TRANSLATED name, so it cannot
+  // identify a test across languages; `test_key` is the stable id the i18n key already implies.
+  // Going through one setter is what keeps the two from ever being written apart.
+  const setTest = (/** @type {string} */ key) => { method_key = key; method = getTestLabel(key, lang); };
+
   let p_value = NaN;
   let test_stat = null;
 
@@ -613,7 +626,7 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
       const result = stats.ttest(diff);
       test_stat = result.statistic;
       p_value = result.pValue;
-      method = translate('tests.pairedT', lang);
+      setTest('pairedT');
     } else {
       // stdlib's Wilcoxon is EXACT for small n; the hand-rolled one used a normal approximation
       // with a tie correction, which is what stdlib falls back to itself once n passes its exact
@@ -622,14 +635,14 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
       // 0.0020. Note the reported statistic changes convention with it — stdlib reports W+ (R's V)
       // where the old code reported min(W+, W−).
       const result = stats ? stats.wilcoxon(diff) : null;
-      method = translate('tests.wilcoxonSigned', lang);
+      setTest('wilcoxonSigned');
       p_value = result ? result.pValue : NaN;
       test_stat = result ? result.statistic : NaN;
     }
   } else {
     // K ≥ 3: Friedman.
     const result = friedmanTest(aligned, jStat);
-    method = translate('tests.friedman', lang);
+    setTest('friedman');
     p_value = result.p;
     test_stat = result.Q;
   }
@@ -681,6 +694,7 @@ ns.summarize_n_paired = function (responses, labels, formatFn = null, flagsUsed 
     columns: [groupLabel, ...labels, pValueLabel],
     rows,
     test_used: method,
+    test_key: method_key,
     p_value: Number.isFinite(p_value) ? +p_value.toFixed(4) : NaN,
     test_statistic: Number.isFinite(test_stat) ? +test_stat.toFixed(4) : NaN,
     n,
@@ -838,6 +852,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
       columns: [groupLabel, ...groupNames, pValueLabel],
       rows: summaryRows,
       test_used: translate('errors.stdlibNotLoaded', lang),
+      test_key: null,
       p_value: null
     };
   }
@@ -862,6 +877,12 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   const parametric = allNormal && homo;
   let p_value = null;
   let method = null;
+  let method_key = null;
+  // Sets the key and the label together. `test_used` carries the TRANSLATED name, so it cannot
+  // identify a test across languages; `test_key` is the stable id the i18n key already implies.
+  // Going through one setter is what keeps the two from ever being written apart.
+  const setTest = (/** @type {string} */ key) => { method_key = key; method = getTestLabel(key, lang); };
+
   let posthoc = null;
   try {
     if (nGroups === 2) {
@@ -869,11 +890,12 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
       if (allNormal) {
         const result = stats.ttest2(g1, g2, { variance: homo ? 'equal' : 'unequal' });
         p_value = result.pValue;
-        method = translate('tests.tStudent', lang);
+        setTest('tStudent');
       } else {
         const result = ns.computeMannWhitney(g1, g2, false, { lang });
         p_value = result.pValue;
         method = result.method;
+        method_key = result.methodKey ?? null;
       }
     } else if (nGroups > 2) {
       const groups = groupsWithData.map(name => groupMap[name]);
@@ -881,7 +903,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
         const { x, y } = ns.stackGroups(activeGroupMap);
         const result = stats.anova1(x, y);
         p_value = result?.pValue ?? null;
-        method = translate('tests.anova', lang);
+        setTest('anova');
         if (jStat?.utils?.isNumber(p_value) && p_value < alpha) {
           posthoc = ns.runTukeyHSD(activeGroupMap, alpha).filter(v => v.significant);
           if (posthoc.length) flagsUsed?.add?.('has_tukey');
@@ -895,7 +917,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
         // to the omnibus test's the way Tukey is matched to ANOVA.
         const result = ns.computeWelchAnova(activeGroupMap);
         p_value = result.pValue;
-        method = translate('tests.welchAnova', lang);
+        setTest('welchAnova');
         if (jStat?.utils?.isNumber(p_value) && p_value < alpha) {
           posthoc = ns.runGamesHowell(activeGroupMap, alpha).filter(v => v.significant);
           if (posthoc.length) flagsUsed?.add?.('has_games_howell');
@@ -903,7 +925,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
       } else {
         const result = stats.kruskalTest(...groups);
         p_value = result.pValue;
-        method = translate('tests.kruskalWallis', lang);
+        setTest('kruskalWallis');
         if (jStat?.utils?.isNumber(p_value) && p_value < alpha) {
           posthoc = ns.runDunnTest(activeGroupMap, alpha, adjustKruskal).filter(v => v.significant);
           flagsUsed?.add?.('has_kruskal_sign');
@@ -913,6 +935,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
   } catch {
     p_value = null;
     method = translate('errors.calculationFailed', lang);
+    method_key = null;
   }
 
   // 6) Output rows: ensure p-value column present but empty per row
@@ -921,6 +944,7 @@ ns.summarize_n_q = function (predictorVals, responseVals, formatFn = null, flags
     columns: [groupLabel, ...groupNames, pValueLabel],
     rows: summaryRows,
     test_used: method,
+    test_key: method_key,
     // Guard explicitly rather than coercing: `+(null?.toFixed?.(4) ?? null)` evaluates to 0 — a
     // finite number that renders as "<0.001", i.e. the strongest possible significance for a
     // comparison that never ran. Both paths reach here with p_value still null: a response with

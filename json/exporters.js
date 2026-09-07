@@ -234,6 +234,8 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
   const combined = { columns: [firstColLabel], rows: [], test_legend: [], posthoc_legend: [], resid_symbol_greater_used: false, resid_symbol_lower_used: false, lang };
   if (!Array.isArray(resultArray)) return combined;
   const legendMap = new Map();
+  /** Stable test ids beside the display names, so a consumer need not parse prose. */
+  const legendKeys = new Map();
   const posthocByPredictor = [];
   // Seed the p-value column before any row is built. Rows are written against the columns known
   // SO FAR, so a table processed before the first one that declares a p-value column had nowhere
@@ -301,7 +303,10 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
       });
       combined.rows.push(fullRow);
     });
-    if (table.test_used && !legendMap.has(table.test_used)) legendMap.set(table.test_used, table.test_symbol);
+    if (table.test_used && !legendMap.has(table.test_used)) {
+      legendMap.set(table.test_used, table.test_symbol);
+      legendKeys.set(table.test_used, table.test_key ?? null);
+    }
     if (table.used_resid_greater) combined.resid_symbol_greater_used = true;
     if (table.used_resid_lower) combined.resid_symbol_lower_used = true;
     if (Array.isArray(table.posthoc)) {
@@ -323,7 +328,8 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
     combined.columns.splice(pValueIdx, 1);
     combined.columns.push(pValueLabel);
   }
-  combined.test_legend = Array.from(legendMap.entries()).map(([method, symbol]) => ({ method, symbol }));
+  combined.test_legend = Array.from(legendMap.entries())
+    .map(([method, symbol]) => ({ method, symbol, key: legendKeys.get(method) ?? null }));
   if (posthocByPredictor.length > 0) combined.posthoc_legend = posthocByPredictor;
   const percentByFlags = resultArray.filter(r => r.table?.percent_by).map(r => r.table.percent_by);
   if (percentByFlags.length > 0 && percentByFlags.every(v => v === percentByFlags[0])) combined.percent_by = percentByFlags[0];

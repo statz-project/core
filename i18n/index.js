@@ -180,8 +180,7 @@ const MESSAGES = {
       "wilcoxonSigned": "Wilcoxon (postos com sinais)",
       "mcnemar": "McNemar",
       "cochranQ": "Q de Cochran",
-      "friedman": "Friedman",
-      "rmAnova": "ANOVA de medidas repetidas"
+      "friedman": "Friedman"
     },
     "popupVariables": {
       "warnings": {
@@ -379,8 +378,7 @@ const MESSAGES = {
       "wilcoxonSigned": "Wilcoxon signed-rank",
       "mcnemar": "McNemar",
       "cochranQ": "Cochran’s Q",
-      "friedman": "Friedman",
-      "rmAnova": "Repeated-measures ANOVA"
+      "friedman": "Friedman"
     },
     "popupVariables": {
       "warnings": {
@@ -578,8 +576,7 @@ const MESSAGES = {
       "wilcoxonSigned": "Wilcoxon (rangos con signo)",
       "mcnemar": "McNemar",
       "cochranQ": "Q de Cochran",
-      "friedman": "Friedman",
-      "rmAnova": "ANOVA de medidas repetidas"
+      "friedman": "Friedman"
     },
     "popupVariables": {
       "warnings": {
@@ -736,6 +733,24 @@ export function getSupportedLanguages() {
   return [...SUPPORTED_LANGUAGES];
 }
 
+/**
+ * The stable identifiers of every test the core can report. These are the KEYS under `tests.*`,
+ * not their labels: `test_used` carries the translated name, so a result produced in pt_br says
+ * "Qui-quadrado" and one produced in en_us says "Chi-square". Anything that has to recognise a test
+ * across languages — a help catalogue, a re-render in another locale — needs the key instead.
+ */
+export const TEST_KEYS = Object.freeze(Object.keys(MESSAGES[DEFAULT_LANG].tests));
+
+/**
+ * The display label for a test key. Pairs with `TEST_KEYS`: callers that set a test should go
+ * through this, so the label and the key are produced together and cannot drift apart.
+ * @param {string} key
+ * @param {string=} lang
+ */
+export function getTestLabel(key, lang) {
+  return translate(`tests.${key}`, lang);
+}
+
 export function getMessages(lang) {
   const dict = getDictionary(lang);
   return JSON.parse(JSON.stringify(dict));
@@ -751,7 +766,9 @@ const api = {
   getColumnTypeLabel,
   getBinaryLabels,
   getSupportedLanguages,
-  getMessages
+  getMessages,
+  TEST_KEYS,
+  getTestLabel
 };
 
 export default api;
