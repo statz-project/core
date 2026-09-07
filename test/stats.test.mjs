@@ -2419,6 +2419,23 @@ test("alpha is offered wherever a p-value is emphasised, paired analyses include
 });
 
 
+test("the three dictionaries carry exactly the same keys", () => {
+  // `translate` falls back to en_us when a key is missing, which is right at runtime and wrong for
+  // a test: a key added to one locale and forgotten in the other two reads perfectly in English on
+  // a Portuguese page, and nothing fails. Comparing the key sets is what makes that visible.
+  const paths = (node, prefix = '') => (node && typeof node === 'object'
+    ? Object.entries(node).flatMap(([k, v]) => paths(v, prefix ? prefix + '.' + k : k))
+    : [prefix]);
+  const base = paths(getMessages('en_us')).sort();
+  for (const lang of getSupportedLanguages()) {
+    if (lang === 'en_us') continue;
+    assert.deepEqual(paths(getMessages(lang)).sort(), base,
+      `${lang} and en_us must define the same keys`);
+  }
+  assert.ok(base.length > 100, 'sanity: the walk actually found the dictionary');
+});
+
+
 test("the localized dictionaries do not leave English field names in user-facing text", () => {
   // A handful of warnings had been written against the code's own vocabulary rather than the
   // reader's: "A response ... nao esta presente em todos os databases dos predictors." Everywhere

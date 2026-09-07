@@ -122,6 +122,24 @@ const MESSAGES = {
       "chart_legend_title_wrap": { "label": "Quebra do título da legenda", "description": "Quebrar o título da legenda a cada N palavras." },
       "chart_legend_labels_wrap": { "label": "Quebra das entradas da legenda", "description": "Quebrar cada entrada (nome de série) da legenda a cada N palavras." }
     },
+    "help": {
+      "topics": {
+        "tukey": { "label": "Tukey" },
+        "gamesHowell": { "label": "Games-Howell" },
+        "dunn": { "label": "Dunn" },
+        "pValue": { "label": "p-valor" },
+        "nullHypothesis": { "label": "Hipótese nula" },
+        "smallSample": { "label": "Amostra pequena" },
+        "normality": { "label": "Normalidade" },
+        "homoscedasticity": { "label": "Homocedasticidade" },
+        "multipleComparisons": { "label": "Comparações múltiplas" },
+        "confidenceInterval": { "label": "Intervalo de confiança" },
+        "effectSize": { "label": "Tamanho de efeito" },
+        "standardizedResiduals": { "label": "Resíduos" },
+        "listExpansion": { "label": "Variáveis de lista" },
+        "frequencyPercent": { "label": "Frequência e %" }
+      }
+    },
     "chart": {
       "axisLabels": {
         "count": "Contagem",
@@ -320,6 +338,24 @@ const MESSAGES = {
       "chart_legend_title_wrap": { "label": "Legend title wrap", "description": "Wrap the legend title every N words." },
       "chart_legend_labels_wrap": { "label": "Legend entries wrap", "description": "Wrap each legend entry (trace name) every N words." }
     },
+    "help": {
+      "topics": {
+        "tukey": { "label": "Tukey" },
+        "gamesHowell": { "label": "Games-Howell" },
+        "dunn": { "label": "Dunn" },
+        "pValue": { "label": "p-value" },
+        "nullHypothesis": { "label": "Null hypothesis" },
+        "smallSample": { "label": "Small sample" },
+        "normality": { "label": "Normality" },
+        "homoscedasticity": { "label": "Homoscedasticity" },
+        "multipleComparisons": { "label": "Multiple comparisons" },
+        "confidenceInterval": { "label": "Confidence interval" },
+        "effectSize": { "label": "Effect size" },
+        "standardizedResiduals": { "label": "Residuals" },
+        "listExpansion": { "label": "List variables" },
+        "frequencyPercent": { "label": "Frequency and %" }
+      }
+    },
     "chart": {
       "axisLabels": {
         "count": "Count",
@@ -517,6 +553,24 @@ const MESSAGES = {
       "chart_show_legend_title": { "label": "Mostrar título de la leyenda", "description": "Mostrar la etiqueta de la variable de agrupación sobre las entradas de la leyenda; desactive cuando los niveles ya sean auto-explicativos (ej: 'vivo/muerto')." },
       "chart_legend_title_wrap": { "label": "Quiebre del título de la leyenda", "description": "Quebrar el título de la leyenda cada N palabras." },
       "chart_legend_labels_wrap": { "label": "Quiebre de las entradas de la leyenda", "description": "Quebrar cada entrada (nombre de serie) de la leyenda cada N palabras." }
+    },
+    "help": {
+      "topics": {
+        "tukey": { "label": "Tukey" },
+        "gamesHowell": { "label": "Games-Howell" },
+        "dunn": { "label": "Dunn" },
+        "pValue": { "label": "Valor p" },
+        "nullHypothesis": { "label": "Hipótesis nula" },
+        "smallSample": { "label": "Muestra pequeña" },
+        "normality": { "label": "Normalidad" },
+        "homoscedasticity": { "label": "Homocedasticidad" },
+        "multipleComparisons": { "label": "Comparaciones múltiples" },
+        "confidenceInterval": { "label": "Intervalo de confianza" },
+        "effectSize": { "label": "Tamaño de efecto" },
+        "standardizedResiduals": { "label": "Residuos" },
+        "listExpansion": { "label": "Variables de lista" },
+        "frequencyPercent": { "label": "Frecuencia y %" }
+      }
     },
     "chart": {
       "axisLabels": {

@@ -3,20 +3,10 @@ import assert from "node:assert/strict";
 import driver from "../json/driver.js";
 import { Statz } from "../index.js";
 import optionsMetadata from "../json/options_metadata.js";
+import { KNOWN_FLAGS } from "./_known_flags.mjs";
 
 const { OPTION_METADATA, getAvailableOptions } = optionsMetadata;
 
-// Canonical universe of has_* flags emitted by runAnalysis. Drift-tested below; if a new
-// flag is added in driver.js, this list must be updated AND any OPTION_METADATA entry
-// referencing the new flag in appliesTo will pass.
-const KNOWN_FLAGS = new Set([
-  'has_q', 'has_n', 'has_l',
-  'has_qq', 'has_nq', 'has_qn', 'has_nn', 'has_lq', 'has_ql', 'has_ln', 'has_nl', 'has_ll',
-  'has_residuals', 'has_tukey', 'has_games_howell', 'has_kruskal_sign',
-  'has_paired', 'has_paired_n', 'has_paired_q',
-  'has_multi_db_broadcast', 'has_multi_db_missing_response', 'has_multi_db_level_mismatch',
-  'has_likert_eligible'
-]);
 
 // Options whose default is resolved at runtime via i18n (lang, missing_label, yes_label,
 // no_label, residual_symbols). They declare `default: null` + `defaultI18nKey` sentinel;
