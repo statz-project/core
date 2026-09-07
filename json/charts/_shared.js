@@ -5,50 +5,125 @@ import { translate, normalizeLanguage } from '../../i18n/index.js';
 import { formatNumberLocale } from '../../format_utils.js';
 
 /**
- * Theme palette used by single-series charts (univariate q, l; scatter, individual values).
- * For multi-series (grouped bar in q × q, n × q), an n-color palette helper will be added
- * in a later phase.
+ * Point and trend-line colors for the single-series charts (univariate n, scatter,
+ * individual values). One pair per theme.
  */
 export const THEME_COLORS = {
-  gray:  { point: '#525252', line: '#d62728' },
-  blue:  { point: '#1f77b4', line: '#d62728' },
-  red:   { point: '#d62728', line: '#1f77b4' },
-  green: { point: '#2ca02c', line: '#d62728' }
+  default: { point: '#525252', line: '#d62728' },
+  blue:    { point: '#1f77b4', line: '#d62728' },
+  red:     { point: '#d62728', line: '#1f77b4' },
+  green:   { point: '#2ca02c', line: '#d62728' },
+  vivid:   { point: '#4269d0', line: '#efb118' },
+  pastel:  { point: '#8da0cb', line: '#fc8d62' },
+  earth:   { point: '#8c6d31', line: '#3182bd' },
+  ocean:   { point: '#1f6f8b', line: '#e6842a' }
 };
 
 /**
- * Qualitative palettes per theme — used by multi-series charts (e.g., grouped bar in q × q
- * where each response level is a distinct color). Each palette is cycled if `n` exceeds
- * its length.
+ * RAMP themes: ordered anchors sampled to produce however many colors a chart needs. Sampling
+ * rather than cycling is the point. Every palette here used to be four colors long and repeat from
+ * the fifth series on, which is not a shortage of variety but an ambiguity: two levels rendered in
+ * the same color, with a legend claiming they are different. A six-level Likert scale — an ordinary
+ * one — hit it, and so did every grouped bar chart with five or more response levels.
+ *
+ * The anchors are unchanged, so at n ≤ 4 these still return exactly what they always did.
  */
-const THEME_PALETTES = {
-  gray:  ['#525252', '#969696', '#bdbdbd', '#d9d9d9'],
-  blue:  ['#1f77b4', '#5b9bd5', '#9ec5e8', '#cce0f4'],
-  red:   ['#d62728', '#e57c7d', '#ee9ea0', '#f4c2c3'],
-  green: ['#2ca02c', '#5ab85a', '#8ccf8c', '#bce0bc']
+const THEME_RAMPS = {
+  default: ['#525252', '#969696', '#bdbdbd', '#d9d9d9'],
+  blue:    ['#1f77b4', '#5b9bd5', '#9ec5e8', '#cce0f4'],
+  red:     ['#d62728', '#e57c7d', '#ee9ea0', '#f4c2c3'],
+  green:   ['#2ca02c', '#5ab85a', '#8ccf8c', '#bce0bc']
 };
 
 /**
- * Resolve a theme name to an n-length palette (cycles if n > palette length).
+ * CATEGORICAL themes: distinct hues rather than shades of one, for when the reader has to tell many
+ * series apart and a monochrome ramp asks too much of them. Not sampled — interpolating between two
+ * unrelated hues lands in the mud between them — so these carry enough entries to cover any legend
+ * worth reading, and repeat only beyond that.
+ */
+const THEME_CATEGORICAL = {
+  vivid:  ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7',
+           '#a463f2', '#97bbf5', '#9c6b4e', '#9498a0', '#e45756', '#54a24b'],
+  pastel: ['#8da0cb', '#fc8d62', '#66c2a5', '#e78ac3', '#a6d854', '#ffd92f',
+           '#e5c494', '#b3b3b3', '#bebada', '#fb8072', '#80b1d3', '#fdb462'],
+  earth:  ['#8c6d31', '#bd9e39', '#e7ba52', '#a55194', '#7b4173', '#843c39',
+           '#ad494a', '#d6616b', '#637939', '#8ca252', '#b5cf6b', '#cedb9c'],
+  ocean:  ['#1f6f8b', '#2e8b9e', '#48a9a6', '#7fc6bc', '#3d5a80', '#5c7fa8',
+           '#98c1d9', '#293241', '#6a8caf', '#adcbe3', '#0b525b', '#144552']
+};
+
+/** The diverging ramp behind Likert: negative → neutral → positive. */
+const DIVERGING_RAMP = ['#d62728', '#fdae61', '#cccccc', '#92c5de', '#1f77b4'];
+
+/** @param {string} hex @returns {[number,number,number]} */
+const hexToRgb = (hex) => {
+  const v = parseInt(String(hex).replace('#', ''), 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+};
+
+/** @param {number[]} rgb */
+const rgbToHex = (rgb) => `#${rgb.map((c) => Math.round(c).toString(16).padStart(2, '0')).join('')}`;
+
+/**
+ * `n` colors sampled evenly along an ordered ramp, endpoints included. With `n` equal to the anchor
+ * count this returns the anchors untouched, which is what keeps the existing themes looking the
+ * same at the sizes they already covered.
+ * @param {string[]} anchors
+ * @param {number} n
+ */
+const sampleRamp = (anchors, n) => {
+  if (!Number.isFinite(n) || n <= 0) return [];
+  if (n === 1) return [anchors[0]];
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const pos = (i / (n - 1)) * (anchors.length - 1);
+    const lo = Math.floor(pos);
+    const hi = Math.ceil(pos);
+    const f = pos - lo;
+    const a = hexToRgb(anchors[lo]);
+    const b = hexToRgb(anchors[hi]);
+    out.push(rgbToHex([0, 1, 2].map((k) => a[k] + ((b[k] - a[k]) * f))));
+  }
+  return out;
+};
+
+/**
+ * `n` colors for a theme. Ramp themes are sampled, so any `n` gets distinct colors; categorical
+ * ones are taken in order and repeat only past their length.
  * @param {string|undefined} name
  * @param {number} n
  * @returns {string[]}
  */
 export function getThemePalette(name, n) {
-  const palette = THEME_PALETTES[/** @type {keyof typeof THEME_PALETTES} */ (name)] ?? THEME_PALETTES.gray;
   if (!Number.isFinite(n) || n <= 0) return [];
-  const out = [];
-  for (let i = 0; i < n; i++) out.push(palette[i % palette.length]);
-  return out;
+  const categorical = THEME_CATEGORICAL[/** @type {keyof typeof THEME_CATEGORICAL} */ (name)];
+  if (categorical) {
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(categorical[i % categorical.length]);
+    return out;
+  }
+  const ramp = THEME_RAMPS[/** @type {keyof typeof THEME_RAMPS} */ (name)] ?? THEME_RAMPS.default;
+  return sampleRamp(ramp, n);
 }
 
 /**
- * Resolve a theme name to its color palette; falls back to gray for unknown names.
+ * `n` colors along the diverging ramp, for the Likert chart under the default theme. An ordinal
+ * scale reads as a gradient from one pole through the neutral middle to the other, which is what
+ * makes it worth overriding a monochrome default — and why the neutral grey belongs in the MIDDLE
+ * of the ramp rather than at its head.
+ * @param {number} n
+ */
+export function getDivergingPalette(n) {
+  return sampleRamp(DIVERGING_RAMP, n);
+}
+
+/**
+ * Point and line colors for a theme; unknown names fall back to the default.
  * @param {string|undefined} name
  * @returns {{point:string,line:string}}
  */
 export function resolveTheme(name) {
-  return THEME_COLORS[/** @type {keyof typeof THEME_COLORS} */ (name)] ?? THEME_COLORS.gray;
+  return THEME_COLORS[/** @type {keyof typeof THEME_COLORS} */ (name)] ?? THEME_COLORS.default;
 }
 
 /**

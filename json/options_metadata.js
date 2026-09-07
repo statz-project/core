@@ -229,8 +229,12 @@ ns.OPTION_METADATA = {
 
   // ----- chart styling -----
   chart_theme: {
-    category: 'chart', type: 'enum', default: 'gray',
-    enum: ['gray', 'blue', 'red', 'green'], appliesTo: [], modeGate: 'chart',
+    // Monochrome ramps first, then the multi-hue sets for when many series have to be told apart.
+    // 'default' rather than 'gray': under it the bars are grey but the Likert chart is diverging,
+    // so the old name promised a colour it does not produce.
+    category: 'chart', type: 'enum', default: 'default',
+    enum: ['default', 'blue', 'red', 'green', 'vivid', 'pastel', 'earth', 'ocean'],
+    appliesTo: [], modeGate: 'chart',
     labelKey: 'options.chart_theme.label', descriptionKey: 'options.chart_theme.description'
   },
   chart_point_size: {

@@ -795,7 +795,12 @@ ns.getDefaultAnalysisOptions = function (options = {}) {
   // Chart mode: defaults to 'table' for backward compatibility. When 'chart', the dispatcher
   // emits Plotly figure specs in `entry.chart` instead of cross-tab data in `entry.table`.
   normalized.mode = (/** @type {any} */ (normalized).mode) === 'chart' ? 'chart' : 'table';
-  normalized.chart_theme = (/** @type {any} */ (normalized).chart_theme) ?? 'gray';
+  // Whitelisted, not just defaulted: the old value 'gray' has to land on 'default', and it does so
+  // by falling out of this list. The rename is the honest one — under it the bars are grey but the
+  // Likert chart is diverging, so the name was promising a colour it does not produce.
+  normalized.chart_theme = ['default', 'blue', 'red', 'green', 'vivid', 'pastel', 'earth', 'ocean']
+    .includes((/** @type {any} */ (normalized).chart_theme))
+    ? (/** @type {any} */ (normalized).chart_theme) : 'default';
   normalized.chart_point_size = Number.isFinite(Number((/** @type {any} */ (normalized).chart_point_size)))
     ? Number((/** @type {any} */ (normalized).chart_point_size)) : 8;
   normalized.chart_show_boxplot = (/** @type {any} */ (normalized).chart_show_boxplot) === true;

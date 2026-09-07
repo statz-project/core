@@ -9,14 +9,9 @@
 //   - all predictors share the same level set (intersection-based; partial overlap rejected)
 //   - options.chart_likert_enabled === true
 // Falls back to per-predictor chart_q if any condition fails.
-import { getThemePalette, wrapText, buildLegendLayout, getLegendLabelsWrap, formatBarLabel, resolveLabelFormat } from './_shared.js';
+import { getThemePalette, getDivergingPalette, wrapText, buildLegendLayout, getLegendLabelsWrap, formatBarLabel, resolveLabelFormat } from './_shared.js';
 import { normalizeLanguage } from '../../i18n/index.js';
 
-/**
- * Diverging-friendly palette for stacked Likert levels. Uses 5 colors that read as a
- * gradient (negative → neutral → positive) for canonical 5-point scales; cycles for K!=5.
- */
-const LIKERT_PALETTE_FALLBACK = ['#d62728', '#fdae61', '#cccccc', '#92c5de', '#1f77b4'];
 
 /**
  * @param {Array<{label:string, values:Array<string|null|undefined>}>} vars Per-variable bundles.
@@ -45,12 +40,14 @@ export function chart_likert(vars, options = {}, meta = {}) {
 
   // Per-variable percent breakdown.
   const labelWrap = Number.isFinite(Number(options.chart_x_label_wrap)) ? Number(options.chart_x_label_wrap) : 3;
-  const themePalette = getThemePalette(options.chart_theme, levels.length);
-  // Use the divergent palette when theme is 'gray' (default) AND we have ≤ palette size
-  // so the canonical Likert look is preserved; otherwise stick with the themed colors.
-  const palette = options.chart_theme === undefined || options.chart_theme === 'gray'
-    ? levels.map((_, i) => LIKERT_PALETTE_FALLBACK[i % LIKERT_PALETTE_FALLBACK.length])
-    : themePalette;
+  // Under the default theme an ordinal scale reads as a diverging gradient, which is why this
+  // chart overrides a monochrome default — and why the theme is named `default` rather than `gray`:
+  // it was promising a colour it does not produce here. Any NAMED theme is honoured as chosen.
+  // Both sides are sampled to the level count, so a six-point scale no longer repeats a colour the
+  // way the old five-entry cycle did.
+  const palette = (options.chart_theme === undefined || options.chart_theme === 'default')
+    ? getDivergingPalette(levels.length)
+    : getThemePalette(options.chart_theme, levels.length);
 
   // Counts are kept alongside the percentages: `chart_label_format` can ask for 'n' or 'np', and a
   // 100%-stacked bar that could only ever report its own percentage would leave two thirds of that

@@ -6,6 +6,7 @@ import driver from "../json/driver.js";
 import charts from "../json/charts/index.js";
 import optionsMetadata from "../json/options_metadata.js";
 import { chart_n_n } from "../json/charts/n_n.js";
+import { getThemePalette, getDivergingPalette } from "../json/charts/_shared.js";
 
 globalThis.Statz = Statz;
 
@@ -3672,4 +3673,64 @@ test("chart_label_format 'none' drops the bar labels and nothing else", () => {
   assert.deepEqual(direct(undefined).data[0].text, ['50,0%', '25,0%'], 'absent falls to the default');
   assert.deepEqual(direct('xyz').data[0].text, direct(undefined).data[0].text, 'and so does junk');
   assert.deepEqual(direct('n').data[0].text, ['2', '1'], 'a named format still wins');
+});
+
+
+test("palettes give every series its own colour, and the default theme stops promising grey", () => {
+  // Every palette was four colours long and CYCLED, so from the fifth series on two levels rendered
+  // identically while the legend claimed they differed. An ordinary six-point Likert scale hit it
+  // — "agree" and "super low agree" both came out #d62728 — and so did any grouped bar with five
+  // or more levels. Sampling the ramp instead of cycling it is the fix.
+  const THEMES = optionsMetadata.OPTION_METADATA.chart_theme.enum;
+  assert.deepEqual(THEMES, ['default', 'blue', 'red', 'green', 'vivid', 'pastel', 'earth', 'ocean']);
+  assert.equal(optionsMetadata.OPTION_METADATA.chart_theme.default, 'default');
+
+  for (const theme of THEMES) {
+    for (let n = 2; n <= 12; n++) {
+      const colours = getThemePalette(theme, n);
+      assert.equal(colours.length, n, `${theme} n=${n}`);
+      assert.equal(new Set(colours).size, n, `${theme} n=${n} repeats: ${colours}`);
+      assert.ok(colours.every((c) => /^#[0-9a-f]{6}$/.test(c)), `${theme} n=${n}: ${colours}`);
+    }
+  }
+  // Sampling leaves the anchors alone at the sizes the old cycling already covered, so nothing
+  // that fitted in four colours changes appearance.
+  assert.deepEqual(getThemePalette('blue', 4), ['#1f77b4', '#5b9bd5', '#9ec5e8', '#cce0f4']);
+  assert.deepEqual(getThemePalette('default', 4), ['#525252', '#969696', '#bdbdbd', '#d9d9d9']);
+  assert.deepEqual(getThemePalette('vivid', 3), ['#4269d0', '#efb118', '#ff725c']);
+  assert.deepEqual(getThemePalette('blue', 0), []);
+
+  // The diverging ramp keeps its poles, and its neutral stays in the MIDDLE — that is what makes it
+  // diverging, and why the grey does not move to the front to justify a theme name.
+  assert.deepEqual(getDivergingPalette(5), ['#d62728', '#fdae61', '#cccccc', '#92c5de', '#1f77b4']);
+  for (const n of [3, 5, 7, 9]) {
+    const ramp = getDivergingPalette(n);
+    assert.equal(ramp[0], '#d62728');
+    assert.equal(ramp[n - 1], '#1f77b4');
+    assert.equal(ramp[(n - 1) / 2], '#cccccc', `n=${n}: the neutral sits in the middle`);
+  }
+  assert.equal(new Set(getDivergingPalette(6)).size, 6, 'six-point scales no longer repeat');
+
+  // Likert takes the diverging ramp under the default theme and the chosen one otherwise.
+  const LV = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const mk = (hash, label, off) => {
+    const c = Statz.makeColumn(Array.from({ length: 60 }, (_, i) => LV[(i + off) % 6]),
+      { col_type: 'q', var_label: label, includeBaseVariant: true });
+    c.col_hash = hash; c.col_label = label; return c;
+  };
+  const cols = [mk('l0', 'A', 0), mk('l1', 'B', 1), mk('l2', 'C', 2)];
+  const sig = (c) => JSON.stringify({ database_id: 'dbA', col_hash: c.col_hash, col_label: c.col_label, col_var_index: null });
+  const likertColours = (theme) => Statz.runAnalysis(cols.map(sig), [], { dbA: { columns: cols } },
+    Statz.getDefaultAnalysisOptions({ lang: 'pt_br', mode: 'chart', chart_likert_enabled: true, ...(theme ? { chart_theme: theme } : {}) }))
+    .result.analysis[0].chart.spec.data.map((t) => t.marker.color);
+  assert.deepEqual(likertColours(undefined), getDivergingPalette(6));
+  assert.deepEqual(likertColours('default'), getDivergingPalette(6));
+  assert.deepEqual(likertColours('vivid'), getThemePalette('vivid', 6), 'a named theme is honoured');
+
+  // The rename carries no alias: a bag still saying 'gray' falls out of the whitelist onto the
+  // default, which is what keeps an element saved under the old name looking the same.
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_theme: 'gray' }).chart_theme, 'default');
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_theme: 'nonsense' }).chart_theme, 'default');
+  assert.equal(Statz.getDefaultAnalysisOptions({ chart_theme: 'ocean' }).chart_theme, 'ocean');
+  assert.deepEqual(likertColours('gray'), likertColours('default'));
 });
