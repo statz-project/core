@@ -127,7 +127,19 @@ const DOCUMENT_STYLES = `
   .statz-report { max-width: 210mm; margin: 0 auto; padding: 12mm; background: #fff; }
   .statz-report-header { border-bottom: 2px solid rgba(48,50,61,.15); padding-bottom: 12px; margin-bottom: 24px; }
   .statz-report-name { font-size: 20px; font-weight: bold; margin: 0; }
-  .statz-report-block { margin-bottom: 28px; break-inside: avoid; page-break-inside: avoid; }
+  /* The block itself MUST be breakable. An l x q element in chart mode emits one chart per list
+     item, so a block that refuses to split would either overflow the sheet or push a nearly empty
+     page ahead of it. What must not happen is an orphan: a caption, paragraph or title left alone
+     at the foot of a page with its table overleaf. "break-after: avoid" keeps each of those glued
+     to whatever follows, and only the atoms - one chart cell - refuse to split internally. */
+  .statz-report-block { margin-bottom: 28px; }
+  .statz-report-caption, .statz-report-paragraph, .statz-report-title {
+    break-after: avoid; page-break-after: avoid;
+  }
+  .statz-report-visual .statz-chart { break-inside: avoid; page-break-inside: avoid; }
+  /* A long table splits across sheets and repeats its header, rather than being kept whole. */
+  .statz-report-visual thead { display: table-header-group; }
+  .statz-report-visual tr { break-inside: avoid; page-break-inside: avoid; }
   .statz-report-caption { font-size: 11px; font-style: italic; color: rgba(48,50,61,.65); margin: 0 0 4px; }
   .statz-report-paragraph { font-size: 13px; line-height: 1.5; margin: 0 0 10px; text-align: justify; }
   .statz-report-title { font-size: 15px; font-weight: bold; margin: 0 0 8px; }
@@ -262,6 +274,72 @@ ns.exportFileAsStaticHTML = async function (file, elements, options = {}) {
 
   if (!options?.wrap) return staticHtml;
   return documentShell(name || translate('table.title', lang), staticHtml, lang);
+};
+
+/**
+ * Print the report, which is how the reader gets a PDF: the browser's own print dialog offers
+ * "Save as PDF" on every platform, and what it saves is vector text, not a screenshot.
+ *
+ * The document is printed from a hidden IFRAME rather than from the page itself. Printing the page
+ * would mean hiding the app's chrome - panels, navigation, the editor - with print CSS aimed at
+ * Bubble's generated markup, which changes whenever the page is edited. The iframe carries only
+ * what this module emitted, so its print output cannot be disturbed by the app around it. It also
+ * avoids the popup blocker that a new window would face.
+ *
+ * The charts are already images: the document comes from `exportFileAsStaticHTML`, so the iframe
+ * needs no Plotly, no bundle and no scripts at all.
+ *
+ * @param {{name?: string, suffix?: string}} file
+ * @param {Array<any>} elements
+ * @param {{lang?: string, renderChart?: Function, width?: number, height?: number, scale?: number}=} options
+ * @returns {Promise<void>} resolves once the print dialog has been asked for.
+ */
+ns.printFileReport = async function (file, elements, options = {}) {
+  if (typeof document === 'undefined') {
+    return Promise.reject(new Error('printFileReport requires a browser environment'));
+  }
+  const html = await ns.exportFileAsStaticHTML(file, elements, { ...options, wrap: true });
+
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:210mm;height:297mm;border:0;';
+  document.body.appendChild(frame);
+
+  const cleanup = () => { try { frame.remove(); } catch (_e) { /* already gone */ } };
+
+  try {
+    await new Promise((resolve) => {
+      frame.addEventListener('load', () => resolve(undefined), { once: true });
+      frame.srcdoc = html;
+    });
+
+    const frameDoc = frame.contentDocument;
+    // Data URLs usually decode before load fires, but "usually" prints a blank chart when it does
+    // not. Waiting on each image costs nothing and removes the race.
+    const images = frameDoc ? Array.from(frameDoc.images) : [];
+    await Promise.all(images.map((img) => (
+      img.complete ? Promise.resolve() : new Promise((resolve) => {
+        img.addEventListener('load', () => resolve(undefined), { once: true });
+        img.addEventListener('error', () => resolve(undefined), { once: true });
+      })
+    )));
+
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error('printFileReport: the print frame did not initialise');
+    // Removing the frame the instant `print()` returns cancels the dialog in some browsers, so the
+    // frame is kept until the print job is done and reaped on a timer if that event never comes.
+    frameWindow.addEventListener('afterprint', cleanup, { once: true });
+    // Unreferenced where the runtime allows it: in a browser this is a harmless fallback timer,
+    // but a referenced 60s timer holds Node's event loop open, so every test run that printed
+    // once took a minute to exit. Browsers return a number from setTimeout and skip this.
+    const reaper = setTimeout(cleanup, 60000);
+    if (reaper && typeof (/** @type {any} */ (reaper).unref) === 'function') (/** @type {any} */ (reaper)).unref();
+    frameWindow.focus();
+    frameWindow.print();
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
 };
 
 export default ns;

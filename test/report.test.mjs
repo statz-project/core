@@ -166,8 +166,22 @@ test("wrap decides between a fragment and a printable document", () => {
   const doc = exportFileAsHTML(FILE, [tableElement()], { wrap: true });
   assert.ok(doc.startsWith("<!DOCTYPE html>"));
   assert.match(doc, /@page \{ size: A4/, "a report is printed on paper of a known size");
-  assert.match(doc, /break-inside: avoid/, "an element must not be split across two sheets");
   assert.ok(doc.includes("<title>Resultados preliminares</title>"));
+});
+
+test("pagination keeps headings with their content without freezing whole blocks", () => {
+  const doc = exportFileAsHTML(FILE, [tableElement()], { wrap: true });
+  // A block MUST be breakable: an l x q element in chart mode emits one chart per list item, so
+  // refusing to split it would overflow the sheet or push a nearly empty page ahead of it.
+  assert.doesNotMatch(doc, /\.statz-report-block \{[^}]*break-inside: avoid/,
+    'the block itself must be allowed to break across pages');
+  // What must not happen is an orphaned heading at the foot of a page.
+  assert.match(doc, /\.statz-report-caption, \.statz-report-paragraph, \.statz-report-title \{[^}]*break-after: avoid/,
+    'caption, paragraph and title must stay glued to what follows');
+  // Only the atoms refuse to split: one chart, one table row.
+  assert.match(doc, /\.statz-chart \{[^}]*break-inside: avoid/);
+  assert.match(doc, /thead \{ display: table-header-group/,
+    'a long table repeats its header on each page instead of being kept whole');
 });
 
 test("the document language follows the analysis it prints", () => {
@@ -257,4 +271,117 @@ test("the static variant wraps into a document too", async () => {
   });
   assert.ok(html.startsWith("<!DOCTYPE html>"));
   assert.match(html, /@page \{ size: A4/);
+});
+
+// ---------------------------------------------------------------------------
+// Printing. This is DOM plumbing, so it gets a fake DOM rather than no test at all: the parts that
+// can silently break — printing before the images decoded, never cleaning the frame up — are
+// exactly the parts a browser would not complain about.
+// ---------------------------------------------------------------------------
+
+function fakeDom({ imagesComplete = true, imageCount = 1, noWindow = false } = {}) {
+  const calls = { printed: 0, focused: 0, removed: 0, srcdoc: null, appended: 0 };
+  const listeners = new Map();
+  const images = Array.from({ length: imageCount }, () => {
+    const img = { complete: imagesComplete, handlers: {} };
+    img.addEventListener = (type, fn) => { img.handlers[type] = fn; };
+    return img;
+  });
+  const frameWindow = {
+    focus: () => { calls.focused += 1; },
+    print: () => { calls.printed += 1; },
+    addEventListener: (type, fn) => { listeners.set(type, fn); }
+  };
+  const frame = {
+    style: {},
+    setAttribute: () => {},
+    addEventListener: (type, fn) => { if (type === 'load') listeners.set('load', fn); },
+    remove: () => { calls.removed += 1; },
+    contentDocument: { images },
+    get contentWindow() { return noWindow ? null : frameWindow; },
+    set srcdoc(value) {
+      calls.srcdoc = value;
+      // The browser fires load asynchronously; so does this.
+      setTimeout(() => listeners.get('load')?.(), 0);
+    },
+    get srcdoc() { return calls.srcdoc; }
+  };
+  const document = { createElement: () => frame, body: { appendChild: () => { calls.appended += 1; } } };
+  return { document, frame, calls, images, fireAfterPrint: () => listeners.get('afterprint')?.() };
+}
+
+async function withFakeDom(dom, fn) {
+  const previous = globalThis.document;
+  globalThis.document = dom.document;
+  try { return await fn(); } finally {
+    if (previous) globalThis.document = previous; else delete globalThis.document;
+  }
+}
+
+test("printFileReport refuses outside a browser, and says so", async () => {
+  const previous = globalThis.document;
+  delete globalThis.document;
+  try {
+    await assert.rejects(() => report.printFileReport(FILE, [tableElement()]),
+      /requires a browser environment/);
+  } finally { if (previous) globalThis.document = previous; }
+});
+
+test("printing mounts a frame carrying the static document and asks to print it", async () => {
+  const dom = fakeDom();
+  // A CHART element, deliberately: with a table-only report the static and the placeholder
+  // documents are byte-identical, and the assertion below would hold either way.
+  await withFakeDom(dom, () => report.printFileReport(FILE, [chartElement()], {
+    lang: 'pt_br', renderChart: async () => 'data:image/png;base64,FAKE'
+  }));
+  assert.equal(dom.calls.appended, 1, 'the frame must be mounted');
+  assert.ok(dom.calls.srcdoc.startsWith('<!DOCTYPE html>'), 'a whole document, not a fragment');
+  assert.match(dom.calls.srcdoc, /@page \{ size: A4/);
+  assert.ok(!dom.calls.srcdoc.includes('data-spec'), 'charts must already be images: no Plotly here');
+  assert.match(dom.calls.srcdoc, /<img [^>]*src="data:image\/png/,
+    'the frame loads no bundle, so a placeholder would print as an empty box');
+  assert.equal(dom.calls.focused, 1);
+  assert.equal(dom.calls.printed, 1);
+});
+
+test("printing waits for every image to decode before opening the dialog", async () => {
+  const dom = fakeDom({ imagesComplete: false, imageCount: 2 });
+  let settled = false;
+  const pending = withFakeDom(dom, () => report.printFileReport(FILE, [tableElement()]))
+    .then(() => { settled = true; });
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(dom.calls.printed, 0, 'printing before the images decode prints blank charts');
+
+  dom.images.forEach((img) => img.handlers.load());
+  await pending;
+  assert.ok(settled);
+  assert.equal(dom.calls.printed, 1);
+});
+
+test("an image that fails to decode does not hang the dialog forever", async () => {
+  const dom = fakeDom({ imagesComplete: false, imageCount: 1 });
+  const pending = withFakeDom(dom, () => report.printFileReport(FILE, [tableElement()]));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  dom.images[0].handlers.error();
+  await pending;
+  assert.equal(dom.calls.printed, 1, 'a broken image costs its own picture, not the print job');
+});
+
+test("the frame is reaped when printing ends, not before", async () => {
+  const dom = fakeDom();
+  await withFakeDom(dom, () => report.printFileReport(FILE, [tableElement()]));
+  assert.equal(dom.calls.removed, 0, 'removing the frame at once cancels the dialog in some browsers');
+  dom.fireAfterPrint();
+  assert.equal(dom.calls.removed, 1);
+});
+
+test("a frame that never initialises is cleaned up instead of being left in the page", async () => {
+  const dom = fakeDom({ noWindow: true });
+  await assert.rejects(
+    () => withFakeDom(dom, () => report.printFileReport(FILE, [tableElement()])),
+    /did not initialise/
+  );
+  assert.equal(dom.calls.removed, 1);
+  assert.equal(dom.calls.printed, 0);
 });
