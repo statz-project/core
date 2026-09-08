@@ -18,7 +18,7 @@ This repository contains the JavaScript analytical core used by Stat-z:
 
 - JavaScript (Core): analytical functions (`window.Statz.*`) -> this repository.
 - Bubble (SaaS): UI/UX, integration with workflows, users, and reports (closed-source).
-- R (external APIs): advanced analyses (regressions, mixed models, joinpoint).
+- R (external APIs): advanced analyses (regressions, mixed models, joinpoint). Future implementation.
 
 ---
 
@@ -95,8 +95,6 @@ This repository is licensed under AGPL v3. This means:
 
 ## Roadmap (Core JS)
 
-- [ ] Expand nonparametric tests (paired Wilcoxon, Friedman).
-- [ ] Implement ANOVA + Tukey (parametric).
 - [ ] Add support for basic GLM models.
 
 ---
