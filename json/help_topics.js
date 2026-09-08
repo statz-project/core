@@ -168,7 +168,16 @@ ns.HELP_TOPIC_IDS = Object.freeze(Object.keys(ns.HELP_TOPICS));
  */
 ns.HELP_CATALOGUE_HASH = fnv1a(ns.HELP_TOPIC_IDS.join(','));
 
-const CATEGORY_ORDER = ['method', 'posthoc', 'concept', 'descriptive'];
+/**
+ * Presentation order of the categories, from what the reader already understands towards what they
+ * may not: the descriptive summaries name rows they can see in the table, the methods explain what
+ * produced the p-value, the post-hoc tables refine it, and the concepts sit last because they are
+ * the background rather than the answer to "what am I looking at".
+ *
+ * Exported because two surfaces present these badges - the Bubble panel and the standalone help
+ * page - and an order restated in either would drift the first time it changed here.
+ */
+ns.HELP_CATEGORY_ORDER = Object.freeze(['descriptive', 'method', 'posthoc', 'concept']);
 
 /**
  * The help topics relevant to one Element.
@@ -197,7 +206,8 @@ ns.getAvailableHelpTopics = function (flags, result = undefined, options = undef
     if (meta.appliesTo.length > 0 && !meta.appliesTo.some((f) => flagSet.has(f))) continue;
     out.push({ id, ...meta });
   }
-  out.sort((a, b) => (CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category))
+  const order = ns.HELP_CATEGORY_ORDER;
+  out.sort((a, b) => (order.indexOf(a.category) - order.indexOf(b.category))
     || (a.order - b.order) || a.id.localeCompare(b.id));
   return out;
 };

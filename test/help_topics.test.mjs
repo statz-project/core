@@ -16,7 +16,7 @@ Statz.stdlibStats = statistics;
 Statz.jStat = jStat;
 Statz.simpleStatistics = simpleStatistics;
 
-const { HELP_TOPICS, HELP_TOPIC_IDS, getAvailableHelpTopics, getHelpTopicLabel } = helpTopics;
+const { HELP_TOPICS, HELP_TOPIC_IDS, HELP_CATEGORY_ORDER, getAvailableHelpTopics, getHelpTopicLabel } = helpTopics;
 const LANGS = ['pt_br', 'en_us', 'es_es'];
 
 // ---------------------------------------------------------------------------
@@ -147,9 +147,21 @@ test("modeGate hides table-only topics on a chart element", () => {
   assert.ok(asChart.includes('chiSquare'), 'The test itself still ran, chart or not');
 });
 
+test("the categories are presented from the concrete to the abstract", () => {
+  // Descriptive rows name something already visible in the table; concepts are background,
+  // not the answer to "what am I looking at". Pinned here so a reorder is a deliberate edit
+  // to a test, not a silent change of what the reader meets first.
+  assert.deepEqual([...HELP_CATEGORY_ORDER], ['descriptive', 'method', 'posthoc', 'concept']);
+  const categories = new Set(Object.values(HELP_TOPICS).map((m) => m.category));
+  assert.deepEqual([...categories].sort(), [...HELP_CATEGORY_ORDER].sort(),
+    'every category a topic declares must have a place in the order');
+});
+
 test("topics come back grouped by category and stably ordered", () => {
   const list = getAvailableHelpTopics(['has_nq', 'has_tukey'], legend('anova'), { mode: 'table' });
-  const order = ['method', 'posthoc', 'concept', 'descriptive'];
+  // Read from the catalogue rather than restated here: a second copy of this list is how the
+  // order silently diverges between the panel and the help page.
+  const order = HELP_CATEGORY_ORDER;
   const seen = list.map((t) => order.indexOf(t.category));
   assert.deepEqual(seen, [...seen].sort((a, b) => a - b), 'Categories must not interleave');
   const again = getAvailableHelpTopics(['has_nq', 'has_tukey'], legend('anova'), { mode: 'table' });
