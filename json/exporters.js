@@ -27,6 +27,10 @@ const escapeHtml = (val) => {
  */
 const escapeAttr = (val) => escapeHtml(val).split('"').join('&quot;');
 
+// Published so the report assembler escapes user text exactly as the per-element exporters do.
+// A second implementation would be a second set of rules about what counts as safe.
+ns.escapeHtml = escapeHtml;
+
 /**
  * Parse a "maximum" render option (`maxRows`, `maxBins`, `maxLevels`).
  *

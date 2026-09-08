@@ -347,11 +347,17 @@ export function chartSpecToImage(spec, options = {}) {
   const width = Number.isFinite(Number(options.width)) ? Number(options.width) : 800;
   const height = Number.isFinite(Number(options.height)) ? Number(options.height) : 500;
   const format = options.format || 'png';
+  // Screen resolution serrates once the image lands on paper or in a Word document; the caller
+  // asks for a multiplier and Plotly renders at that scale. Defaults to 1 so on-screen callers
+  // see exactly what they saw before.
+  const scale = Number.isFinite(Number(options.scale)) && Number(options.scale) > 0
+    ? Number(options.scale)
+    : 1;
   const host = document.createElement('div');
   host.style.cssText = `position:absolute;left:-9999px;top:-9999px;width:${width}px;height:${height}px;`;
   document.body.appendChild(host);
   return Plotly.newPlot(host, spec.data, spec.layout || {}, { displayModeBar: false, staticPlot: true })
-    .then(() => Plotly.toImage(host, { format, width, height }))
+    .then(() => Plotly.toImage(host, { format, width, height, scale }))
     .finally(() => {
       try { Plotly.purge(host); } catch (_e) { /* ignore */ }
       host.remove();

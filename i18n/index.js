@@ -122,6 +122,11 @@ const MESSAGES = {
       "chart_legend_title_wrap": { "label": "Quebra do título da legenda", "description": "Quebrar o título da legenda a cada N palavras." },
       "chart_legend_labels_wrap": { "label": "Quebra das entradas da legenda", "description": "Quebrar cada entrada (nome de série) da legenda a cada N palavras." }
     },
+    "report": {
+      "elementCaption": "Elemento {n}",
+      "pending": "Análise pendente",
+      "empty": "Este relatório ainda não tem elementos."
+    },
     "help": {
       "topics": {
         "tukey": { "label": "Tukey" },
@@ -338,6 +343,11 @@ const MESSAGES = {
       "chart_legend_title_wrap": { "label": "Legend title wrap", "description": "Wrap the legend title every N words." },
       "chart_legend_labels_wrap": { "label": "Legend entries wrap", "description": "Wrap each legend entry (trace name) every N words." }
     },
+    "report": {
+      "elementCaption": "Element {n}",
+      "pending": "Analysis pending",
+      "empty": "This report has no elements yet."
+    },
     "help": {
       "topics": {
         "tukey": { "label": "Tukey" },
@@ -553,6 +563,11 @@ const MESSAGES = {
       "chart_show_legend_title": { "label": "Mostrar título de la leyenda", "description": "Mostrar la etiqueta de la variable de agrupación sobre las entradas de la leyenda; desactive cuando los niveles ya sean auto-explicativos (ej: 'vivo/muerto')." },
       "chart_legend_title_wrap": { "label": "Quiebre del título de la leyenda", "description": "Quebrar el título de la leyenda cada N palabras." },
       "chart_legend_labels_wrap": { "label": "Quiebre de las entradas de la leyenda", "description": "Quebrar cada entrada (nombre de serie) de la leyenda cada N palabras." }
+    },
+    "report": {
+      "elementCaption": "Elemento {n}",
+      "pending": "Análisis pendiente",
+      "empty": "Este informe todavía no tiene elementos."
     },
     "help": {
       "topics": {
