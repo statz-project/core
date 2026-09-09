@@ -113,17 +113,61 @@ function isChartResult(element, result) {
  * @param {any} result
  * @param {string} lang
  */
-function elementVisual(element, result, lang) {
-  if (!result) {
+function elementVisual(block, lang) {
+  if (block.kind === 'pending') {
     return `<p class="statz-report-pending">${escapeHtml(translate('report.pending', lang))}</p>`;
   }
-  const footer = typeof element?.footer === 'string' ? element.footer : '';
-  if (isChartResult(element, result)) {
-    return exporters.exportCombinedAsChartHTML(result, undefined, false, footer);
+  if (block.kind === 'chart') {
+    return exporters.exportCombinedAsChartHTML(block.result, undefined, false, block.footer);
   }
-  const combined = exporters.combineAnalysisAsSingleTable(result);
-  return exporters.exportCombinedAsHTML(combined, undefined, false, footer);
+  const combined = exporters.combineAnalysisAsSingleTable(block.result);
+  return exporters.exportCombinedAsHTML(combined, undefined, false, block.footer);
 }
+
+/**
+ * @typedef {Object} ReportBlockModel
+ * @property {string} caption   "Elemento 3", already localized and numbered by printed position.
+ * @property {string} paragraph Trimmed; empty when the Element has none.
+ * @property {string} title     Composed with the File's suffix; empty when the Element is untitled.
+ * @property {'table'|'chart'|'pending'} kind
+ * @property {any} result       The parsed Result_json, or null when the analysis has not run.
+ * @property {string} footer    The Element's free-text footer, to hand to whichever exporter runs.
+ */
+
+/**
+ * The report as a structure: which blocks, in what order, saying what. Every decision this module
+ * owns is resolved here — the sort, the caption number, the title-plus-suffix rule, whether a block
+ * is a table, a chart or still pending — so a second output format reads them instead of repeating
+ * them. `exportFileAsHTML` renders this; so does the DOCX writer.
+ *
+ * What it deliberately does not resolve: the table and chart bodies. Those come from `exporters.js`
+ * at render time, because HTML wants markup and DOCX wants a cell model, and the two want it from
+ * the same functions.
+ *
+ * @param {{name?: string, suffix?: string}} file
+ * @param {Array<any>} elements
+ * @param {{lang?: string}=} options
+ * @returns {{lang: string, name: string, blocks: ReportBlockModel[]}}
+ */
+ns.buildFileReportModel = function (file, elements, options = {}) {
+  const entries = normalizeElements(elements);
+  const lang = resolveLang(entries, options);
+  const blocks = entries.map((entry, i) => {
+    const element = entry.element;
+    const kind = !entry.result
+      ? /** @type {'pending'} */ ('pending')
+      : (isChartResult(element, entry.result) ? /** @type {'chart'} */ ('chart') : /** @type {'table'} */ ('table'));
+    return {
+      caption: translate('report.elementCaption', lang, { n: i + 1 }),
+      paragraph: String(element?.paragraph ?? '').trim(),
+      title: ns.composeElementTitle(element, file),
+      kind,
+      result: entry.result,
+      footer: typeof element?.footer === 'string' ? element.footer : ''
+    };
+  });
+  return { lang, name: String(file?.name ?? '').trim(), blocks };
+};
 
 /**
  * One printed block. The order — caption, paragraph, title, visual — follows the convention of an
@@ -135,17 +179,12 @@ function elementVisual(element, result, lang) {
  * @param {any} file
  * @param {string} lang
  */
-function elementBlock(element, result, number, file, lang) {
+function elementBlock(block, lang) {
   const parts = [];
-  parts.push(`<p class="statz-report-caption">${escapeHtml(translate('report.elementCaption', lang, { n: number }))}</p>`);
-
-  const paragraph = String(element?.paragraph ?? '').trim();
-  if (paragraph) parts.push(`<p class="statz-report-paragraph">${escapeHtml(paragraph)}</p>`);
-
-  const title = ns.composeElementTitle(element, file);
-  if (title) parts.push(`<h2 class="statz-report-title">${escapeHtml(title)}</h2>`);
-
-  parts.push(`<div class="statz-report-visual">${elementVisual(element, result, lang)}</div>`);
+  parts.push(`<p class="statz-report-caption">${escapeHtml(block.caption)}</p>`);
+  if (block.paragraph) parts.push(`<p class="statz-report-paragraph">${escapeHtml(block.paragraph)}</p>`);
+  if (block.title) parts.push(`<h2 class="statz-report-title">${escapeHtml(block.title)}</h2>`);
+  parts.push(`<div class="statz-report-visual">${elementVisual(block, lang)}</div>`);
   return `<section class="statz-report-block">${parts.join('')}</section>`;
 }
 
@@ -221,16 +260,15 @@ ${body}
  * @param {{lang?: string}=} options
  */
 function buildBody(file, elements, options) {
-  const entries = normalizeElements(elements);
-  const lang = resolveLang(entries, options);
-  const name = String(file?.name ?? '').trim();
+  const model = ns.buildFileReportModel(file, elements, options);
+  const { lang, name } = model;
 
   const head = name
     ? `<header class="statz-report-header"><h1 class="statz-report-name">${escapeHtml(name)}</h1></header>`
     : '';
 
-  const blocks = entries.length > 0
-    ? entries.map((entry, i) => elementBlock(entry.element, entry.result, i + 1, file, lang)).join('')
+  const blocks = model.blocks.length > 0
+    ? model.blocks.map((block) => elementBlock(block, lang)).join('')
     : `<p class="statz-report-empty">${escapeHtml(translate('report.empty', lang))}</p>`;
 
   return { lang, name, html: `<div class="statz-report">${head}${blocks}</div>` };

@@ -6,19 +6,21 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
+    "clean": "node scripts/clean.mjs",
     "test": "node --test 'test/**/*.test.mjs'",
     "test:fixture": "node scripts/dev/run-fixture.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.25.9",
     "@stdlib/stats": "^0.3.2",
+    "docx": "^9.7.1",
+    "esbuild": "^0.25.9",
     "jstat": "^1.9.6",
     "simple-statistics": "^7.8.3"
   },
   "peerDependencies": {
+    "@stdlib/stats": ">=0.3.2",
     "jstat": ">=1.9.6",
-    "simple-statistics": ">=7.8.3",
-    "@stdlib/stats": ">=0.3.2"
+    "simple-statistics": ">=7.8.3"
   },
   "peerDependenciesMeta": {
     "jstat": {
