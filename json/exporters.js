@@ -478,6 +478,14 @@ ns.isWarningRow = function (row) { return !!(row && typeof row._warning_text ===
  * @param {string=} footerFree Optional user-provided footer suffix (parity with exportCombinedAsHTML).
  * @returns {string}
  */
+// The two values the chart grid's responsive rule overrides, published because the report
+// assembler has to re-assert them. In paged media a `max-width` query is evaluated against the
+// PAGE box, not a window: A4 minus its margins is about 680px, so the 768px breakpoint fires on
+// every printed page and silently turned two-column `auto` layouts into full-width ones. The
+// assembler restates these for print; keeping the numbers here means it restates the same ones.
+ns.CHART_GRID_COLUMNS = 'repeat(2,minmax(0,1fr))';
+ns.CHART_GRID_ORPHAN_MAX_WIDTH = 'min(75%, 760px)';
+
 ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerFree = '') {
   if (!resultObj || !Array.isArray(resultObj.analysis)) return '';
   const lang = normalizeLanguage(resultObj?.lang);
@@ -506,7 +514,7 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
   }
 
   const styles = `<style>
-.statz-chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;font-family:Arial,sans-serif;}
+.statz-chart-grid{display:grid;grid-template-columns:${ns.CHART_GRID_COLUMNS};gap:16px;font-family:Arial,sans-serif;}
 @media (max-width:768px){.statz-chart-grid{grid-template-columns:1fr;}}
 .statz-chart-cell{background:#ffffff;border:1px solid rgba(48,50,61,0.10);border-radius:6px;padding:12px;display:flex;flex-direction:column;}
 .statz-chart-cell--warning{background:transparent;border-color:rgba(133,100,4,0.25);}
@@ -522,7 +530,7 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
    container, so the orphan stays visibly wider than a sibling column and visibly narrower than
    the row. Below 768px the grid is single-column and every cell is full width, so the cap is
    lifted there: 75% of a lone column would shrink the last chart below its siblings. */
-.statz-chart-cell:last-child:nth-child(odd){grid-column:1 / -1;justify-self:center;max-width:min(75%, 760px);width:100%;}
+.statz-chart-cell:last-child:nth-child(odd){grid-column:1 / -1;justify-self:center;max-width:${ns.CHART_GRID_ORPHAN_MAX_WIDTH};width:100%;}
 @media (max-width:768px){.statz-chart-cell:last-child:nth-child(odd){max-width:none;}}
 /* chart_width_mode: 'full' — one chart per row, each taking the element's whole width. The
    trailing-odd rule has to be undone here or the last cell would end up NARROWER than its

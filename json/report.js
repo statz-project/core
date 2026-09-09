@@ -35,9 +35,12 @@ const TRAILING_PUNCTUATION = /[\s.,;:!?\-–—]+$/;
 ns.composeElementTitle = function (element, file) {
   const title = String(element?.title ?? '').trim();
   const suffix = String(file?.suffix ?? '').trim();
-  if (!element?.uses_suffix || !suffix) return title;
+  // All three conditions, and the empty title is the one that matters: an Element the user left
+  // untitled must stay untitled. Printing the File's suffix on its own would invent a heading the
+  // user never wrote, and it would read as a title for the table beneath it.
+  if (!title || !suffix || !element?.uses_suffix) return title;
   const stem = title.replace(TRAILING_PUNCTUATION, '');
-  return stem ? `${stem} ${suffix}` : suffix;
+  return stem ? `${stem} ${suffix}` : title;
 };
 
 /**
@@ -76,6 +79,32 @@ function resolveLang(entries, options) {
 }
 
 /**
+ * Names a caller might use for chart mode. `Element.Type` in the app is an option set whose values
+ * read `Table` and `Graph`, so demanding the exact string 'chart' made the vocabulary of one UI a
+ * hard requirement of the core.
+ */
+const CHART_TYPE_WORDS = new Set(['chart', 'graph', 'grafico', 'gráfico']);
+
+/**
+ * Is this payload a chart, a table, or something we have to ask the caller about?
+ *
+ * The result describes itself: a chart-mode analysis carries `chart.spec` on its entries and no
+ * `table`, and a table-mode one the reverse. Reading that is strictly better than trusting a string
+ * passed in from the UI — a caller that sent "Graph" used to be routed to the table exporter and
+ * got an empty table shell where the figure should have been, with nothing anywhere saying why.
+ * The declared type only decides the case the payload cannot: an analysis that produced warnings
+ * and no output at all.
+ * @param {any} element
+ * @param {any} result
+ */
+function isChartResult(element, result) {
+  const entries = Array.isArray(result?.analysis) ? result.analysis : [];
+  if (entries.some((entry) => entry?.chart?.spec)) return true;
+  if (entries.some((entry) => entry?.table)) return false;
+  return CHART_TYPE_WORDS.has(String(element?.type ?? '').trim().toLowerCase());
+}
+
+/**
  * The visual for one element: a table, a chart grid, or the pending placeholder. The footer is not
  * emitted here — `exportCombinedAsHTML` puts it in the table's `<tfoot>` and
  * `exportCombinedAsChartHTML` after the grid, both already merging the automatic test legend with
@@ -89,7 +118,7 @@ function elementVisual(element, result, lang) {
     return `<p class="statz-report-pending">${escapeHtml(translate('report.pending', lang))}</p>`;
   }
   const footer = typeof element?.footer === 'string' ? element.footer : '';
-  if (String(element?.type ?? '').toLowerCase() === 'chart') {
+  if (isChartResult(element, result)) {
     return exporters.exportCombinedAsChartHTML(result, undefined, false, footer);
   }
   const combined = exporters.combineAnalysisAsSingleTable(result);
@@ -149,7 +178,20 @@ const DOCUMENT_STYLES = `
   .statz-report-pending { font-size: 12px; font-style: italic; color: rgba(48,50,61,.55); }
   .statz-report-empty { font-size: 13px; font-style: italic; color: rgba(48,50,61,.55); }
   .statz-report-image { max-width: 100%; height: auto; }
-  @media print { .statz-report { padding: 0; max-width: none; } }
+  @media print {
+    .statz-report { padding: 0; max-width: none; }
+    /* The chart grid collapses to one column below 768px. On paper that query is evaluated against
+       the PAGE box — A4 less its margins is about 680px — so it fires on every printed page and
+       turned a two-column "auto" element into a stack of full-width figures. This document's width
+       is known, so the breakpoint has nothing to decide here: restate the columns, scoped tightly
+       enough (two classes) to outrank the fragment's own rule wherever it sits in the cascade.
+       The values come from the exporter that owns them, so the two cannot drift apart. */
+    .statz-report .statz-chart-grid { grid-template-columns: ${exporters.CHART_GRID_COLUMNS}; }
+    .statz-report .statz-chart-grid--full { grid-template-columns: 1fr; }
+    .statz-report .statz-chart-cell:last-child:nth-child(odd) {
+      max-width: ${exporters.CHART_GRID_ORPHAN_MAX_WIDTH};
+    }
+  }
 `;
 
 /**
@@ -258,8 +300,13 @@ ns.exportFileAsStaticHTML = async function (file, elements, options = {}) {
     let image = null;
     try {
       image = await render(decodeSpec(attr), imageOptions);
-    } catch {
-      image = null; // One chart that cannot be drawn must not cost the whole report.
+    } catch (err) {
+      // One chart that cannot be drawn must not cost the whole report — but it must not vanish in
+      // silence either. A blank figure with no console line is undiagnosable from the outside.
+      image = null;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[statz] a chart could not be rendered for export; it will be blank.', err);
+      }
     }
     images.push(image);
   }

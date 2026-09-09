@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Statz } from "../index.js";
 import report from "../json/report.js";
+import exporters from "../json/exporters.js";
 import { translate } from "../i18n/index.js";
 import { parseFixture } from "../scripts/dev/load-fixture.mjs";
 import statistics from "./helpers/stdlib_stats.mjs";
@@ -55,9 +56,22 @@ test("the suffix is applied only when the element asks for it", () => {
   assert.equal(composeElementTitle({ title: "Escore.", uses_suffix: true }, undefined), "Escore.");
 });
 
-test("an element with no title of its own still shows the suffix", () => {
-  assert.equal(composeElementTitle({ title: "", uses_suffix: true }, { suffix: "(2024)" }), "(2024)");
+test("an untitled element stays untitled, suffix or not", () => {
+  // The suffix decorates a title; it is not a title. Printing it alone would invent a heading the
+  // user never wrote, and it would read as the caption of the table beneath it.
+  assert.equal(composeElementTitle({ title: "", uses_suffix: true }, { suffix: "(2024)" }), "");
+  assert.equal(composeElementTitle({ title: "   ", uses_suffix: true }, { suffix: "(2024)" }), "");
   assert.equal(composeElementTitle({ title: "", uses_suffix: false }, { suffix: "(2024)" }), "");
+  assert.equal(composeElementTitle({ uses_suffix: true }, { suffix: "(2024)" }), "");
+});
+
+test("a title made only of punctuation keeps itself rather than becoming a bare suffix", () => {
+  assert.equal(composeElementTitle({ title: "...", uses_suffix: true }, { suffix: "(2024)" }), "...");
+});
+
+test("the suffix is trimmed before it is appended", () => {
+  assert.equal(composeElementTitle({ title: "Escore.", uses_suffix: true }, { suffix: "  (2024)  " }),
+    "Escore (2024)");
 });
 
 // ---------------------------------------------------------------------------
@@ -134,6 +148,39 @@ test("table and chart elements route to their own exporter", () => {
   assert.ok(asChart.includes('class="statz-chart"'), "a chart element must produce placeholders");
 });
 
+test("chart mode is read off the payload, not off the caller's vocabulary", () => {
+  // `Element.Type` in the app is an option set reading Table / Graph. Requiring the exact string
+  // "chart" routed a real chart element to the table exporter, which emitted an empty table shell
+  // where the figure belonged — the failure that prompted this.
+  const chartResult = analyse("chart");
+  for (const type of ["chart", "Graph", "GRAPH", "gráfico", "", undefined]) {
+    const html = exportFileAsHTML(FILE, [tableElement({ type, result_json: chartResult })]);
+    assert.ok(html.includes('class="statz-chart"'),
+      'a chart payload must reach the chart exporter with type=' + JSON.stringify(type));
+    assert.ok(!html.includes("<tbody></tbody>"), "an empty table shell means the routing was wrong");
+  }
+});
+
+test("when the payload describes nothing, the declared type decides", () => {
+  // An analysis that produced only warnings carries neither a chart spec nor a table, so there
+  // is nothing to read: this is the one case where the caller's word is all there is, and it
+  // must accept the vocabulary the app actually uses (Element.Type reads Table / Graph).
+  const warningOnly = { lang: "pt_br", analysis: [{ predictor: "X", response: "Y" }] };
+  for (const type of ["chart", "Graph", "gráfico"]) {
+    const html = exportFileAsHTML(FILE, [tableElement({ type, result_json: warningOnly })]);
+    assert.ok(html.includes("statz-chart-grid"),
+      "expected the chart exporter for type=" + type);
+  }
+  const asTable = exportFileAsHTML(FILE, [tableElement({ type: "Table", result_json: warningOnly })]);
+  assert.ok(!asTable.includes("statz-chart-grid"));
+});
+
+test("a table payload stays a table even when the caller calls it a chart", () => {
+  const html = exportFileAsHTML(FILE, [tableElement({ type: "chart", result_json: analyse("table") })]);
+  assert.ok(html.includes("<table"));
+  assert.ok(!html.includes('class="statz-chart"'), "there is no spec to draw; the payload decides");
+});
+
 test("the element footer is delegated, not recomposed", () => {
   // `exportCombinedAsHTML` merges the automatic test legend with the free text and puts both in the
   // table's own <tfoot>. The assembler emitting its own footer would print the legend twice.
@@ -182,6 +229,38 @@ test("pagination keeps headings with their content without freezing whole blocks
   assert.match(doc, /\.statz-chart \{[^}]*break-inside: avoid/);
   assert.match(doc, /thead \{ display: table-header-group/,
     'a long table repeats its header on each page instead of being kept whole');
+});
+
+test("the printed page keeps the two-column chart grid the element was saved with", () => {
+  const doc = exportFileAsHTML(FILE, [tableElement({ type: "Graph", result_json: analyse("chart") })],
+    { wrap: true });
+  const printBlock = doc.slice(doc.indexOf("@media print"));
+
+  // The fragment carries `@media (max-width:768px) { grid-template-columns: 1fr }`. On paper that
+  // query reads the PAGE box — A4 less margins is about 680px — so it fires on every sheet and a
+  // two-column "auto" element printed as a stack of full-width figures.
+  assert.ok(doc.includes("@media (max-width:768px)"), "the responsive rule is still in the fragment");
+  assert.match(printBlock, /\.statz-report \.statz-chart-grid \{ grid-template-columns: /,
+    "the document must restate the columns for print");
+  assert.match(printBlock, /\.statz-report \.statz-chart-grid--full \{ grid-template-columns: 1fr/,
+    "and full mode must stay one column, or the override would force two on it");
+});
+
+test("the print override restates the exporter's own values, not a copy of them", () => {
+  const doc = exportFileAsHTML(FILE, [tableElement({ type: "Graph", result_json: analyse("chart") })],
+    { wrap: true });
+  // Scoped to the print block on purpose: the document also embeds the fragment, which carries
+  // these same values, so a whole-document `includes` passes even when the override says
+  // something else entirely. That is what let a three-column override through unnoticed.
+  const printBlock = doc.slice(doc.indexOf("@media print"));
+  assert.ok(printBlock.includes("grid-template-columns: " + exporters.CHART_GRID_COLUMNS + ";"),
+    "the print columns must be the exporter's value, not a second opinion");
+  assert.ok(printBlock.includes("max-width: " + exporters.CHART_GRID_ORPHAN_MAX_WIDTH + ";"),
+    "the trailing-odd cap is lifted by the same media query and must be restated too");
+  // And the fragment uses them, so "the same value" is a claim about one source, not a rhyme.
+  const fragment = exporters.exportCombinedAsChartHTML(analyse("chart"), undefined, false, "");
+  assert.ok(fragment.includes(exporters.CHART_GRID_COLUMNS));
+  assert.ok(fragment.includes(exporters.CHART_GRID_ORPHAN_MAX_WIDTH));
 });
 
 test("the document language follows the analysis it prints", () => {
