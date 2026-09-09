@@ -1002,3 +1002,129 @@ test("p-values render at the same precision wherever they appear", () => {
     assert.ok(!/\d,\d{4}/.test(cell), `${cell} still carries 4 decimals`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The rendered table model. `combined` is data; this is the set of decisions that turns it into a
+// table — how far a predictor header spans, which cell is bold, what the footer says. They used to
+// live inside the HTML writer, where a second output format could not reach them without parsing
+// our own markup.
+// ---------------------------------------------------------------------------
+
+const modelOf = (over = {}, footerFree = "") => exporters.buildCombinedTableModel({
+  lang: "pt_br", columns: ["Grupo", "A", "B", "p-valor"], rows: [], ...over
+}, footerFree);
+
+test("buildCombinedTableModel: nothing to render returns null, not an empty shell", () => {
+  assert.equal(exporters.buildCombinedTableModel(null), null);
+  assert.equal(exporters.buildCombinedTableModel({ columns: ["A"] }), null);
+  assert.equal(exporters.buildCombinedTableModel({ rows: [] }), null);
+  assert.notEqual(modelOf(), null, "columns plus rows is enough, even with no rows");
+});
+
+test("buildCombinedTableModel: a predictor header spans the blank cells that follow it", () => {
+  const model = modelOf({ rows: [{ Grupo: "<b>Sexo</b>", "p-valor": "0,011" }] });
+  const [header, p] = model.rows[0].cells;
+  assert.equal(header.colspan, 3, "Grupo + the two blank columns before the p-value");
+  assert.equal(header.text, "Sexo", "plain text for a renderer that cannot use markup");
+  assert.equal(header.raw, "<b>Sexo</b>", "and the markup itself, for the one that can");
+  assert.equal(header.bold, true);
+  assert.equal(p.colspan, 1);
+});
+
+test("buildCombinedTableModel: the span stops at the first cell with content", () => {
+  const model = modelOf({ rows: [{ Grupo: "<b>Sexo</b>", A: "", B: "algo", "p-valor": "0,5" }] });
+  assert.equal(model.rows[0].cells[0].colspan, 2, "Grupo + A only; B has content");
+  assert.deepEqual(model.rows[0].cells.map((c) => c.text), ["Sexo", "algo", "0,5"]);
+});
+
+test("buildCombinedTableModel: a column the row predates counts as empty, not as a stop", () => {
+  // A row built before a later analysis introduced a column has no key for it. Reading that as
+  // content would split the header into a short span plus stray empty cells.
+  const model = modelOf({ rows: [{ Grupo: "<b>Sexo</b>", "p-valor": "0,5" }] });
+  assert.equal(model.rows[0].cells[0].colspan, 3);
+});
+
+test("buildCombinedTableModel: only a significant p-value is bold", () => {
+  const significant = modelOf({ rows: [{ Grupo: "x", "p-valor": "0,011", _p_significant: true }] });
+  assert.equal(significant.rows[0].cells.at(-1).bold, true);
+
+  const not = modelOf({ rows: [{ Grupo: "x", "p-valor": "0,4", _p_significant: false }] });
+  assert.equal(not.rows[0].cells.at(-1).bold, false);
+
+  // The hint only bolds the p-value column, not every cell in a significant row.
+  assert.equal(significant.rows[0].cells[0].bold, false);
+});
+
+test("buildCombinedTableModel: the p-value column is found by its localized name", () => {
+  const en = exporters.buildCombinedTableModel({
+    lang: "en_us", columns: ["Group", "p-value"],
+    rows: [{ Group: "x", "p-value": "0,011", _p_significant: true }]
+  });
+  assert.equal(en.rows[0].cells.at(-1).bold, true, "en_us calls the column p-value");
+});
+
+test("buildCombinedTableModel: a warning row is its own kind, not a cell", () => {
+  const model = modelOf({ rows: [{ _warning_text: "Aviso <perigoso> & cia" }] });
+  assert.equal(model.rows[0].kind, "warning");
+  assert.equal(model.rows[0].text, "Aviso <perigoso> & cia", "unescaped: the renderer escapes");
+  assert.equal(model.rows[0].cells, undefined);
+});
+
+test("buildCombinedTableModel: the footer composes legend and free text once", () => {
+  const model = modelOf(
+    { test_legend: [{ method: "Mann-Whitney", symbol: "¹" }], percent_by: "col" },
+    "Fonte: piloto"
+  );
+  // Asserting the shape, not the wording: the legend sentences are i18n copy and pinning them here
+  // would make this test fail on an editorial change that broke nothing.
+  assert.match(model.footer.html, /^¹ <i>Mann-Whitney<\/i>; .+\. Fonte: piloto\.$/);
+  assert.equal(model.footer.text, model.footer.html.replace(/<[^>]+>/g, ""),
+    "plain text is the same sentence without the italics, for renderers that cannot nest runs");
+  assert.ok(model.footer.text.includes("Mann-Whitney"));
+  assert.equal(modelOf().footer, null, "nothing to say means no footer at all");
+});
+
+test("buildCombinedTableModel: free footer text is punctuated exactly once", () => {
+  assert.match(modelOf({}, "Sem ponto").footer.html, /Sem ponto\.$/);
+  assert.match(modelOf({}, "Com ponto.").footer.html, /Com ponto\.$/);
+  assert.match(modelOf({}, "Interrogado?").footer.html, /Interrogado\?$/);
+  assert.equal(modelOf({}, "   ").footer, null, "whitespace is not a footer");
+});
+
+test("the model holds data and the renderer escapes it, exactly once", () => {
+  // The boundary matters in both directions. If the model escaped, the renderer would escape
+  // again and the reader would see "&amp;lt;"; if neither did, a value could inject markup. And
+  // a DOCX writer needs the character, not the entity.
+  const combined = {
+    lang: "pt_br", columns: ["Grupo", "p-valor"],
+    rows: [{ Grupo: "a < b & c", "p-valor": "0,5" }]
+  };
+  const model = exporters.buildCombinedTableModel(combined, "");
+  assert.equal(model.rows[0].cells[0].text, "a < b & c", "the model carries the characters");
+
+  const html = exporters.exportCombinedAsHTML(combined, undefined, false, "");
+  assert.ok(html.includes("a &lt; b &amp; c"), "the renderer escapes them");
+  assert.ok(!html.includes("&amp;lt;"), "and only once");
+});
+
+test("exportCombinedAsHTML renders the model rather than re-deriving it", () => {
+  // The proof that there is one description of a table and not two: every decision visible in the
+  // HTML has to be visible in the model first.
+  const combined = {
+    lang: "pt_br", columns: ["Grupo", "A", "p-valor"],
+    rows: [
+      { Grupo: "<b>Sexo</b>", "p-valor": "0,011", _p_significant: true },
+      { Grupo: "Média ± DP", A: "8,5" },
+      { _warning_text: "cuidado <com> isto" }
+    ],
+    test_legend: [{ method: "Mann-Whitney", symbol: "¹" }]
+  };
+  const model = exporters.buildCombinedTableModel(combined, "Livre");
+  const html = exporters.exportCombinedAsHTML(combined, undefined, false, "Livre");
+
+  assert.ok(html.includes(`<td colspan="${model.rows[0].cells[0].colspan}">`));
+  assert.ok(html.includes(`<td><b>0,011</b></td>`), "the bold flag reached the markup");
+  assert.ok(html.includes(model.footer.html), "the footer is the model's, character for character");
+  assert.equal(model.rows[2].text, "cuidado <com> isto", "the model keeps the data as data");
+  assert.ok(html.includes("cuidado &lt;com&gt; isto"), "and the renderer is what escapes it");
+});

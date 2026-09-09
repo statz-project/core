@@ -32,6 +32,14 @@ const escapeAttr = (val) => escapeHtml(val).split('"').join('&quot;');
 ns.escapeHtml = escapeHtml;
 
 /**
+ * Plain text of a cell whose value is markup by design. Not a sanitiser: the only markup that
+ * reaches it is what `combineAnalysisAsSingleTable` wrote itself (a `<b>` around a predictor
+ * name), and callers that need safety escape instead.
+ * @param {unknown} val
+ */
+const stripTags = (val) => String(val ?? '').replace(/<[^>]+>/g, '');
+
+/**
  * Parse a "maximum" render option (`maxRows`, `maxBins`, `maxLevels`).
  *
  * An explicit **`0` means NO LIMIT** and yields `Infinity`, which flows untouched through the
@@ -343,68 +351,84 @@ ns.combineAnalysisAsSingleTable = function (resultObj) {
 };
 
 /**
- * Render combined table as HTML (optionally full document).
- * @param {{ columns: string[], rows: Array<Record<string, string>>, test_legend?: Array<{ method: string, symbol: string }>, posthoc_legend?: string[], resid_symbol_greater_used?: boolean, resid_symbol_lower_used?: boolean, lang?: string, percent_by?: string, percent_total_full?: boolean }} combined
- * @param {string=} title
- * @param {boolean=} wrap
- * @param {string=} footerFree Optional user-provided footer suffix appended after the auto-generated legend. Trimmed; a terminal "." is added if missing.
- * @returns {string}
+ * @typedef {Object} ReportTableCell
+ * @property {string} text  Plain text, unescaped: what a non-HTML renderer prints.
+ * @property {string|null} raw  The cell's own markup when it is markup by design (the predictor
+ *   header rows carry `<b>…</b>` as their value); null for ordinary data cells.
+ * @property {boolean} bold
+ * @property {number} colspan
  */
-ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = '') {
-  if (!combined || !combined.columns || !combined.rows) return '';
-  // Significant p-values are bold, at whatever `alpha` the analysis ran under. With one predictor
-  // that says little; with fifteen it is how a reader finds the significant rows without reading
-  // every number in the column.
-  const pValueColumn = translate('table.columns.pValue', normalizeLanguage(combined.lang));
-  const langCandidate = combined?.lang;
-  const lang = normalizeLanguage(langCandidate);
-  const resolvedTitle = title ?? translate('table.title', lang);
-  let html = '';
-  html += `<table><thead><tr>`;
-  combined.columns.forEach(col => { html += `<th>${escapeHtml(col)}</th>`; });
-  html += `</tr></thead>`;
-  html += `<tbody>`;
-  combined.rows.forEach(row => {
+
+/**
+ * @typedef {Object} ReportTableModel
+ * @property {string} lang
+ * @property {string[]} columns
+ * @property {Array<{kind: 'data'|'warning', text?: string, cells?: ReportTableCell[]}>} rows
+ * @property {{html: string, text: string}|null} footer  Legend and free text, already composed.
+ */
+
+/**
+ * The rendered shape of a combined table: which cells are bold, which span columns, what the
+ * footer says. `combined` is DATA — values, hints like `_p_significant`, a legend to compose —
+ * and turning it into a table is a set of decisions that used to live inside the HTML writer:
+ * how far a predictor header spans, that a significant p is bold, how the legend segments join.
+ *
+ * They are here now because a second output format needs the same decisions. Reading them off the
+ * HTML would mean parsing our own markup; re-deriving them in a DOCX writer would mean two
+ * descriptions of what a Stat-z table looks like, and the first change to either would separate
+ * them silently. `exportCombinedAsHTML` is one renderer of this model; the DOCX writer is another.
+ *
+ * @param {any} combined
+ * @param {string=} footerFree Element's free-text footer.
+ * @returns {ReportTableModel|null} null when there is nothing to render.
+ */
+ns.buildCombinedTableModel = function (combined, footerFree = '') {
+  if (!combined || !combined.columns || !combined.rows) return null;
+  const lang = normalizeLanguage(combined?.lang);
+  const pValueColumn = translate('table.columns.pValue', lang);
+  const columns = combined.columns;
+
+  const rows = combined.rows.map((row) => {
     if (ns.isWarningRow(row)) {
-      const warnText = /** @type {any} */ (row)._warning_text;
-      html += `<tr><td colspan="${combined.columns.length}" style="background:#fff8e1;color:#856404;padding:8px;">⚠ ${escapeHtml(warnText)}</td></tr>`;
-      return;
+      return { kind: /** @type {'warning'} */ ('warning'), text: String(row._warning_text ?? '') };
     }
-    html += `<tr>`;
+    const cells = [];
     let skip = 0;
-    for (let i = 0; i < combined.columns.length; i++) {
+    for (let i = 0; i < columns.length; i++) {
       if (skip > 0) { skip--; continue; }
-      const col = combined.columns[i];
+      const col = columns[i];
       const val = row[col] ?? '';
       if (i === 0 && ns.isPredictorHeaderRow(val)) {
         let colspan = 1;
-        for (let j = i + 1; j < combined.columns.length; j++) {
+        for (let j = i + 1; j < columns.length; j++) {
           // `?? ''` mirrors the cell read above: a row built before a later analysis introduced
           // this column has no key for it, and that absence means "empty", not "content". Without
           // the coalesce the scan stops short and the header row splits into a shorter colspan
           // plus stray empty cells — same width, but an inconsistent rule between header rows.
-          const nextVal = row[combined.columns[j]] ?? '';
+          const nextVal = row[columns[j]] ?? '';
           if (nextVal !== '') break;
           colspan++;
         }
-        html += `<td colspan="${colspan}">${val}</td>`;
+        cells.push({ text: stripTags(val), raw: String(val), bold: true, colspan });
         skip = colspan - 1;
       } else {
-        // Escaped here rather than upstream: `combined.rows` is data, and entities in it would
-        // reach every other consumer. The one cell that is deliberately markup takes the branch
-        // above and is emitted as-is.
-        const safe = escapeHtml(val);
-        html += (col === pValueColumn && /** @type {any} */ (row)._p_significant)
-          ? `<td><b>${safe}</b></td>`
-          : `<td>${safe}</td>`;
+        cells.push({
+          text: String(val),
+          raw: null,
+          // Significant p-values are bold, at whatever `alpha` the analysis ran under. With one
+          // predictor that says little; with fifteen it is how a reader finds the significant rows
+          // without reading every number in the column.
+          bold: col === pValueColumn && !!(/** @type {any} */ (row)._p_significant),
+          colspan: 1
+        });
       }
     }
-    html += `</tr>`;
+    return { kind: /** @type {'data'} */ ('data'), cells };
   });
-  html += `</tbody>`;
+
   const legendSegments = [];
   if (combined.test_legend?.length) {
-    const parts = combined.test_legend.map(t => `${t.symbol} <i>${t.method}</i>`);
+    const parts = combined.test_legend.map((/** @type {any} */ t) => `${t.symbol} <i>${t.method}</i>`);
     legendSegments.push(parts.join('; '));
   }
   if (combined.posthoc_legend?.length) legendSegments.push(...combined.posthoc_legend);
@@ -420,6 +444,7 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = 
   else if (combined.percent_by === 'row') legendSegments.push(translate('table.legends.percentByRow', lang));
   else if (combined.percent_by === 'total') legendSegments.push(translate('table.legends.percentByTotal', lang));
   if (combined.percent_total_full) legendSegments.push(translate('table.legends.percentTotalFull', lang));
+
   let footerText = '';
   // No "Legend:" prefix — the footer's position under the table and the content itself already
   // identify it, so the word is pure overhead.
@@ -433,8 +458,58 @@ ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = 
       footerText = footerText ? `${footerText} ${punctuated}` : punctuated;
     }
   }
-  if (footerText) {
-    html += `<tfoot><tr><td colspan="${combined.columns.length}" style="text-align:left;">${footerText}</td></tr></tfoot>`;
+
+  return {
+    lang,
+    columns,
+    rows,
+    footer: footerText ? { html: footerText, text: stripTags(footerText) } : null
+  };
+};
+
+/**
+ * Render a combined table as HTML. One renderer over `buildCombinedTableModel`; the decisions it
+ * used to make itself now live there, where a second format can read them.
+ * @param {{ columns: string[], rows: Array<Record<string, any>>, [k:string]: any }} combined
+ * @param {string=} title
+ * @param {boolean=} wrap
+ * @param {string=} footerFree
+ * @returns {string}
+ */
+ns.exportCombinedAsHTML = function (combined, title, wrap = false, footerFree = '') {
+  const model = ns.buildCombinedTableModel(combined, footerFree);
+  if (!model) return '';
+  const lang = model.lang;
+  const resolvedTitle = title ?? translate('table.title', lang);
+  const width = model.columns.length;
+
+  let html = '';
+  html += `<table><thead><tr>`;
+  model.columns.forEach(col => { html += `<th>${escapeHtml(col)}</th>`; });
+  html += `</tr></thead>`;
+  html += `<tbody>`;
+  model.rows.forEach(row => {
+    if (row.kind === 'warning') {
+      html += `<tr><td colspan="${width}" style="background:#fff8e1;color:#856404;padding:8px;">⚠ ${escapeHtml(row.text)}</td></tr>`;
+      return;
+    }
+    html += `<tr>`;
+    for (const cell of /** @type {ReportTableCell[]} */ (row.cells)) {
+      if (cell.raw !== null) {
+        // Emitted as-is: this cell is deliberately markup, and escaping it would print the tags.
+        html += `<td colspan="${cell.colspan}">${cell.raw}</td>`;
+        continue;
+      }
+      // Escaped here rather than upstream: `combined.rows` is data, and entities in it would
+      // reach every other consumer.
+      const safe = escapeHtml(cell.text);
+      html += cell.bold ? `<td><b>${safe}</b></td>` : `<td>${safe}</td>`;
+    }
+    html += `</tr>`;
+  });
+  html += `</tbody>`;
+  if (model.footer) {
+    html += `<tfoot><tr><td colspan="${width}" style="text-align:left;">${model.footer.html}</td></tr></tfoot>`;
   }
   html += `</table>`;
   if (!wrap) return html;
