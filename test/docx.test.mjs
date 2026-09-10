@@ -66,7 +66,8 @@ const column = (hash) => Statz.getColumnValues(parsed, hash);
 const sex = column("col_sex_hash");
 const score = column("col_score_hash");
 const clinics = column("col_clinics_hash");
-const dbs = { db: { columns: [sex.column, score.column, clinics.column] } };
+const biomarker = column("col_biomarker_hash");
+const dbs = { db: { columns: [sex.column, score.column, clinics.column, biomarker.column] } };
 const sig = (col, label, role) => JSON.stringify({
   database_id: "db", col_hash: col.column.col_hash, col_var_index: null, col_label: label, role
 });
@@ -389,3 +390,142 @@ test("the bytes are a Uint8Array in both environments, not a Node Buffer", async
   assert.equal(bytes[0], 0x50, "PK");
   assert.equal(bytes[1], 0x4b);
 });
+
+test("the Word export counts its charts across every block, before drawing any", async () => {
+  const chart = analyse("chart");
+  const perElement = (chart.analysis || []).filter((entry) => entry?.chart?.spec).length;
+  const elements = [1, 2, 3].map((position) => tableElement({ position, type: "Graph", result_json: chart }));
+
+  const seen = [];
+  await build(elements, { onProgress: (done, total) => seen.push([done, total]) });
+
+  // Known up front: a denominator that grew as the export went would be worse than none.
+  assert.deepEqual(seen[0], [0, perElement * 3]);
+  assert.deepEqual(seen.at(-1), [perElement * 3, perElement * 3]);
+});
+
+test("both formats count the same work for the same report", async () => {
+  const elements = [tableElement({ type: "Graph", result_json: analyse("chart") })];
+  const fromDocx = [];
+  const fromHtml = [];
+  await build(elements, { onProgress: (d, t) => fromDocx.push([d, t]) });
+  await report.exportFileAsStaticHTML(FILE, elements, {
+    renderChart: fakeRender, onProgress: (d, t) => fromHtml.push([d, t])
+  });
+  assert.deepEqual(fromDocx, fromHtml, "the same report cannot be two different lengths of wait");
+});
+
+test("the filename drops every character a path would misread", () => {
+  // A backslash is a path separator on Windows, so it has to go the way a slash does. It survived
+  // sanitising for a while because the character class had been written as an escaped forward
+  // slash instead of a literal backslash — the regex stayed valid and simply stopped matching it.
+  const BACKSLASH = String.fromCharCode(92);
+  assert.equal(docxWriter.docxFileName({ name: "pasta" + BACKSLASH + "arquivo" }, "pt_br"),
+    "pasta arquivo.docx");
+  assert.equal(docxWriter.docxFileName({ name: "pasta/arquivo" }, "pt_br"), "pasta arquivo.docx");
+  // Control characters cannot appear in a filename either.
+  assert.equal(docxWriter.docxFileName({ name: "a" + String.fromCharCode(0) + "b" }, "pt_br"), "a b.docx");
+  assert.equal(docxWriter.docxFileName({ name: "a" + String.fromCharCode(31) + "b" }, "pt_br"), "a b.docx");
+});
+
+const chartAt = (widthMode) => Statz.runAnalysis(
+  [sig(sex, "Sexo", "predictor")], [sig(score, "Escore", "response")], dbs,
+  { lang: "pt_br", mode: "chart", chart_width_mode: widthMode }
+).result;
+
+test("the Word chart is drawn at the size it is placed at", async () => {
+  // Placed at 600px and drawn at 900px, an 11px axis label printed at about 5.5pt beside 11pt
+  // body text. Drawn at the placement width it stays 11px, a little over 8pt on the page.
+  const asked = [];
+  await build([tableElement({ type: "Graph", result_json: chartAt("full") })], {
+    renderChart: async (spec, options) => { asked.push(options); return PNG_1PX; }
+  });
+  assert.equal(asked[0].width, 600, "drawn at the placement width");
+  assert.equal(asked[0].height, report.chartHeightFor(600), "and the shared height rule");
+  assert.equal(asked[0].scale, 2, "and the resolution comes from scale");
+});
+
+// Two numeric predictors give exactly two figures; one gives a single, trailing-odd figure.
+const chartPairAt = (widthMode) => Statz.runAnalysis(
+  [sig(sex, "Sexo", "predictor"), sig(biomarker, "Bio", "predictor")],
+  [sig(score, "Escore", "response")], dbs,
+  { lang: "pt_br", mode: "chart", chart_width_mode: widthMode }
+).result;
+
+test("an auto-width element keeps two figures per row in Word too", async () => {
+  // Word has no CSS grid; without a table every figure stacked, contradicting both the Element on
+  // screen and the PDF. The images are drawn at half width because that is where they land.
+  const asked = [];
+  const entries = readZip(await build([tableElement({ type: "Graph", result_json: chartPairAt("auto") })], {
+    renderChart: async (spec, options) => { asked.push(options); return PNG_1PX; }
+  }));
+  assert.equal(asked.length, 2);
+  for (const options of asked) {
+    assert.equal(options.width, 292, "half of 600px, less the gap between the two");
+    assert.equal(options.height, report.chartHeightFor(292));
+  }
+
+  const xml = documentXml(entries);
+  assert.ok(xml.includes("<w:tbl>"), "the two-up layout is a table");
+  assert.ok(xml.includes("<w:drawing>"));
+  assert.ok(!xml.includes('<w:gridSpan w:val="2"/>'), "a complete pair needs no merged cell");
+});
+
+test("a lone figure spans both columns in Word, as the grid centres it", async () => {
+  // Left in a half-width cell it sat off to the left, which is not what the Element shows.
+  const asked = [];
+  const xml = documentXml(readZip(await build([
+    tableElement({ type: "Graph", result_json: chartAt("auto") })
+  ], { renderChart: async (spec, options) => { asked.push(options); return PNG_1PX; } })));
+
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].width, 450, "75% of the text column, the same fraction the grid uses");
+  assert.ok(xml.includes('<w:gridSpan w:val="2"/>'), "the two cells must be merged");
+  assert.ok(xml.includes('<w:jc w:val="center"/>'), "and the figure centred in them");
+});
+
+test("the trailing figure of an odd count is the one that spans", async () => {
+  const three = { lang: "pt_br", chart_options: { width_mode: "auto" }, analysis: [] };
+  const source = chartPairAt("auto");
+  const spec = source.analysis.find((entry) => entry?.chart?.spec).chart.spec;
+  for (let i = 0; i < 3; i++) three.analysis.push({ predictor: "P" + i, chart: { spec } });
+
+  const asked = [];
+  const xml = documentXml(readZip(await build([tableElement({ type: "Graph", result_json: three })], {
+    renderChart: async (s2, options) => { asked.push(options); return PNG_1PX; }
+  })));
+  assert.deepEqual(asked.map((o) => o.width), [292, 292, 450], "only the last one spans");
+  assert.equal((xml.match(/<w:gridSpan w:val="2"\/>/g) || []).length, 1, "exactly one merged cell");
+});
+
+test("a full-width element stacks its figures, with no layout table", async () => {
+  const entries = readZip(await build([
+    tableElement({ type: "Graph", result_json: chartAt("full") })
+  ]));
+  const xml = documentXml(entries);
+  assert.ok(xml.includes("<w:drawing>"));
+  assert.ok(!xml.includes("<w:tbl>"), "one figure per row needs no table at all");
+});
+
+test("the layout table is invisible", async () => {
+  const xml = documentXml(readZip(await build([
+    tableElement({ type: "Graph", result_json: chartAt("auto") })
+  ])));
+  // A visible grid around the figures would read as a data table, which is what this document
+  // uses tables FOR everywhere else.
+  assert.ok(xml.includes('w:val="none"'), "the layout table must declare no borders");
+});
+
+test("the filename drops every character a path would misread", () => {
+  // A backslash is a path separator on Windows, so it has to go the way a slash does. It survived
+  // sanitising for a while because the character class had been written as an escaped forward
+  // slash instead of a literal backslash — the regex stayed valid and simply stopped matching it.
+  const BACKSLASH = String.fromCharCode(92);
+  assert.equal(docxWriter.docxFileName({ name: "pasta" + BACKSLASH + "arquivo" }, "pt_br"),
+    "pasta arquivo.docx");
+  assert.equal(docxWriter.docxFileName({ name: "pasta/arquivo" }, "pt_br"), "pasta arquivo.docx");
+  // Control characters cannot appear in a filename either.
+  assert.equal(docxWriter.docxFileName({ name: "a" + String.fromCharCode(0) + "b" }, "pt_br"), "a b.docx");
+  assert.equal(docxWriter.docxFileName({ name: "a" + String.fromCharCode(31) + "b" }, "pt_br"), "a b.docx");
+});
+

@@ -559,7 +559,22 @@ ns.isWarningRow = function (row) { return !!(row && typeof row._warning_text ===
 // every printed page and silently turned two-column `auto` layouts into full-width ones. The
 // assembler restates these for print; keeping the numbers here means it restates the same ones.
 ns.CHART_GRID_COLUMNS = 'repeat(2,minmax(0,1fr))';
-ns.CHART_GRID_ORPHAN_MAX_WIDTH = 'min(75%, 760px)';
+
+// The trailing-odd cap, as NUMBERS rather than only as the CSS expression built from them. The
+// report has to render an image at the size that rule will display it at, which means computing
+// the cap in JavaScript; two hand-kept copies of "75" and "760" is how that arithmetic and this
+// stylesheet would come to disagree.
+/**
+ * The height of a chart cell, in CSS pixels. Constant at every width: Plotly draws its axis
+ * furniture at absolute sizes, so only the plotting area should grow sideways. The exporters read
+ * it from here to draw a figure at the size this stylesheet would display it at.
+ */
+ns.CHART_CELL_HEIGHT_PX = 400;
+
+ns.CHART_GRID_ORPHAN_MAX_PERCENT = 75;
+ns.CHART_GRID_ORPHAN_MAX_PX = 760;
+ns.CHART_GRID_ORPHAN_MAX_WIDTH =
+  `min(${ns.CHART_GRID_ORPHAN_MAX_PERCENT}%, ${ns.CHART_GRID_ORPHAN_MAX_PX}px)`;
 
 ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerFree = '') {
   if (!resultObj || !Array.isArray(resultObj.analysis)) return '';
@@ -619,7 +634,7 @@ ns.exportCombinedAsChartHTML = function (resultObj, title, wrap = false, footerF
    it there forever. A fixed height also gives Plotly enough top margin for X-axis /
    category labels that get cropped at 320. 400px is a good balance — labels fit, no
    wasted vertical space. */
-.statz-chart{height:400px;width:100%;}
+.statz-chart{height:${ns.CHART_CELL_HEIGHT_PX}px;width:100%;}
 .statz-warning{background:#fff8e1;color:#856404;padding:10px 14px;border-radius:4px;font-size:13px;}
 .statz-chart-footer{margin-top:12px;font-size:12px;color:#666;text-align:left;}
 </style>`;

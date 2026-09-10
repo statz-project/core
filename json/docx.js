@@ -30,10 +30,34 @@ const DOCX_CDN = 'https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js';
 const PAGE_MARGIN_TWIPS = 1134; // 2cm
 const CONTENT_WIDTH_TWIPS = 11906 - (2 * PAGE_MARGIN_TWIPS);
 
-/** Chart images are rendered at this pixel size, then placed at a width the page can hold. */
-const CHART_PIXELS = { width: 900, height: 600 };
-const CHART_DOC_WIDTH = 600;
-const CHART_DOC_HEIGHT = 400;
+/**
+ * Charts are drawn at the size they are PLACED at, and `scale` supplies the resolution. Plotly's
+ * font sizes are absolute (11px), so drawing large and placing small reduced every label to about
+ * 5.5pt beside 11pt body text. Drawn at the placement width it stays 11px — a little over 8pt.
+ *
+ * Two placements, mirroring `chart_width_mode`, because a Word document that stacked every figure
+ * would contradict the layout the Element was saved with and the PDF prints:
+ *   - `full`  one figure per row, spanning the text column;
+ *   - `auto`  two figures per row, in a borderless table — Word has no CSS grid, and a table cell
+ *             is the only reliable way to sit two images side by side across Word versions.
+ */
+const CHART_FULL_WIDTH = 600;
+const CHART_GAP = 16;
+const CHART_HALF_WIDTH = Math.floor((CHART_FULL_WIDTH - CHART_GAP) / 2);
+
+/**
+ * The odd last figure spans both columns, as the HTML grid centres its trailing cell. Capped at the
+ * same fraction the grid uses, so a lone chart is wider than a column and narrower than the page —
+ * the proportion the Element shows on screen.
+ */
+const CHART_ORPHAN_WIDTH = Math.floor(
+  (exporters.CHART_GRID_ORPHAN_MAX_PERCENT / 100) * CHART_FULL_WIDTH
+);
+
+// Height comes from the same rule the printed report uses: a fixed allowance for the axes plus a
+// plotting area that scales with the width. A fixed aspect ratio squashed the narrow figures,
+// because Plotly's axis furniture costs the same pixels at any size.
+const chartBox = (width) => ({ width, height: report.chartHeightFor(width) });
 
 /**
  * Load the `docx` UMD bundle once and hand back its namespace.
@@ -157,10 +181,87 @@ function chartWarnings(result) {
 }
 
 /**
+ * One image, centred, at the box it was drawn for.
+ * @param {any} d
+ * @param {string} dataUrl
+ * @param {{width: number, height: number}} box
+ */
+function imageParagraph(d, dataUrl, box) {
+  return new d.Paragraph({
+    alignment: d.AlignmentType.CENTER,
+    spacing: { after: 0 },
+    children: [new d.ImageRun({
+      type: 'png',
+      data: dataUrlToBytes(dataUrl),
+      transformation: { width: box.width, height: box.height }
+    })]
+  });
+}
+
+/**
+ * Lay the block's figures out: one per row at full width, or two per row otherwise.
+ *
+ * The two-up case is a borderless table. Word has no CSS grid, and two ImageRuns in one paragraph
+ * wrap unpredictably once a figure is near half the text width; a table cell holds its width.
+ * An odd last figure gets a row to itself with an empty cell beside it, which is the same shape
+ * the HTML grid produces — there it centres the orphan, and here the table keeps the column.
+ *
+ * @param {any} d
+ * @param {Array<string|null>} images
+ * @param {boolean} isFullWidth
+ */
+function layoutImages(d, images, widths, isFullWidth) {
+  const pairs = images.map((image, i) => ({ image, width: widths[i] })).filter((p) => p.image);
+  if (pairs.length === 0) return [];
+  if (isFullWidth) {
+    return pairs.map((p) => imageParagraph(d, p.image, chartBox(p.width)));
+  }
+
+  const cell = (entry, span) => new d.TableCell({
+    columnSpan: span,
+    width: { size: Math.floor(CONTENT_WIDTH_TWIPS / (span === 2 ? 1 : 2)), type: d.WidthType.DXA },
+    margins: { top: 0, bottom: 120, left: 0, right: 0 },
+    children: [entry ? imageParagraph(d, entry.image, chartBox(entry.width)) : new d.Paragraph({ text: '' })]
+  });
+  const rows = [];
+  for (let i = 0; i < pairs.length; i += 2) {
+    // A trailing odd figure takes a row of its own with the two cells MERGED, so Word centres it
+    // across the page exactly as the HTML grid does. Left in a half cell it sat off to one side,
+    // which is not what the Element shows.
+    if (i === pairs.length - 1 && pairs.length % 2 === 1) {
+      rows.push(new d.TableRow({ children: [cell(pairs[i], 2)] }));
+      break;
+    }
+    rows.push(new d.TableRow({ children: [cell(pairs[i], 1), cell(pairs[i + 1] ?? null, 1)] }));
+  }
+  const none = { style: d.BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  return [new d.Table({
+    width: { size: CONTENT_WIDTH_TWIPS, type: d.WidthType.DXA },
+    borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
+    rows
+  })];
+}
+
+/**
+ * The width each figure of a block is drawn at, mirroring how it will be placed: full width, one
+ * of two columns, or — for the last of an odd count — the merged pair.
+ * @param {number} count
+ * @param {boolean} isFullWidth
+ * @returns {number[]}
+ */
+function chartWidths(count, isFullWidth) {
+  return Array.from({ length: count }, (_unused, i) => {
+    if (isFullWidth) return CHART_FULL_WIDTH;
+    const isTrailingOdd = count % 2 === 1 && i === count - 1;
+    return isTrailingOdd ? CHART_ORPHAN_WIDTH : CHART_HALF_WIDTH;
+  });
+}
+
+/**
  * Build the document's children for one block.
  * @returns {Promise<any[]>}
  */
-async function blockChildren(d, block, renderChart, strings) {
+async function blockChildren(d, block, renderChart, strings, progress) {
   const children = [];
   children.push(para(d, block.caption, { italics: true, size: 18, spacingAfter: 40 }));
   if (block.paragraph) children.push(para(d, block.paragraph, { size: 22, spacingAfter: 120 }));
@@ -175,10 +276,14 @@ async function blockChildren(d, block, renderChart, strings) {
     for (const warning of chartWarnings(block.result)) {
       children.push(para(d, '⚠ ' + warning, { size: 20 }));
     }
-    for (const spec of chartSpecs(block.result)) {
+    const isFullWidth = block.widthMode === 'full';
+    const specs = chartSpecs(block.result);
+    const widths = chartWidths(specs.length, isFullWidth);
+    const images = [];
+    for (let i = 0; i < specs.length; i++) {
       let image = null;
       try {
-        image = await renderChart(spec, { ...CHART_PIXELS, scale: 2, format: 'png' });
+        image = await renderChart(specs[i], { ...chartBox(widths[i]), scale: 2, format: 'png' });
       } catch (err) {
         // One figure that cannot be drawn costs its own space, not the document — the same rule
         // the HTML export follows, and for the same reason.
@@ -186,17 +291,10 @@ async function blockChildren(d, block, renderChart, strings) {
           console.warn('[statz] a chart could not be rendered for the DOCX; it will be omitted.', err);
         }
       }
-      if (!image) continue;
-      children.push(new d.Paragraph({
-        alignment: d.AlignmentType.CENTER,
-        spacing: { after: 160 },
-        children: [new d.ImageRun({
-          type: 'png',
-          data: dataUrlToBytes(image),
-          transformation: { width: CHART_DOC_WIDTH, height: CHART_DOC_HEIGHT }
-        })]
-      }));
+      progress.tick();
+      images.push(image);
     }
+    children.push(...layoutImages(d, images, widths, isFullWidth));
     if (block.footer && block.footer.trim()) {
       children.push(para(d, block.footer.trim(), { italics: true, size: 18 }));
     }
@@ -238,13 +336,23 @@ ns.buildFileDocument = async function (file, elements, options = {}) {
     empty: translate('report.empty', model.lang)
   };
 
+  // The total is counted across every block before the first chart is drawn: a denominator that
+  // grew as the export went would be worse than none at all.
+  const total = model.blocks
+    .filter((block) => block.kind === 'chart')
+    .reduce((sum, block) => sum + chartSpecs(block.result).length, 0);
+  const report_ = report.progressReporter(options?.onProgress);
+  report_(0, total);
+  let drawn = 0;
+  const progress = { tick: () => report_(++drawn, total) };
+
   const children = [];
   if (model.name) children.push(para(d, model.name, { bold: true, size: 32, spacingAfter: 240 }));
   if (model.blocks.length === 0) {
     children.push(para(d, strings.empty, { italics: true, size: 22 }));
   }
   for (const block of model.blocks) {
-    children.push(...await blockChildren(d, block, renderChart, strings));
+    children.push(...await blockChildren(d, block, renderChart, strings, progress));
     children.push(para(d, '', { spacingAfter: 240 }));
   }
 
@@ -281,7 +389,7 @@ ns.exportFileAsDocx = async function (file, elements, options = {}) {
 };
 
 /** Characters a filesystem will not take, plus the ones that make a name awkward to type. */
-const UNSAFE_FILENAME = /[\/:*?"<>| -]+/g;
+const UNSAFE_FILENAME = /[\\\/:*?"<>|\u0000-\u001f]+/g;
 
 /**
  * The download's filename: the File's own name, made safe, or a neutral fallback when it has none.

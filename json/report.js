@@ -163,7 +163,9 @@ ns.buildFileReportModel = function (file, elements, options = {}) {
       title: ns.composeElementTitle(element, file),
       kind,
       result: entry.result,
-      footer: typeof element?.footer === 'string' ? element.footer : ''
+      footer: typeof element?.footer === 'string' ? element.footer : '',
+      // The layout the Element was saved with, read from the payload the analysis wrote.
+      widthMode: entry.result?.chart_options?.width_mode === 'full' ? 'full' : 'auto'
     };
   });
   return { lang, name: String(file?.name ?? '').trim(), blocks };
@@ -186,6 +188,87 @@ function elementBlock(block, lang) {
   if (block.title) parts.push(`<h2 class="statz-report-title">${escapeHtml(block.title)}</h2>`);
   parts.push(`<div class="statz-report-visual">${elementVisual(block, lang)}</div>`);
   return `<section class="statz-report-block">${parts.join('')}</section>`;
+}
+
+/**
+ * How wide a chart is actually printed, in CSS pixels on A4.
+ *
+ * The page is 210mm wide with 15mm side margins, which is 180mm of content — about 680px at the
+ * 96dpi CSS reference. The chart grid then gives each cell half of that minus its gap and padding
+ * in `auto` mode, or nearly all of it in `full`. These are the numbers the image has to be drawn
+ * at; drawing bigger and letting the page shrink it is what makes the labels unreadable.
+ */
+const PRINT_CONTENT_WIDTH_PX = 680;
+const CHART_GRID_GAP_PX = 16;
+const CHART_CELL_PADDING_PX = 12;
+/**
+ * How tall a chart is drawn, from how wide it is: it is NOT drawn from the width at all.
+ *
+ * The Element on screen is the reference, and there a chart is a fixed 400px tall at every width
+ * (`.statz-chart` in the chart exporter). Two figures sharing a row are therefore narrower than a
+ * full-width one but just as tall — visibly more upright, which is what the eye reads as the same
+ * figure at half the width. Deriving the height from the width instead, by any ratio, flattens
+ * exactly those two: a fixed 3:2 gave a 308px figure 205px, and even an axis allowance plus a
+ * scaled plotting area gave it 279px against the 400px it has on screen.
+ *
+ * Plotly is why a constant works: its axis titles, tick labels and margins are ABSOLUTE sizes, so
+ * they cost the same pixels on any canvas. Holding the height fixed hands the extra width to the
+ * plotting area alone, which is the whole difference between the two width modes.
+ */
+
+/**
+ * @param {number} _width - accepted so callers read as a rule, and so a width-dependent one could
+ *   be reinstated here without touching either exporter.
+ * @returns {number}
+ */
+ns.chartHeightFor = function (_width) {
+  return exporters.CHART_CELL_HEIGHT_PX;
+};
+
+/**
+ * The display width of every chart placeholder in `html`, in the order they appear.
+ *
+ * This mirrors the grid's own CSS, because the image has to be DRAWN at the size that CSS will
+ * display it at. Three cases, and the third is the one that bites: a grid with an odd number of
+ * cells centres its last one across both columns, capped at `min(75%, 760px)`. Drawn at the
+ * two-column width and displayed at that cap, the last chart of three — or the only chart of one —
+ * came out magnified by half, its labels larger than the report's own titles.
+ *
+ * @param {string} html
+ * @param {any} options
+ * @returns {number[]}
+ */
+function chartDisplayWidths(html, options) {
+  const explicit = Number(options?.width);
+  const inner = (box) => Math.round(box) - (2 * CHART_CELL_PADDING_PX);
+  const twoColumn = inner((PRINT_CONTENT_WIDTH_PX - CHART_GRID_GAP_PX) / 2);
+  const fullWidth = inner(PRINT_CONTENT_WIDTH_PX);
+  const orphan = inner(Math.min(
+    (exporters.CHART_GRID_ORPHAN_MAX_PERCENT / 100) * PRINT_CONTENT_WIDTH_PX,
+    exporters.CHART_GRID_ORPHAN_MAX_PX
+  ));
+
+  // Where every grid and every cell starts, so a placeholder can be located in both.
+  const gridStarts = [...html.matchAll(/class="statz-chart-grid[^"]*"/g)]
+    .map((m) => ({ at: m.index ?? 0, full: m[0].includes('statz-chart-grid--full') }));
+  const cellStarts = [...html.matchAll(/class="statz-chart-cell[^"]*"/g)].map((m) => m.index ?? 0);
+
+  return [...html.matchAll(SPEC_ATTR)].map((match) => {
+    if (Number.isFinite(explicit)) return explicit;
+    const at = match.index ?? 0;
+    let grid = null;
+    for (const candidate of gridStarts) { if (candidate.at < at) grid = candidate; else break; }
+    if (!grid) return twoColumn;
+    if (grid.full) return fullWidth;
+
+    const nextGrid = gridStarts.find((candidate) => candidate.at > grid.at);
+    const limit = nextGrid ? nextGrid.at : html.length;
+    // Every cell of this grid, warnings included: the `:nth-child` rule counts them too.
+    const cells = cellStarts.filter((cell) => cell > grid.at && cell < limit);
+    const mine = cells.filter((cell) => cell < at).length - 1;
+    const isTrailingOdd = cells.length % 2 === 1 && mine === cells.length - 1;
+    return isTrailingOdd ? orphan : twoColumn;
+  });
 }
 
 /** Page geometry and the rules that keep a block from being split across sheets. */
@@ -227,6 +310,10 @@ const DOCUMENT_STYLES = `
        The values come from the exporter that owns them, so the two cannot drift apart. */
     .statz-report .statz-chart-grid { grid-template-columns: ${exporters.CHART_GRID_COLUMNS}; }
     .statz-report .statz-chart-grid--full { grid-template-columns: 1fr; }
+    /* The live placeholder is a fixed box because Plotly needs one to draw into. A static image
+       needs none: it is drawn at the cell height already, and once the page scales it down to fit
+       a narrower column the box would leave it stranded in the top of an empty rectangle. */
+    .statz-report .statz-chart--static { height: auto; }
     .statz-report .statz-chart-cell:last-child:nth-child(odd) {
       max-width: ${exporters.CHART_GRID_ORPHAN_MAX_WIDTH};
     }
@@ -290,6 +377,37 @@ ns.exportFileAsHTML = function (file, elements, options = {}) {
   return documentShell(name || translate('table.title', lang), html, lang);
 };
 
+/**
+ * Wrap a caller's progress callback so it cannot cost the export.
+ *
+ * Rasterising the charts is the slow part of every export, and it is serial, so without a count the
+ * user watches a spinner that says nothing for what can be tens of seconds. The wrapper exists
+ * because the callback belongs to the UI: one that throws — a stale Bubble binding, a disposed
+ * element — must not lose a document that was otherwise finished.
+ *
+ * Called once with `(0, total)` before any work, so a caller can show the denominator immediately,
+ * and once per chart ATTEMPTED afterwards. Attempted, not succeeded: a figure that fails to draw
+ * still consumed the time, and a counter that stalled on it would look like a freeze.
+ *
+ * @param {((done: number, total: number) => void)|undefined} onProgress
+ * @returns {(done: number, total: number) => void}
+ */
+ns.progressReporter = function (onProgress) {
+  if (typeof onProgress !== 'function') return () => {};
+  let broken = false;
+  return (done, total) => {
+    if (broken) return;
+    try {
+      onProgress(done, total);
+    } catch (err) {
+      broken = true; // Report once, then stop calling it; a callback that throws will throw again.
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[statz] the export progress callback threw; continuing without it.', err);
+      }
+    }
+  };
+};
+
 const SPEC_ATTR = /<div class="statz-chart" data-spec="([^"]*)"[^>]*>\s*<\/div>/g;
 
 /** Reverse of the attribute escaping done when the placeholder was written. */
@@ -322,22 +440,30 @@ function decodeSpec(attr) {
 ns.exportFileAsStaticHTML = async function (file, elements, options = {}) {
   const { lang, name, html } = buildBody(file, elements, options);
   const render = options?.renderChart || chartSpecToImage;
-  const imageOptions = {
-    width: options?.width ?? 900,
-    height: options?.height ?? 600,
-    // Screen resolution looks serrated on paper; 2x is the smallest step that stops it.
-    scale: options?.scale ?? 2,
-    format: options?.format ?? 'png'
-  };
 
-  const specs = [];
-  html.replace(SPEC_ATTR, (_match, attr) => { specs.push(attr); return _match; });
+  // Each placeholder is rendered at the size it will be DISPLAYED at, and `scale` supplies the
+  // resolution. Rendering large and displaying small is what shrank the text: Plotly's font sizes
+  // are absolute (11px), so a chart drawn for a 900px canvas and printed into a 308px column has
+  // its labels reduced to under 3pt beside 11pt body text. Drawn at 308px, the same 11px label
+  // stays 11px — a little over 8pt on paper, which is the conventional size for a figure.
+  const widths = chartDisplayWidths(html, options);
+  const specs = [...html.matchAll(SPEC_ATTR)].map((match, i) => ({ attr: match[1], width: widths[i] }));
+
+  const progress = ns.progressReporter(options?.onProgress);
+  progress(0, specs.length);
 
   const images = [];
-  for (const attr of specs) {
+  let drawn = 0;
+  for (const spec of specs) {
     let image = null;
     try {
-      image = await render(decodeSpec(attr), imageOptions);
+      image = await render(decodeSpec(spec.attr), {
+        width: spec.width,
+        height: ns.chartHeightFor(spec.width),
+        // Screen resolution looks serrated on paper; 2x is the smallest step that stops it.
+        scale: options?.scale ?? 2,
+        format: options?.format ?? 'png'
+      });
     } catch (err) {
       // One chart that cannot be drawn must not cost the whole report — but it must not vanish in
       // silence either. A blank figure with no console line is undiagnosable from the outside.
@@ -347,6 +473,7 @@ ns.exportFileAsStaticHTML = async function (file, elements, options = {}) {
       }
     }
     images.push(image);
+    progress(++drawn, specs.length);
   }
 
   let cursor = 0;

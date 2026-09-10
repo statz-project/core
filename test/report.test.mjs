@@ -20,7 +20,8 @@ const { composeElementTitle, exportFileAsHTML, exportFileAsStaticHTML } = report
 const { parsed } = parseFixture();
 const sex = Statz.getColumnValues(parsed, "col_sex_hash");
 const score = Statz.getColumnValues(parsed, "col_score_hash");
-const dbs = { db: { columns: [sex.column, score.column] } };
+const biomarker = Statz.getColumnValues(parsed, "col_biomarker_hash");
+const dbs = { db: { columns: [sex.column, score.column, biomarker.column] } };
 const sig = (col, label, role) => JSON.stringify({
   database_id: "db", col_hash: col.column.col_hash, col_var_index: null, col_label: label, role
 });
@@ -463,4 +464,189 @@ test("a frame that never initialises is cleaned up instead of being left in the 
   );
   assert.equal(dom.calls.removed, 1);
   assert.equal(dom.calls.printed, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Progress. Rasterising the charts is the slow part of every export and it is serial, so a report
+// of any size shows a spinner for tens of seconds. The count is what lets the UI say how long.
+// ---------------------------------------------------------------------------
+
+const chartsIn = (result) => (result.analysis || []).filter((entry) => entry?.chart?.spec).length;
+
+test("progress opens with the total, then counts up to it", async () => {
+  const result = analyse("chart");
+  const total = chartsIn(result);
+  assert.ok(total > 0, "the fixture must contain charts");
+
+  const seen = [];
+  await exportFileAsStaticHTML(FILE, [chartElement()], {
+    renderChart: async () => "data:image/png;base64,FAKE",
+    onProgress: (done, of) => seen.push([done, of])
+  });
+
+  // The denominator arrives before any work: a caller can show "0 of 11" the moment it starts.
+  assert.deepEqual(seen[0], [0, total]);
+  assert.deepEqual(seen.at(-1), [total, total]);
+  assert.deepEqual(seen.map(([done]) => done), [...Array(total + 1).keys()]);
+});
+
+test("progress counts charts attempted, not charts drawn", async () => {
+  // A figure that fails still consumed the time. A counter that stalled on it would look frozen
+  // precisely when the user most wants to know something is happening.
+  const total = chartsIn(analyse("chart"));
+  const seen = [];
+  await exportFileAsStaticHTML(FILE, [chartElement()], {
+    renderChart: async () => { throw new Error("no canvas"); },
+    onProgress: (done, of) => seen.push([done, of])
+  });
+  assert.deepEqual(seen.at(-1), [total, total]);
+});
+
+test("a report with nothing to rasterise says so once", async () => {
+  const seen = [];
+  await exportFileAsStaticHTML(FILE, [tableElement()], { onProgress: (d, t) => seen.push([d, t]) });
+  assert.deepEqual(seen, [[0, 0]], "one call, so a caller knows there is no wait to show");
+});
+
+test("a progress callback that throws costs itself, not the export", async () => {
+  let calls = 0;
+  const html = await exportFileAsStaticHTML(FILE, [chartElement()], {
+    renderChart: async () => "data:image/png;base64,FAKE",
+    onProgress: () => { calls += 1; throw new Error("stale binding"); }
+  });
+  assert.ok(html.includes("<img "), "the document was still produced");
+  assert.equal(calls, 1, "and the callback was not called again after it threw");
+});
+
+test("printing passes the counter through to the caller", async () => {
+  const dom = fakeDom();
+  const seen = [];
+  await withFakeDom(dom, () => report.printFileReport(FILE, [chartElement()], {
+    renderChart: async () => "data:image/png;base64,FAKE",
+    onProgress: (done, total) => seen.push([done, total])
+  }));
+  assert.ok(seen.length > 1, "the print path rasterises too, and must report it");
+  assert.deepEqual(seen[0][0], 0);
+  assert.equal(seen.at(-1)[0], seen.at(-1)[1], "it finishes at the total");
+});
+
+test("no callback is not an error", async () => {
+  const html = await exportFileAsStaticHTML(FILE, [chartElement()], {
+    renderChart: async () => "data:image/png;base64,FAKE"
+  });
+  assert.ok(html.includes("<img "));
+});
+
+// ---------------------------------------------------------------------------
+// Chart size. Plotly's font sizes are absolute, so the size a chart is DRAWN at decides how large
+// its labels are once the page scales the image. Drawing big and displaying small is what put
+// sub-3pt axis text next to 11pt body text.
+// ---------------------------------------------------------------------------
+
+const widthAsked = async (result, options = {}) => {
+  const asked = [];
+  await exportFileAsStaticHTML(FILE, [tableElement({ type: "Graph", result_json: result })], {
+    renderChart: async (spec, opts) => { asked.push(opts); return "data:image/png;base64,FAKE"; },
+    ...options
+  });
+  return asked[0];
+};
+
+const chartResult = (widthMode) => Statz.runAnalysis(
+  [sig(sex, "Sexo", "predictor")], [sig(score, "Escore", "response")], dbs,
+  { lang: "pt_br", mode: "chart", chart_width_mode: widthMode }
+).result;
+
+const widthsAsked = async (result, options = {}) => {
+  const asked = [];
+  await exportFileAsStaticHTML(FILE, [tableElement({ type: "Graph", result_json: result })], {
+    renderChart: async (spec, opts) => { asked.push(opts); return "data:image/png;base64,FAKE"; },
+    ...options
+  });
+  return asked;
+};
+
+// Two predictors give an even number of charts; one gives a single, trailing-odd cell.
+const chartResultPair = (widthMode) => Statz.runAnalysis(
+  [sig(sex, "Sexo", "predictor"), sig(biomarker, "Bio", "predictor")],
+  [sig(score, "Escore", "response")], dbs, { lang: "pt_br", mode: "chart", chart_width_mode: widthMode }
+).result;
+
+test("charts in a full pair of columns are drawn at the column width", async () => {
+  const asked = await widthsAsked(chartResultPair("auto"));
+  assert.equal(asked.length, 2, "two predictors, two figures, a complete row");
+  for (const opts of asked) {
+    // 680px of A4 content, less the grid gap, halved, less the cell padding.
+    assert.equal(opts.width, 308);
+    assert.equal(opts.height, report.chartHeightFor(308), "as tall as the same chart in the Element");
+  }
+});
+
+test("the trailing chart of an odd count is drawn at the width the grid centres it to", async () => {
+  // `.statz-chart-cell:last-child:nth-child(odd)` spans both columns, capped at min(75%, 760px).
+  // Drawn at the two-column width and displayed there, it came out magnified by half — its axis
+  // labels larger than the report's own titles. A lone chart is this case too, not a special one.
+  const alone = await widthsAsked(chartResult("auto"));
+  assert.equal(alone.length, 1);
+  assert.equal(alone[0].width, 486, "75% of 680px, less the cell padding");
+
+  const pair = await widthsAsked(chartResultPair("auto"));
+  assert.deepEqual(pair.map((o) => o.width), [308, 308], "an even count has no orphan");
+});
+
+test("a full-width chart is drawn at the whole content width", async () => {
+  const asked = await widthsAsked(chartResult("full"));
+  assert.equal(asked[0].width, 656);
+  assert.ok(asked[0].width > 600, "a full-width chart must not be drawn at the two-column size");
+});
+
+test("full width overrides the trailing-odd rule, as its own CSS does", async () => {
+  // `.statz-chart-grid--full` undoes the orphan cap; the drawing size has to follow.
+  const asked = await widthsAsked(chartResultPair("full"));
+  assert.deepEqual(asked.map((o) => o.width), [656, 656]);
+});
+
+test("resolution comes from scale, not from drawing oversized", async () => {
+  const asked = await widthsAsked(chartResultPair("auto"));
+  assert.equal(asked[0].scale, 2, "twice the pixels, same layout — this is what survives printing");
+  assert.ok(asked[0].width < 400, "the drawing size tracks the page, not the resolution");
+});
+
+test("a chart is drawn as tall as the Element draws it, at every width", () => {
+  // The Element is a fixed 400px box at every width, so two figures sharing a row are narrower
+  // than a full-width one but JUST AS TALL. Deriving the height from the width flattened exactly
+  // those two: a fixed 3:2 gave a 308px figure 205px, and an axis allowance plus a scaled plot
+  // area gave it 279px. Plotly draws its axis furniture at absolute sizes, so a constant height
+  // hands the extra width to the plotting area alone.
+  const CELL = Statz.CHART_CELL_HEIGHT_PX;
+  assert.equal(CELL, 400, "the on-screen cell the export is matching");
+  for (const width of [292, 308, 450, 486, 600, 656, 1200]) {
+    assert.equal(report.chartHeightFor(width), CELL, "same height at " + width);
+  }
+  assert.ok(report.chartHeightFor(308) > Math.round(308 / (3 / 2)),
+    "a two-column figure must be taller than any width-derived ratio would make it");
+});
+
+test("the height constant is the one the chart stylesheet writes, not a copy of it", () => {
+  // Two places used to hold 400 independently; a change to one printed figures that no longer
+  // matched the Element. The CSS interpolates the constant, so this pins them together.
+  const css = Statz.exportCombinedAsChartHTML(chartResult("auto"), undefined, false, "");
+  assert.ok(css.includes(".statz-chart{height:" + Statz.CHART_CELL_HEIGHT_PX + "px;"),
+    "the live cell must be the height the exporters draw to");
+});
+
+test("a static figure is as tall as its image, not as tall as a Plotly box", async () => {
+  // The live placeholder is a fixed box because Plotly needs one; a static image needs none, and
+  // the box left the image stranded in the top of an empty rectangle whenever the page shrank it.
+  const doc = await exportFileAsStaticHTML(FILE, [chartElement()], {
+    wrap: true, renderChart: async () => "data:image/png;base64,FAKE"
+  });
+  assert.match(doc, /\.statz-report \.statz-chart--static \{ height: auto/);
+  assert.ok(doc.includes('class="statz-chart statz-chart--static"'));
+});
+
+test("an explicit width still wins, for callers printing somewhere else", async () => {
+  const asked = await widthAsked(chartResult("auto"), { width: 1200 });
+  assert.equal(asked.width, 1200);
+  assert.equal(asked.height, report.chartHeightFor(1200));
 });
